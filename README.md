@@ -1,4 +1,4 @@
-# Clavi
+# Clavi-Scaffold
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Skills](https://img.shields.io/badge/Skills-~190-brightgreen.svg)](#submodules--skills)

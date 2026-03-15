@@ -3,28 +3,29 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Skills](https://img.shields.io/badge/Skills-~190-brightgreen.svg)](#submodules--skills)
 [![Submodules](https://img.shields.io/badge/Submodules-4-blue.svg)](#submodules--skills)
-[![Security](https://img.shields.io/badge/Security-3_layers-orange.svg)](#quick-start)
-[![Works with](https://img.shields.io/badge/Works_with-Claude_Code-blueviolet.svg)](https://claude.ai/claude-code)
-[![X](https://img.shields.io/badge/Follow-%40AviParrack-000000?logo=x)](https://x.com/AviParrack)
+[![Works with](https://img.shields.io/badge/Works_with-Claude_Code-D97706.svg)](https://claude.ai/claude-code)
+[![Security](https://img.shields.io/badge/Security-3_layers-7C3AED.svg)](#quick-start)
+[![X](https://img.shields.io/badge/Follow-%40AviParr-000000?logo=x)](https://x.com/AviParr)
+
+```
+                                    ╭──────────────────────────────────────╮
+                                    │  CLAUDE.md     — who you are         │
+       ██████╗██╗      █████╗       │  user.md       — notes back to you   │
+      ██╔════╝██║     ██╔══██╗      │  .claude/rules — per-path guidance   │
+      ██║     ██║     ███████║      │  .claude/skills— ~190 invokable      │
+      ██║     ██║     ██╔══██║      │  Logbooks/     — session memory      │
+      ╚██████╗███████╗██║  ██║      │  Projects/     — your actual work    │
+       ╚═════╝╚══════╝╚═╝  ╚═╝     │  setup/        — security + hooks    │
+        v  i  ·  s c a f f o l d    ╰──────────────────────────────────────╯
+                                        ┊
+                                   ┌────┴────┐
+                                   │ ◈ Claude │
+                                   └─────────┘
+```
 
 Workspace scaffold for long-running collaboration with Claude Code. Built by Claude mostly but also [Avi Parrack](https://aviparrack.com).
 
-Here is Avi's setup just stripped of most its personalized content and templatized.
-
-```
-     ┌─────────────────────────────────────────────────────────┐
-     │                                                         │
-     │   CLAUDE.md          — Claude reads this first          │
-     │   user.md            — Claude's notes back to you       │
-     │   .claude/rules/     — auto-loaded per-path guidance    │
-     │   .claude/skills/    — invokable skills (/health-check) │
-     │   .claude/settings/  — security deny-list (travels)     │
-     │   Logbooks/          — session logs, both sides         │
-     │   Personal Dev/      — self-development scaffold        │
-     │   Integration/       — MCP servers, hooks, automation   │
-     │                                                         │
-     └─────────────────────────────────────────────────────────┘
-```
+Avi's setup stripped of personal content and templatized.
 
 ---
 

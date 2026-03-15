@@ -11,15 +11,15 @@
 > **Beginner-friendly.** Claude can explain everything and help you set it up. This is primarily a system to help you and Claude build a shared context on your work over time.
 
 ```
-                                                  ┌──┐
-                                             ─────┤  ├───┬──
-  ██████╗██╗       █████╗ ██╗   ██╗██╗            │  │   │
- ██╔════╝██║      ██╔══██╗██║   ██║██║        ┌───┤  │   □
- ██║     ██║      ███████║██║   ██║██║     ┌──┤ ◈ │  │
- ██║     ██║      ██╔══██║╚██╗ ██╔╝██║     │  ├───┤  │
- ╚██████╗███████╗ ██║  ██║ ╚████╔╝ ██║     │  │   │  │
-  ╚═════╝╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚═╝     │  │   │  │
-          s c a f f o l d                   └──┴───┴──┘
+                                                                              ┌──┐
+                                                                              ┤  ├───────┬──
+  ██████╗██╗       █████╗ ██╗   ██╗██╗                                        │  │       │
+ ██╔════╝██║      ██╔══██╗██║   ██║██║      ┌─────────┬──────────┬────────────┤  │       │
+ ██║     ██║      ███████║██║   ██║██║   ┌──┤  ◈      │          │            │  │       │
+ ██║     ██║      ██╔══██║╚██╗ ██╔╝██║   │  ├─────────┼──────────┼────────────┤  │       │
+ ╚██████╗███████╗ ██║  ██║ ╚████╔╝ ██║   │  │         │          │            │  │       │
+  ╚═════╝╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚═╝    │  │         │          │            │  │       □
+          s c a f f o l d                └──┴─────────┴──────────┴────────────┴──┘
 ```
 
 Workspace scaffold for long-running collaboration with Claude Code. Built by Claude mostly but also [Avi Parrack](https://aviparrack.com).

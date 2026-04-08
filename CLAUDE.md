@@ -45,18 +45,24 @@
 
 **Always link files the user should look at** using VSCode-clickable markdown links: `[filename](relative/path)`.
 
-**Visual language** — emojis are used as a fast-scan system throughout this workspace:
+**Visual language** — emojis are used as a fast-scan system throughout this workspace (explicit exception to default no-emoji behavior). Learn the code:
 
 | Symbol | Meaning |
 |---|---|
 | 🟢 | done / healthy / active |
 | 🟡 | in progress / uncertain / needs review |
+| 🟠 | warning / degraded / watch this |
 | 🔴 | blocked / failed / needs attention now |
 | ⚪ | dormant / on hold |
+| 📦 | archived |
 | 🚩 | **needs user's decision before proceeding** |
+| ⚡ | urgent |
+| 🔍 | needs user's review/verification |
 | ✅ | positive signal / working well |
 | ⚠️ | watch this / constructive criticism |
 | ❌ | broken / failure |
+
+Use `[████░░░░] 50%` style progress bars for longer tasks. Use heatmap tables (colored dot columns) for multi-project or multi-model status at a glance.
 
 ---
 
@@ -99,8 +105,9 @@
 |---|---|---|---|
 | **Native** | — | 1 | health-check |
 | **gstack** | `gstack-` | 8 | browse, review, ship, qa, plan-ceo-review, plan-eng-review, retro |
-| **Scientific** | `sci-` | 22 | arxiv-database, literature-review, matplotlib, sympy, peer-review |
+| **Scientific** | `sci-` | ~175 | arxiv-database, literature-review, matplotlib, sympy, peer-review, and ~170 more |
 | **Academic** | `acad-` | 4 | deep-research, academic-paper, academic-paper-reviewer, academic-pipeline |
+| **Trail of Bits** | `tob-` | 1 | review-pr |
 
 ---
 

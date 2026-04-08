@@ -5,7 +5,7 @@ paths: ["**"]
 
 # Commit Style
 
-Commits are running commentary, not changelog entries. Future readers should find them interesting.
+Commits are running commentary, not just changelog entries. Future readers should find them interesting.
 
 **Do:**
 - Informative and warm — personality welcome

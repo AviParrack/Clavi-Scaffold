@@ -332,6 +332,12 @@ Skills are invokable in Claude Code with `/skill-name` (e.g., `/gstack-review`, 
 |---|---|
 | `/tob-review-pr` | Security-focused PR review and fix |
 
+### What `link-skills.sh` does
+
+The setup script scans each submodule for skill directories (folders containing `SKILL.md`) and creates symlinks in `.claude/skills/` with the appropriate prefix. It's idempotent — run it again after pulling submodule updates to pick up new skills without duplicating existing ones.
+
+For trailofbits, which uses single-file commands rather than skill directories, the script wraps each `.md` file in a skill directory with a `SKILL.md` symlink.
+
 ### Adding your own skills
 
 Any folder with a `SKILL.md` file inside `.claude/skills/` becomes invokable. To manually add one:

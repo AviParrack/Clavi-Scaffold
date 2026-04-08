@@ -80,6 +80,27 @@ if [ -d "$REPO_ROOT/academic-research-skills" ]; then
 fi
 
 
+# ── trailofbits-config ──────────────────────────────────────────
+if [ -d "$REPO_ROOT/trailofbits-config/commands" ]; then
+    echo "── trailofbits-config (prefix: tob-)"
+    for cmd_file in "$REPO_ROOT"/trailofbits-config/commands/*.md; do
+        if [ -f "$cmd_file" ]; then
+            cmd_name="$(basename "$cmd_file" .md)"
+            target="$SKILLS_DIR/tob-${cmd_name}"
+            if [ ! -L "$target" ] && [ ! -f "$target" ]; then
+                # Commands are single files, not dirs — symlink directly
+                mkdir -p "$target"
+                ln -sf "$cmd_file" "$target/SKILL.md"
+                ((linked++))
+                echo "  ✅ tob-${cmd_name}"
+            else
+                ((skipped++))
+            fi
+        fi
+    done
+    echo ""
+fi
+
 echo "Done. Linked $linked new skills ($skipped already existed)."
 echo ""
 echo "Native skills in .claude/skills/:"

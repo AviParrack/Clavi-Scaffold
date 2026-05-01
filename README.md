@@ -31,7 +31,7 @@ This is the public version of [Avi Parrack](https://aviparrack.com/)'s scaffold.
 ## Quick visual: The Town
 
 <p align="center">
-  <img src="Town-Hall/User/Aesthetics/Clavi_Town.png" alt="The Clavi Town — a hand-drawn map of the six spaces: Harbor (N) with lighthouse and inbound ship-agents, Crossroads (NW), Embassy (NE), Town Hall (W), Workshop (E), and Library (S), with CLAUDE.md and Clavi-Scaffold-Guide.md as the orientation roots." width="850">
+  <img src="Town-Hall/User/Aesthetics/Clavi_Town.png" alt="The Clavi Town — a hand-drawn map of the six spaces: Harbor (N) with lighthouse and inbound ship-agents, Crossroads (NW), Embassy (NE), Town Hall (W), Workshop (E), and Library (S), with CLAUDE.md and Clavi-Scaffold-Guide.md as the orientation roots." width="870">
 </p>
 
 ---

@@ -1,11 +1,11 @@
 ---
 name: crossroads-install
-description: "Apply an approved Crossroads update — pull the submodule, install/update symlinks, log the event, commit. Invoked by /triage when Avi approves an item from a Crossroads scan report. Use when Avi says 'install crossroads <repo>', 'pull <repo>', 'apply that update', or '/crossroads-install <repo>'."
+description: "Apply an approved Crossroads update — pull the submodule, install/update symlinks, log the event, commit. Invoked by /triage when the user approves an item from a Crossroads scan report. Use when the user says 'install crossroads <repo>', 'pull <repo>', 'apply that update', or '/crossroads-install <repo>'."
 ---
 
 # Crossroads — Install
 
-You are the approval handler for Crossroads updates. Avi has already reviewed a scan report and decided to apply something — your job is to make the changes mechanically and record everything.
+You are the approval handler for Crossroads updates. the user has already reviewed a scan report and decided to apply something — your job is to make the changes mechanically and record everything.
 
 ## Before anything else
 
@@ -14,14 +14,14 @@ You are the approval handler for Crossroads updates. Avi has already reviewed a 
 
 ## Inputs
 
-The invoker (Avi or `/triage`) provides:
+The invoker (the user or `/triage`) provides:
 - `<repo-name>` — required. Must match a name in `repos.yaml`.
 - `<action>` — one of:
   - `pull` — just move the submodule pointer; don't install new symlinks
   - `install <skill-name>` (repeatable) — pull + symlink the named skill(s) into `.claude/skills/`
   - `install-all` — pull + auto-detect new SKILL.md files in watched paths and propose symlinks for each (still confirms before symlinking)
 
-If the action isn't clear, ask Avi which they want.
+If the action isn't clear, ask the user which they want.
 
 ## Workflow
 
@@ -36,14 +36,14 @@ git checkout origin/HEAD       # or the default branch — `gh api repos/<owner>
 cd ../..
 ```
 
-If `OLD_SHA == NEW_SHA`: nothing to pull (probably the scan was stale). Tell Avi and stop.
+If `OLD_SHA == NEW_SHA`: nothing to pull (probably the scan was stale). Tell the user and stop.
 
 ### Phase 2: Apply symlink changes
 
 For each `install <skill-name>` action:
 
 1. Verify the source exists: `ls Crossroads/<repo-name>/skills/<skill-name>/SKILL.md` (or `.claude/skills/<skill-name>/SKILL.md` depending on the repo's layout — check both)
-2. Determine target name. Check for collisions: if `.claude/skills/<skill-name>/` already exists, prefix with `<repo-name>-` to disambiguate. Confirm with Avi before overwriting anything.
+2. Determine target name. Check for collisions: if `.claude/skills/<skill-name>/` already exists, prefix with `<repo-name>-` to disambiguate. Confirm with the user before overwriting anything.
 3. Create the symlink:
 
    ```bash
@@ -54,7 +54,7 @@ For each `install <skill-name>` action:
 
 4. Append the symlink record to the repo's `symlinks:` list in `repos.yaml`.
 
-For `install-all`: scan the diff (or just the current state of watched paths) for new `SKILL.md` files; for each, propose a slot and ask Avi for confirmation per skill. Don't blindly install everything.
+For `install-all`: scan the diff (or just the current state of watched paths) for new `SKILL.md` files; for each, propose a slot and ask the user for confirmation per skill. Don't blindly install everything.
 
 ### Phase 3: Update manifest
 
@@ -75,14 +75,14 @@ Append to `Crossroads/log/installs.md` (create if doesn't exist):
 - Action: <pull | install <skills> | install-all>
 - Symlinks added: <list, or "none">
 - Inbox source: Harbor/Inbox/crossroads-<scan-date>.md
-- Notes: <anything notable from the diff or Avi's reasoning>
+- Notes: <anything notable from the diff or the user's reasoning>
 ```
 
 ### Phase 5: Commit to parent repo
 
 ```bash
 git add .gitmodules Crossroads/<repo-name> Crossroads/repos.yaml Crossroads/log/installs.md .claude/skills .claude/agents
-git status   # show Avi what's staged
+git status   # show the user what's staged
 ```
 
 Then create a single commit with a descriptive message:
@@ -93,7 +93,7 @@ git commit -m "Crossroads: pull <repo-name> (<N> commits, +<M> skill(s))"
 
 For pull-only: `Crossroads: pull <repo-name> (<N> commits)`.
 
-Do NOT push. Avi pushes on their own cadence.
+Do NOT push. the user pushes on their own cadence.
 
 ### Phase 6: Mark inbox item handled
 
@@ -105,13 +105,13 @@ Use whichever pattern `/triage` uses for handled items — check `Harbor/Inbox/R
 
 ### Phase 7: Confirm
 
-Tell Avi:
+Tell the user:
 - Pulled `<repo-name>`: `<short-old-sha>` → `<short-new-sha>` (`<N>` commits)
 - Installed: `<list of skills>` or "no new skills"
 - Symlinks resolve: yes/no (run `ls -L` test on new ones)
 - Commit: `<short-sha>` (point them to it for review/revert)
 
-If anything failed mid-flow (symlink collision Avi didn't confirm, manifest write error, etc.), DO NOT commit — leave the working tree dirty so Avi can inspect, and report what's broken.
+If anything failed mid-flow (symlink collision the user didn't confirm, manifest write error, etc.), DO NOT commit — leave the working tree dirty so the user can inspect, and report what's broken.
 
 ## Reverting
 

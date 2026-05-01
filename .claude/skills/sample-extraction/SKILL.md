@@ -3,7 +3,7 @@ name: sample-extraction
 description: "Extract audio samples, sound bites, and lo-fi clips from YouTube videos or local audio files. Use when the user says 'find samples', 'extract clips', 'sound bites', 'sample this', 'lo-fi samples', or '/sample-extraction'. Takes a YouTube URL or audio file, transcribes it, identifies interesting moments, and exports individual audio clips ready for Suno, a DAW, or lo-fi production."
 argument-hint: "[youtube-url or audio-file] [--vibe 'lo-fi spoken word' | 'philosophical one-liner' | 'atmospheric' | 'all']"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 
@@ -80,7 +80,7 @@ Read the full transcript carefully. For each vibe category requested, identify *
 - For lo-fi: slower delivery, lower register, contemplative tone
 - For one-liners: punchy, quotable, under 10 seconds
 
-Present the table to Avi for review.
+Present the table to the user for review.
 
 ### Step 3: User selection
 

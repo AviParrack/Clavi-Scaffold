@@ -1,4 +1,4 @@
-# Gardening for the Brain — Avi Parrack
+# Gardening for the Brain — the user
 
 *Source: https://aviparrack.substack.com/p/gardening-for-the-brain*
 *Saved as reference for debugging-mode skill.*

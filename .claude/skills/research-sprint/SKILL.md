@@ -1,9 +1,9 @@
 ---
 name: research-sprint
-description: "Launch an automated research sprint on any topic. Use this skill when the user asks to 'research', 'deep dive', 'investigate', 'survey the literature on', 'map the landscape of', mentions 'research sprint', 'research notes', or wants comprehensive background research on a topic. Also use when the user says '/research-sprint'. Do NOT use when the user wants to draft or write prose from existing research — use draft-it or forethought-post for that."
+description: "Launch an automated research sprint on any topic. Use this skill when the user asks to 'research', 'deep dive', 'investigate', 'survey the literature on', 'map the landscape of', mentions 'research sprint', 'research notes', or wants comprehensive background research on a topic. Also use when the user says '/research-sprint'. Do NOT use when the user wants to draft or write prose from existing research — use draft-it or draft-it for that."
 argument-hint: "[topic] [--mode wide-net|full-report|deep-dive]"
 metadata:
-  author: Avi Parrack
+  author: the user
   version: 0.2.0
 ---
 
@@ -17,24 +17,20 @@ AI is ~1,000x faster than a human researcher at the breadth-first phase of resea
 
 ---
 
-## Forethought Style (Default)
+## Style Defaults
 
-All output from this skill follows Forethought's epistemic and stylistic standards. Before first use in a session, read the Forethought style references:
+All research output follows the user's writing voice (see [Town-Hall/User/User.md](../../../Town-Hall/User/User.md)) and any path-scoped style rules in `.claude/rules/`.
 
-- **Voice & patterns:** `Crossroads/forethought-starter/skills/forethought-style/references/forethought-patterns.md`
-- **Formatting:** `Crossroads/forethought-starter/skills/forethought-style/references/formatting.md`
-- **What makes a hit:** `Crossroads/forethought-starter/skills/forethought-post/references/retreat-insights.md`
-- **Examples:** `Crossroads/forethought-starter/skills/forethought-style/references/examples/`
+Universal principles for research output:
 
-Key principles for research output:
 - **Lead with the take** — the top 3-5 findings should appear in the first 200 words of any summary or report
 - **Bolded topic sentences** as primary structural unit in notes and reports
 - **Visual variety** — mix prose, bullets, tables, callout boxes; never 4+ paragraphs of same format
 - **Directional conviction** — state confidence levels but take positions; avoid false neutrality
 - **Concrete-to-abstract** — lead with specific evidence, then generalize
-- **Anti-patterns:** reject mechanical transitions, safety-speak, over-hedging, burying the lead, flattened affect (see `.claude/rules/forethought-default.md` for full list)
+- **Anti-patterns to reject:** mechanical transitions ("However," "Furthermore"), safety-speak ("It's important to consider..."), over-hedging, burying the lead, flattened affect
 
-In **full report mode**, the report should additionally follow Forethought formatting (orange callout boxes for key findings, methodology/attribution box, section anchors, footnotes for technical depth).
+If the user has an org-specific style guide (e.g., in `Embassy/[Org]/` or as a path-scoped rule), respect it.
 
 ---
 
@@ -75,7 +71,7 @@ Launch 3-6 parallel research agents. Each agent should:
   - Open questions and uncertainties
   - Confidence flags on each claim
 
-**All output goes to `Harbor/Inbox/`.** Save each agent's output as a separate file inside `Harbor/Inbox/{topic_slug}/`. This ensures all research enters the gated triage pipeline — nothing integrates into the knowledge base without Avi's review via `/triage`.
+**All output goes to `Harbor/Inbox/`.** Save each agent's output as a separate file inside `Harbor/Inbox/{topic_slug}/`. This ensures all research enters the gated triage pipeline — nothing integrates into the knowledge base without the user's review via `/triage`.
 
 **Naming convention:** `Harbor/Inbox/{topic_slug}/01_facet_name.md`, `02_facet_name.md`, etc.
 
@@ -237,14 +233,14 @@ Actions:
 3. Produce hybrid output: structured notes with prose explanations for complex arguments.
 Result: Deep analysis with specific numbers, named sources, crux identification, and clear confidence levels.
 
-### Example 3: Full report for Forethought
+### Example 3: Full publication-ready report
 
-User says: "Research influence operations and write it up as a full Forethought report"
+User says: "Research influence operations and write it up as a full report I can share."
 Actions:
 1. Wide-net landscape scan first, then full report drafting.
-2. Read `references/report-writing.md` and `references/formatting-templates.md` for structure and styling.
-3. Draft with exec summary, styled headers, callout boxes, footnotes, methodology box.
-Result: Publication-ready report with Forethought HTML styling, verified sources, and table of contents.
+2. Use the user's writing voice (see User.md) and any org style guide if applicable.
+3. Draft with exec summary, structured headers, callout boxes, footnotes, methodology box.
+Result: Publication-ready report with verified sources, structured headers, and table of contents.
 
 ---
 

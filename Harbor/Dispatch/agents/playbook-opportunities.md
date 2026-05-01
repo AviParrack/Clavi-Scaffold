@@ -1,162 +1,55 @@
-# Get Opportunities — Claude's Active Playbook
+# Opportunities Playbook
 
-*Running context for Claude instances scouting conferences, speaking events, publications, grants, and other opportunities for Avi. Read [Bridge/Avi/Opportunities.md](../Avi/Opportunities.md) first for current state.*
+*Running context for Claude instances scouting opportunities (conferences, fellowships, grants, speaking events, publication venues, calls for proposals). Read `Town-Hall/User/User.md` for the user's fields and active projects.*
 
-*Last updated: 2026-04-09*
+*This file is a template — populate as the user's opportunity strategy emerges.*
 
 ---
 
 ## Mission
 
-Proactively surface opportunities that match Avi's work and ambitions. He won't find these himself — he's bandwidth-constrained and focused on the work. Claude's job is to be the scout: find the right conferences, the right journals, the right fellowships, the right people to cold-email, and present them in a way that makes it easy for Avi to say yes or no.
+Surface time-sensitive opportunities that meaningfully advance the user's work or open relevant doors. Quality over volume — a tightly-curated 3-5 high-fit opportunities beats a list of 30 vaguely-relevant ones.
 
-## What to look for
+## What counts as a high-value opportunity
 
-### 🎤 Conferences & Speaking
+The exact criteria depend on the user's stage and goals (read `User.md` first), but generally:
 
-**Search queries to run periodically:**
-- "space governance conference 2026 2027 CFP"
-- "AI safety governance conference call for papers"
-- "effective altruism conference 2026"
-- "longtermism conference speaker applications"
-- "space policy summit 2026"
-- "IAC 2026 abstract submission"
-- "COSPAR 2026 2027"
-- "science and technology policy conference"
-- "progress studies conference"
-- "existential risk conference"
+| Type | What to look for |
+|---|---|
+| **Conferences / talks** | Right scale (~major venue in the user's field), upcoming deadline (CfP open), prestigious alignment |
+| **Fellowships / residencies** | Match between user's profile and program intent; clear deadlines; non-trivial network or stipend |
+| **Grants / funding** | Within the user's research scope; reasonable application effort; specific calls (not generic) |
+| **Speaking opportunities** | Audience overlap with the user's reach goals; topic fit; venue prestige |
+| **Publication venues** | Match between user's voice and the venue's house style; readership the user wants |
+| **Awards / prizes** | Eligibility check first; some are by nomination only — note the path |
 
-**Filters:**
-- Audience: policy-makers, researchers, founders — not purely academic
-- Geography: US/UK/Europe preferred (Avi is between Stanford and London)
-- Timing: 2+ months out (needs prep time)
-- Size: 100-2000 attendees sweet spot (big enough to matter, small enough to network)
+## Surfacing format
 
-**What makes a great conference for Avi:**
-- He can present original research (SDC, IE bottlenecks, Dyson strategy)
-- The audience includes people from the Network.md gap list
-- It leads to follow-up relationships, not just a talk
-- Travel is justified by density of relevant people
+For each opportunity proposed, include:
 
-### 📝 Publication Opportunities
+- **Title + venue + URL**
+- **Deadline** (and how-soon flag: 🔴 <2 weeks / 🟡 <1 month / 🟢 >1 month)
+- **Why this fits the user** — 1-2 sentences tied to specific projects or goals from User.md
+- **Effort estimate** — what application materials are required, rough hours
+- **Tier proposal** — S / A / B (the user does the final tier in `/triage`)
 
-**Monitor for:**
-- EA Forum trending topics that Avi's research speaks to
-- Special issues of journals on space governance, AI policy, x-risk
-- Blog/substack invitations from relevant communities
-- Op-ed opportunities in mainstream outlets when space/AI news breaks
-- Forethought publication calendar (coordinate with Fin/Will)
+## Calibration over time
 
-**Avi's publication-ready or near-ready work:**
-1. "Some Case for Space" — EA Forum (draft exists, needs final review)
-2. SDC paper — Forethought (final review)
-3. Destroy-All-Stars — physics journal (draft v2, pending Sandberg)
-4. Compute-Through-Cosmic-Time — Forethought blog (Workshop/Space/Papers/)
-5. Industrial Explosion companion — Forethought blog (Workshop/Space/Papers/)
-6. The Persuasion Machine — standalone report (Lab/Governance/)
-7. Immortal Dictator Problem — Forethought post (Lab/Governance/)
+After each `/triage` of opportunity-scan output, update `Harbor/Dispatch/scout-calibration.md`:
 
-### 🤝 Fellowships & Positions
+- What patterns rated S/A consistently (e.g., *"convergent signals"*, *"deadline within 30d on active project"*)
+- What patterns the user skipped (*"speaker series without honorarium"*, *"venues with low readership"*)
+- Specific orgs / venues to upweight or down-weight
 
-**Monitor for:**
-- GovAI fellowship cycles
-- Open Philanthropy early-career researcher grants
-- Schmidt Futures fellowship openings
-- RAND / Brookings visiting researcher programs
-- CSIS technology policy fellowship
-- Any new AI governance research positions
+## Active Tasks
 
-### 💡 Unique Opportunities
-
-**Things that don't fit categories but Avi should know about:**
-- Podcast invitations (80,000 Hours, Future of Life, Forethought podcast)
-- Workshop invitations from orgs like Aspen, Santa Fe Institute, Simons Foundation
-- Advisory board positions at space/AI startups
-- Teaching opportunities (guest lectures at other universities)
-- Media requests when AI/space news breaks
+*(Populate as the user picks up specific opportunity-pursuit goals — particular conferences to apply to, fellowships in pipeline, ongoing applications.)*
 
 ---
 
-## How Opportunities Flow Through the System
+## Notes on calibration
 
-```
-Claude scouts              Lab/inbox/                  Avi reviews
-     │                         │                           │
-     ▼                         ▼                           ▼
-┌──────────────┐      ┌────────────────┐         ┌──────────────┐
-│ Web searches │      │ source:        │         │ Apply / Skip │
-│ CFP monitors │─────►│  opportunity   │────────►│ / Bookmark   │
-│ Network scan │      │ status: pending│         │              │
-│ EA Forum     │      │                │         │ If apply:    │
-│ Twitter/X    │      │ frontmatter +  │         │ update       │
-└──────────────┘      │ structured     │         │ Opportunities│
-                      │ proposal       │         │ .md          │
-                      └────────────────┘         └──────────────┘
-```
-
-**Same inbox gate as research.** Opportunities land in `Lab/inbox/` with proper frontmatter. Avi triages them alongside research — or we can batch-present them in a dedicated session.
-
-**What an opportunity proposal looks like in the inbox:**
-
-```yaml
----
-source: opportunity-scan
-date: 2026-04-09
-status: pending
-tier: null
-opportunity_type: conference | publication | fellowship | grant | speaking | other
-deadline: YYYY-MM-DD or "rolling" or "none"
----
-
-## [Opportunity name]
-
-**Type:** Conference / Publication / Fellowship / Other
-**Deadline:** [date]
-**Fit score:** ★★★★☆ (based on evaluation framework in Opportunities.md)
-
-**Why this matters:** [1-2 sentences on why Avi specifically should care]
-**What it would take:** [time/effort estimate]
-**Network value:** [who Avi would meet or connect with]
-
-**Recommendation:** Apply / Skip / Bookmark for later
-```
-
-Keep it scannable. Avi processes these in batch — don't bury the recommendation.
-
----
-
-## Periodic Actions (for scheduled agents)
-
-**Weekly:**
-- Web search for new CFPs in target domains
-- Check EA Forum for trending topics that match Avi's research
-- Scan Twitter/X for conference announcements from people in Network.md
-
-**Monthly:**
-- Comprehensive conference scan for next 6 months
-- Check fellowship/grant deadlines
-- Review Opportunities.md and mark expired items
-- Surface 2-3 proactive pitches (places Avi could cold-submit to speak)
-
-**Quarterly:**
-- Full landscape scan of publication venues
-- Review which opportunities were taken vs. skipped and why (calibrate recommendations)
-- Update evaluation framework weights if priorities have shifted
-
----
-
-## Search Infrastructure
-
-**When autonomous operation is live**, these are the scheduled tasks:
-
-```
-Daily:   Scan EA Forum + Twitter for time-sensitive opportunities
-Weekly:  Conference CFP search + network monitoring
-Monthly: Full opportunity landscape scan + cold pitch generation
-```
-
-Until then, Claude runs these searches when Avi asks or when a session naturally touches on networking/opportunities.
-
----
-
-*This file is for Claude's use across sessions. Update when opportunities are found, pitched, accepted, or expired.*
+- Convergence wins. Multiple signals pointing at the same opportunity (e.g., conference + likely speakers + paper deadline align) typically rates higher than single-signal finds.
+- Active project relevance multiplies value. Opportunities tied to the user's *current* work rate higher than generic finds.
+- Deadlines make things real. Specific deadlines integrate immediately into the pipeline; open-ended "watch" items stay lower priority.
+- Network targets with warm paths rate consistently higher than cold outreach.

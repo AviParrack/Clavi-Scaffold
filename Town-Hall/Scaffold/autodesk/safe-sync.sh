@@ -14,10 +14,12 @@
 
 set -euo pipefail
 
-REPO_DIR="${REPO_DIR:-$HOME/Avi-Claude}"
+REPO_DIR="${REPO_DIR:-$PWD}"
 LOCKS_DIR="$REPO_DIR/Town-Hall/Scaffold/autodesk/locks"
 MACHINE_ID_FILE="$HOME/.claude/machine-id"
-TELEGRAM_CHAT_ID="6154387830"
+# Set to your Telegram chat_id (digits, e.g. "1234567890") to receive sync alerts.
+# Leave empty to disable Telegram pings.
+TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 
 cd "$REPO_DIR"
 

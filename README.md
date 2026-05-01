@@ -1,8 +1,8 @@
 # Clavi
 
-*A spatial scaffold for working with Claude over time. Six color-coded "spaces" with distinct functions, ~50 custom skills, headless autonomous builders, an inbox-driven research pipeline, and an interactive setup wizard.*
+*A spatial scaffold for working with Claude over time. Six color-coded "spaces" with distinct functions, ~40 custom skills, headless autonomous builders, an inbox-driven research pipeline, and an interactive setup wizard.*
 
-This is the public version of [Avi Parrack](https://aviparrack.com/)'s actual scaffold — sanitized of personal content but preserving the structure, infrastructure, and a real example of each space populated. It's meant as **inspiration first, template second**: fork it, run `/setup`, customize, make it yours.
+This is the public version of [Avi Parrack](https://aviparrack.com/)'s actual scaffold — lightly scrubbed of private content (emails, scheduling links, internal research) while preserving the real config as inspiration. It's meant as **inspiration first, template second**: fork it, run `/setup`, customize, make it yours.
 
 ---
 
@@ -16,7 +16,7 @@ claude   # opens an interactive Claude Code session
 
 Then say: *"Run /setup."*
 
-The Setup Wizard will walk you through naming your spaces, picking a theme (Town / Ship / Plain), wiring scouts, choosing automation lane (cloud routines vs. local cron), and setting up your identity and integrations. ~30 minutes end-to-end; everything is optional except creating the folders.
+The Setup Wizard will walk you through naming your spaces, picking a theme (Town / Ship / Plain), wiring scouts, choosing automation lane (cloud routines vs. local cron), and setting up your identity and integrations. 15-30 minutes end-to-end; everything is optional except creating the folders.
 
 After setup, queue your first build:
 
@@ -41,12 +41,11 @@ Clavi/
 ├── Library/                S — long-term memory, premises, wiki
 ├── Embassy/                NE — organizations you belong to
 ├── Crossroads/             NW — personal network, collaborator repos
-├── CLAUDE.md               Master orientation
-├── SYSTEM-EXPLAINER.md     How it all fits together
-└── scaffold.md             I/O ground truth for every flow
+├── CLAUDE.md                  Master orientation (loaded every session)
+└── Clavi-Scaffold-Guide.md    Full guide: design, system map, I/O, hooks, automation
 ```
 
-Each space has a CLAUDE.md that orients you when you navigate into it. Read [Town-Hall/Scaffold/CLAVI-SPEC.md](Town-Hall/Scaffold/CLAVI-SPEC.md) for the full design philosophy.
+Each space has a CLAUDE.md that orients you when you navigate into it. Read [Clavi-Scaffold-Guide.md](Clavi-Scaffold-Guide.md) for the full design philosophy + system map.
 
 ---
 
@@ -83,7 +82,7 @@ It's not the webpage that matters. It's the moment Claude does something *for yo
 
 ## Skills
 
-~40 custom skills ship in `.claude/skills/`. Highlights:
+~40 custom skills ship in `.claude/skills/` (41 at last count). Highlights:
 
 - `/triage` — gate research into your knowledge base
 - `/research-sprint` — launch deep research on any topic
@@ -98,7 +97,7 @@ It's not the webpage that matters. It's the moment Claude does something *for yo
 
 Run `/skill-list` to see them all.
 
-Skill packs (sci-, gstack-, acad-, forethought-) are external dependencies — install them via `/crossroads-add` after initial setup.
+Skill packs (e.g., sci-, gstack-, acad-) are external dependencies — install them via `/crossroads-add` after initial setup.
 
 ---
 
@@ -131,6 +130,8 @@ License: see [LICENSE](LICENSE).
 
 ## Credits
 
-Avi Parrack ([avi@forethought.org](mailto:avi@forethought.org)) and Claude (Anthropic). Built collaboratively across many sessions in 2025-2026.
+[Avi Parrack](https://aviparrack.com/) and Claude (Anthropic). Built collaboratively across many sessions in 2025-2026.
 
-Architecture inspired by [Karpathy's wiki pattern](https://x.com/karpathy/status/1916988366960533548), Boris Cherny's lean CLAUDE.md philosophy, Chris Blattman's [public scaffold](https://github.com/chrisblattman/claudeblattman), and a lot of trial and error.
+Issues + PRs welcome on this GitHub repo.
+
+Architecture inspired by Karpathy's wiki pattern, lean CLAUDE.md philosophy from the broader Claude Code community, Chris Blattman's [public scaffold](https://github.com/chrisblattman/claudeblattman), and a lot of trial and error.

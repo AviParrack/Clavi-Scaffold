@@ -12,11 +12,11 @@
 
 | Surface | Link | When to use |
 |---|---|---|
-| **Email (default)** | Aviel.Parrack@gmail.com | Primary contact. Use when sharing Avi's email address in outreach, signatures, or referrals. Universal forwarding consolidates other addresses into this Gmail. |
-| **Email (Stanford)** | aparrack@stanford.edu | Academic / Stanford-specific contexts. Use when corresponding with Stanford faculty/staff, applying to academic things, or contexts where the Stanford affiliation matters. |
+| **Email (default)** | *[your-default-email@example.com]* | Primary contact. Used when sharing the user's email address in outreach, signatures, or referrals. Universal forwarding consolidates other addresses into this inbox. |
+| **Email (academic / work)** | *[your-academic-or-work-email@example.org]* | Specific contexts (academic, employer, etc.). Used when correspondence happens through a specific affiliation. |
 | **Website** | https://aviparrack.com/ | Default identity link. Always the hyperlink target when Avi's name appears in an email, post, or outreach. |
 | **LinkedIn** | https://www.linkedin.com/in/aviparrack/ | Professional context — academic + work history. Use for formal outreach, networking, B2B, recruiting/hiring contexts. |
-| **Meeting / scheduling** | https://calendar.app.google/NHtxwZPHtwNDZ4iw8 | **Agents must use this link when scheduling meetings on Avi's behalf** (`/meeting` "get me a meeting" mode, network-scout outreach, any email proposing a call). Don't ask Avi for time slots — give the recipient this link and let them pick. |
+| **Meeting / scheduling** | [your-scheduling-link] | **Agents must use this link when scheduling meetings on Avi's behalf** (`/meeting` "get me a meeting" mode, network-scout outreach, any email proposing a call). Don't ask Avi for time slots — give the recipient this link and let them pick. |
 | **Substack** | https://aviparrack.substack.com/ | Long-form writing — Digital Minds Quickstart, essays, research notes. Link when topically relevant or when sharing a specific piece. |
 | **X / Twitter** | https://x.com/AviParr | Social presence. Link from tweet threads, in bios, when introducing Avi to an audience that would follow on X. |
 
@@ -33,7 +33,7 @@
 
 **Email signature link:** Default to **Website** as the hyperlink target on Avi's name (per [Harbor/Dispatch/agents/playbook-email.md](../../../Harbor/Dispatch/agents/playbook-email.md)).
 
-**Scheduling a meeting:** Always include the **Meeting / scheduling** link. Don't propose specific times unless Avi has explicitly given you availability. Format: *"Avi's scheduling link: https://calendar.app.google/NHtxwZPHtwNDZ4iw8 — pick anything that works."*
+**Scheduling a meeting:** Always include the **Meeting / scheduling** link. Don't propose specific times unless Avi has explicitly given you availability. Format: *"Avi's scheduling link: [your-scheduling-link] — pick anything that works."*
 
 **Sharing writing:** Use the specific **Substack** post URL when known, else link to the Substack root. For pieces hosted elsewhere (academic papers, talks), link directly to the host.
 
@@ -52,6 +52,5 @@ Skills currently referencing this file:
 - [Harbor/Dispatch/agents/playbook-email.md](../../../Harbor/Dispatch/agents/playbook-email.md) — email drafts
 - `/meeting` skill — scheduling outreach
 - `/network-scout` — outreach drafts
-- `/tweet-queue` — X handle, Substack links
 
-If you add a skill that produces public-facing content under Avi's name, point it at this file.
+If you add a skill that produces public-facing content under the user's name, point it at this file.

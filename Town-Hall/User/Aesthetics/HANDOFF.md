@@ -23,12 +23,11 @@
 
 ### What's Next
 - Build out references: color systems, type scales, layout grids, animation patterns
-- Integrate with Forethought brand (orange #E87040, existing diagram styles)
-- Evaluate for Avi's personal site and Stanford EA site redesign
+- Evaluate for the user's personal sites and any org-branded surfaces they maintain
 - Collect UI/UX patterns that work well with Claude-generated interfaces
 
 ### Design Philosophy (to develop)
 - Accessible by default (WCAG AA minimum)
 - Works without JavaScript where possible
 - Typography-first — get the text right, everything else follows
-- Forethought-branded outputs should feel warm, rigorous, and slightly surprising
+- Outputs should feel warm, rigorous, and slightly surprising

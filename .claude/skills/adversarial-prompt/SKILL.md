@@ -3,7 +3,7 @@ name: adversarial-prompt
 description: "Red team a claim or document from 5 angles simultaneously. Use when the user says 'red team this', 'adversarial check', 'attack this argument', 'find the weaknesses', or '/adversarial-prompt'. Spawns 5 parallel agents each trying to break the argument from a different angle."
 argument-hint: "[claim, argument, or document path]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 

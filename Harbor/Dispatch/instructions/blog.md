@@ -1,28 +1,27 @@
-# Dispatch Template: Blog / Forethought Website
+# Dispatch Template: Blog / Personal Site
 
-## Forethought Blog
-- Host: forethought.org (or current domain)
-- Style: full Forethought voice — read forethought-patterns.md
-- Use `/forethought-publish` skill for the full publication pipeline
-- Formatting: Forethought orange (#E87040) callout boxes, methodology box required
-
-## Avi's Personal Blog
-- Voice: first-person, Avi's personal register (not institutional)
+## Personal Blog
+- Voice: first-person; read `Town-Hall/User/User.md` for register
 - Use `/draft-it` for first drafts
-- Style guide: `Workshop/backburner/Blog/02-style/README.md`
-- ~40% Sagan, ~40% Carlsmith, ~20% Ord + Avi
+- Style guide: any path-scoped rule under `.claude/rules/writing-voice.md`
+
+## Org-Specific Blog (if user belongs to an org with its own publication style)
+- Configure in `Embassy/[Org]/CLAUDE.md` with style guide + brand assets
+- Use a custom org-specific skill (e.g., `/orgname-publish`) if the user maintains one
+- Specifics (callout colors, methodology box, byline format) live in the org's Embassy folder
 
 ## General Blog Quality Gate
 - Does the first paragraph make someone want to read the rest?
-- Is there a clear "so what?" — why should the reader care?
-- Would the reader learn something they didn't know, or think about something differently?
+- Is there a clear *"so what?"* — why should the reader care?
+- Would the reader learn something they didn't know, or think differently about something they did?
 - Has it been proofread? (`/proofread`)
 
 ## Log
 After dispatching, append to `Harbor/Dispatch/log/`:
+
 ```
 ## YYYY-MM-DD — Blog — [title]
-Platform: [Forethought / personal]
+Platform: [personal / org]
 URL: [once posted]
 Source project: [Workshop/project]
 Word count: [N]

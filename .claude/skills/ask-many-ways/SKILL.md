@@ -3,7 +3,7 @@ name: ask-many-ways
 description: "Take a prompt, generate 10 variations of it, run all of them, and compare the results. Use when the user says 'ask many ways', 'try different framings', 'prompt sensitivity test', 'how does framing affect this', or '/ask-many-ways'. Reveals how sensitive a response is to prompt wording."
 argument-hint: "[prompt or file path] [--count N] [--output-dir path]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 

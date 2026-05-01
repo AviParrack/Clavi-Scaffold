@@ -22,8 +22,7 @@ Dispatch agents are outbound workers. They go into the world, do a job, and brin
 | **Network Scout** | `/network-scout` | Identify high-value people to connect with | Daily 9:23 AM |
 | **Watchlist Monitor** | `/watchlist-monitor` | Scan for news about watched topics/people | Daily (see watchlist.md) |
 | **Research Sprint** | `/research-sprint` | Deep research on any topic | On demand |
-| **Tweet Queue** | `/tweet-queue` | Generate daily Twitter content | On demand |
-| **Publisher** | `/forethought-publish` | Package research for EA Forum, blog, etc. | On demand |
+| **Publisher** | the user's preferred publication skill (custom or built-in) | Package research for the user's preferred publication venues | On demand |
 
 ## Instructions
 
@@ -31,7 +30,7 @@ Format guides and packaging templates live in `instructions/`. When dispatching 
 
 - `instructions/twitter.md` — character limits, thread format, tone
 - `instructions/ea-forum.md` — formatting, cross-post conventions
-- `instructions/blog.md` — Forethought blog post format
+- `instructions/blog.md` — Personal/org blog format
 - `instructions/outreach.md` — cold email/message templates
 
 *(Create these as dispatch patterns stabilize)*
@@ -61,6 +60,6 @@ To send an agent out:
 3. Claude logs the dispatch in `Dispatch/log/`
 
 To package content for distribution:
-1. Invoke `/tweet-queue`, `/forethought-publish`, or `/draft-it`
+1. Invoke the user's preferred publication skill (custom or built-in), or `/draft-it`
 2. Read the relevant template from `instructions/`
 3. Claude logs the dispatch in `Dispatch/log/`

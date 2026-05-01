@@ -1,31 +1,29 @@
-# Builder Heartbeat
+# Builder Heartbeat (template)
 
-**Project:** Tech Tree — Fire to Dyson
-**Status:** building
-**Iteration:** 1
-**Session cost:** ~$2
+*Each active builder writes its state here. The builder-manager reads heartbeats to decide what to spawn next.*
+*One file per project — copy this template to `heartbeat-<project-slug>.md` when starting a new build.*
+
+**Project:** [project name]
+**Status:** [building | paused | changes-requested | complete | archived]
+**Iteration:** [N]
+**Session cost:** [~$X cumulative]
 
 ## Done
-- [x] Read project spec and understand requirements
-- [x] Created Workshop/Aesthetics/tech-tree/ directory
-- [x] Built comprehensive data layer (data.js) — 222 nodes, ~300 edges, 12 eras, 14 categories
-- [x] Built interactive HTML renderer (index.html) — D3.js, dark theme, zoom/pan, tooltips, search, fog-of-war
-- [x] Opened in browser for preview
+- [x] [completed item]
 
 ## Current
-- [ ] Visual verification and iterate on quality
+- [ ] [what's actively being worked on]
 
 ## Next
-- [ ] Fix any rendering bugs from first preview
-- [ ] Improve layout algorithm (better vertical positioning based on dependencies)
-- [ ] Add path highlighting (click node → full dependency chain lights up)
-- [ ] Add time scrubber (slider that reveals techs chronologically)
-- [ ] Build data_builder.py for Wikipedia enrichment (summaries + images → ASCII art)
-- [ ] Add ASCII art thumbnails to nodes
-- [ ] Polish: animations, transitions, hover effects
+- [ ] [next steps in priority order]
 
 ## Blockers
-- None
+- [anything waiting on the user, or technical blockers]
 
-## Milestones sent to Avi
-- (none yet — first milestone after visual verification)
+## Feedback log
+| Date | Source | Quote / summary | Hypothesis for next iteration |
+|------|--------|------------------|-------------------------------|
+| YYYY-MM-DD | user review | "..." | what to change and why |
+
+## Milestones sent
+- (timeline of what was sent to the user for review and the response)

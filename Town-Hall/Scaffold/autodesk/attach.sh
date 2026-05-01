@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-REPO_DIR="${REPO_DIR:-$HOME/Avi-Claude}"
+REPO_DIR="${REPO_DIR:-$PWD}"
 AUTODESK_DIR="$REPO_DIR/Town-Hall/Scaffold/autodesk"
 LOG_DIR="$REPO_DIR/Harbor/Dispatch/log/builders"
 MODE="${1:-iterm}"

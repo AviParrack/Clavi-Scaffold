@@ -30,18 +30,6 @@ The examples below are placeholders showing the *form* a premise takes. Delete t
 
 ---
 
-### Example premise (delete and replace):
-
-**Title:** Take the long-term seriously without falling into longtermism's pathologies.
-
-[The future is real. Trillions of potential lives matter. But "the long-term future" can also be a rationalization for ignoring nearer suffering or for licensing irreversible actions in the present. The dignified version: act with the future in view; decline to use it as a license.]
-
-**Why it matters:** Research outputs should weight long-term consequences heavily, but reject framings where future utility justifies present coercion or manipulation.
-
-**Anti-premise:** Pure presentism (only the next decade matters) AND pure longtermism (any present cost is acceptable for sufficient long-term gain).
-
----
-
 ## Anti-patterns to actively reject in research output
 
 - **Status quo bias** — assuming the current configuration is the natural one

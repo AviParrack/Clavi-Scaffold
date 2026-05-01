@@ -1,18 +1,18 @@
 # Agent: Opportunity Scout
 
 **Skill:** `/opportunity-scan`
-**Schedule:** Daily 9:07 AM (via autodesk cron)
+**Schedule:** Daily 4:20 AM (via cron)
 **Returns to:** `Harbor/Inbox/opportunity-scan-YYYY-MM-DD.md`
 
 ## Mission
 
-Find actionable opportunities: conferences, fellowships, grants, speaking events, publication windows, collaboration openings. Match against Avi's current projects and interests.
+Find actionable opportunities: conferences, fellowships, grants, speaking events, publication windows, collaboration openings. Match against the user's current projects and interests.
 
 ## Reads Before Launch
 
 - `Harbor/opportunities.md` — current pipeline, avoid duplicates
 - `Harbor/Dispatch/scout-calibration.md` — learned preferences
-- `Town-Hall/User/Avi.md` — identity, interests, current focus
+- `Town-Hall/User/User.md` — identity, interests, current focus
 
 ## Success Criteria
 

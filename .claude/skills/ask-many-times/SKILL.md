@@ -3,7 +3,7 @@ name: ask-many-times
 description: "Send the same prompt to 10 fresh Claude instances and compare their responses. Use when the user says 'ask many times', 'test this prompt', 'how consistent is this', 'run this 10 times', or '/ask-many-times'. Reveals how stable/reliable a response is — where models converge vs diverge on the same input."
 argument-hint: "[prompt or file path] [--count N] [--output-dir path]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 

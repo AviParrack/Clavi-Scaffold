@@ -68,6 +68,13 @@ def main():
         if key in tool_input and tool_input[key]:
             files_touched.append(str(tool_input[key]))
 
+    # Capture Bash command (truncated to keep logs reasonable)
+    bash_cmd = None
+    if tool_name == "Bash":
+        cmd = tool_input.get("command")
+        if cmd:
+            bash_cmd = str(cmd)[:500]
+
     # Detect skill invocation
     skill = detect_skill(tool_name, tool_input)
 
@@ -79,6 +86,7 @@ def main():
         "workshop": detect_workshop(cwd, project_dir),
         "files": files_touched if files_touched else None,
         "skill": skill,
+        "cmd": bash_cmd,
     }
 
     # Remove None values for compact logs

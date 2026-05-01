@@ -5,8 +5,8 @@
 ## What's Here
 
 - [repos.yaml](repos.yaml) — the manifest. Every external repo registered here is whitelisted. Adding to this file = trusting the source.
-- [Network.md](Network.md) — personal contacts and collaborator notes (separate from the repo system).
-- [forethought-starter/](forethought-starter/) — Fin Moorhouse's submodule (skills + agents).
+- [Network.md.example](Network.md.example) — template for personal contacts and collaborator notes. Rename to `Network.md` when you start populating it.
+- *(Whitelisted external repos clone into this folder when you run `/crossroads-add`.)*
 - `log/` — install history, revert events (created on first install).
 
 ## How It Works
@@ -30,7 +30,7 @@ overnight scan (4:50 AM)
   → for repos with new commits, Claude reads the diff and writes value-prop summary
   → Harbor/Inbox/crossroads-YYYY-MM-DD.md   (empty days produce no file)
 
-Avi reviews via /triage
+User reviews via /triage
   → install: /crossroads-install moves the submodule pointer + applies symlinks + commits
   → skip:    note in repos.yaml as scanned-but-not-pulled
   → revert:  roll back to previous pinned_sha (Phase 1.5)
@@ -41,4 +41,4 @@ Each approved update is a single commit in this repo's history — fully reverta
 ## See Also
 
 - [Town-Hall/Scaffold/crossroads-design.md](../Town-Hall/Scaffold/crossroads-design.md) — full design doc, schema details, phasing
-- [scaffold.md](../scaffold.md) — root I/O map (Crossroads section to be added)
+- [Clavi-Scaffold-Guide.md](../Clavi-Scaffold-Guide.md) — full scaffold guide (system map, module I/O, automation)

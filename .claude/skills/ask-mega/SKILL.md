@@ -3,7 +3,7 @@ name: ask-mega
 description: "Robustness stress test: 50 identical + 50 variant + 10 leading/anchoring prompts. Tests stability, sensitivity, and sycophancy. Use when the user says 'ask mega', 'stress test this', 'robustness check', 'how robust is this', or '/ask-mega'."
 argument-hint: "[prompt or file path] [--n-same 50] [--n-variants 50] [--n-leading 10] [--output-dir path]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 

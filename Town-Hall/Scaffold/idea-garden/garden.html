@@ -1510,7 +1510,7 @@
       'Lab':      ['#4AE0B5', '#3DD4A8', '#A855F7', '#B96BFF', '#5AEDC2'],
       'Workshop': ['#E87040', '#F08050', '#B4E62E', '#C4F040', '#F59E0B'],
     };
-    const CANONICAL_COLOR = '#E87040'; // Forethought orange
+    const CANONICAL_COLOR = '#E87040'; // canonical orange
     // Flat fallback for non-workspace mode
     const CLUSTER_COLORS = ['#4A90D9', '#4AE0B5', '#E87040', '#D94A8C', '#A855F7',
                             '#B4E62E', '#6BA3E0', '#3DD4A8', '#F08050', '#F59E0B'];
@@ -2492,7 +2492,7 @@
             geometry = new THREE.SphereGeometry(size, 12, 12);
         }
 
-        // Canonical notes get Forethought orange glow + larger size
+        // Canonical notes get the canonical-orange glow + larger size
         const note = noteById[leaf.noteId];
         const isCanonical = note && (note.canonical || (note.tags && note.tags.includes('canonical')));
         const finalLeafColor = isCanonical ? new THREE.Color(CANONICAL_COLOR) : leafColor;

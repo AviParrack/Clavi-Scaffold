@@ -74,10 +74,10 @@
 
 | Step | What | Status |
 |------|------|--------|
-| 1 | Universal forwarding → aviel.parrack@gmail.com | 🔲 Config only |
+| 1 | Universal forwarding → the-user@gmail.com | 🔲 Config only |
 | 2 | Gmail MCP auth fix | 🔲 Existing blocker |
 | 3 | Claude email triage (scan, categorize, flag urgent) | 🔲 Needs Gmail MCP |
-| 4 | Draft replies (Claude prepares, Avi approves) | 🔲 Needs Gmail MCP |
+| 4 | Draft replies (Claude prepares, the user approves) | 🔲 Needs Gmail MCP |
 | 5 | Daily email digest (non-urgent summary) | 🔲 Scheduled agent |
 
 ## Mobile Integration

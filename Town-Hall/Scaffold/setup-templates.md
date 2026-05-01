@@ -80,7 +80,7 @@ osascript -e "tell application \"Finder\" to set label index of (POSIX file \"$D
 - [Scaffold/](Scaffold/) — the system itself (skills, hooks, rules, docs)
 
 ## Agent
-- [Agent.md](Agent.md) — Claude's identity and observations
+- Claude's long-term observations live in auto-memory at `~/.claude/projects/<your-project-id>/memory/`
 ```
 
 ### Space CLAUDE.md — Workshop
@@ -184,7 +184,7 @@ Same color indices, different folder names.
 - [Scaffold/](Scaffold/) — navigation, weapons, shields (skills, hooks, rules)
 
 ## AI Officer
-- [Agent.md](Agent.md) — the AI officer's log and observations
+- The AI officer's log lives in auto-memory at `~/.claude/projects/<your-project-id>/memory/`
 ```
 
 ### Space CLAUDE.md — Databanks
@@ -275,7 +275,7 @@ Read [User.md]([TOWN_HALL]/User/User.md) for the full picture.
 | Dir | Space | Color | Function |
 |---|---|---|---|
 | **N** | [[NORTH_NAME]]([NORTH_FOLDER]/) | Gray | Intake, triage, dispatch |
-| **W** | [[WEST_NAME]]([WEST_FOLDER]/) | Blue | Identity, scaffold, Agent.md |
+| **W** | [[WEST_NAME]]([WEST_FOLDER]/) | Blue | Identity, scaffold, infrastructure |
 | **E** | [[EAST_NAME]]([EAST_FOLDER]/) | Orange | Active projects |
 | **S** | [[SOUTH_NAME]]([SOUTH_FOLDER]/) | Green | Long-term memory |
 | **NE** | [[NE_NAME]]([NE_FOLDER]/) | Purple | Organizations |
@@ -287,7 +287,7 @@ Read [User.md]([TOWN_HALL]/User/User.md) for the full picture.
 |---|---|---|
 | 🟢 | [project from setup] | [description from setup] |
 
-@[TOWN_HALL]/Scaffold/system-guide.md
+@[TOWN_HALL]/Clavi-Scaffold-Guide.md
 ```
 
 Replace bracketed values with user's chosen theme and identity answers.
@@ -296,16 +296,16 @@ Replace bracketed values with user's chosen theme and identity answers.
 
 ## Example Files to Show During Setup
 
-During identity setup (B1), show a sanitized version of Avi's User.md as an example. The wizard should read `Town-Hall/User/Avi.md` and present it with a note:
+During identity setup (B1), show the bundled `Town-Hall/User/User.md` (the maintainer's filled-in version) as an example. The wizard should read it and present with a note:
 
 ```
-🧙‍♂️ Here's an example of what a User.md looks like — this is from the 
+🧙‍♂️ Here's an example of what a User.md looks like — this is from the
 creator of this scaffold:
 
-[show Avi.md contents]
+[show User.md contents]
 
-Yours doesn't need to be this detailed! Even a few sentences helps 
+Yours doesn't need to be this detailed! Even a few sentences helps
 Claude calibrate. Let's build yours now...
 ```
 
-Similarly for PREMISES.md, watchlist.md, and todo.md — show Avi's as inspiration.
+Similarly for PREMISES.md and watchlist.md — show the bundled examples as inspiration.

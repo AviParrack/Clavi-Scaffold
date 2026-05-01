@@ -19,8 +19,35 @@ You're a wizard giving a tour of a new town. Warm, encouraging, occasionally dra
 ## On Invocation
 
 1. Check for `setup-state.json` in the project root
-2. If it exists: read it, show progress summary, ask where to pick up
+2. If it exists: read it, show progress summary (cross-reference [Town-Hall/Scaffold/setup-todo.md](../../../Town-Hall/Scaffold/setup-todo.md) so the user sees their ticked boxes), ask where to pick up
 3. If it doesn't: create from template, welcome the user, start from the beginning
+4. If the user passes a phase ID (e.g. `/setup G3`), jump straight to that phase
+
+**Resume hint:** at the start of a resumed session, paraphrase progress in one line — *"You're 6 of 8 phases through; B and G3 are still pending. Pick up where we left off, jump somewhere specific, or skip ahead?"*
+
+## Tracking progress (two files, kept in sync)
+
+The wizard maintains state in two parallel files:
+
+| File | Format | Audience | Authoritative |
+|---|---|---|---|
+| `setup-state.json` | JSON, sub-phase granularity | The wizard | ✅ for `/setup` logic |
+| `Town-Hall/Scaffold/setup-todo.md` | Markdown checklist | The user | ✅ for human reading |
+
+**Update both whenever a sub-phase changes status:**
+
+- **Starting a sub-phase** → flip the checkbox to `[~]` in `setup-todo.md`, set `"status": "in-progress"` in JSON
+- **Completing a sub-phase** → flip to `[x]`, set `"status": "complete"`
+- **User explicitly skips** → flip to `[/]`, set `"status": "skipped"`
+- **Touching either file** → bump `last_updated` in JSON
+
+If the user has hand-ticked boxes in `setup-todo.md` (configured something outside the wizard), respect those ticks and reconcile JSON to match before continuing.
+
+## First-run prompt in CLAUDE.md
+
+The root `CLAUDE.md` ships with a `## 🔧 First run — start here` block that asks new users to run `/setup`. That block exists for the moment of first contact only — once the user has finished Phase A *and* signaled they're done for now (either by completing Phase H, or by saying "I'll continue this later"), replace the entire `## 🔧 First run — start here` section with the one-liner specified inside it (the line starting `> *✅ Setup foundation complete...`). Use the Edit tool with the full block as `old_string` to ensure a clean replacement. Don't remove the block earlier than that — they may still be discovering the system.
+
+If the user re-clones the scaffold on a new machine, `setup-state.json` won't be present locally and the First Run block will reappear automatically (it's in the committed CLAUDE.md). That's the intended behavior.
 
 **Always show the welcome + map first:**
 
@@ -54,7 +81,7 @@ it up, and move on to the next one.
      Choose your theme · Create the buildings
 
   🏛️ Phase B: Town Hall (West) ........... [recommended, ~10 min]
-     Your identity · Skills & tools · Agent.md
+     Your identity · Web-presence links · Skills, hooks, rules
 
   ⚓ Phase C: Harbor (North) .............. [recommended, ~10 min]
      Inbox · Scout agents · Automations · Morning briefing
@@ -315,19 +342,18 @@ where YOUR identity lives, where the scaffold's infrastructure is configured,
 and where Claude keeps its own notes about the collaboration.
 
 Three things happen here:
-1. Who you are (User.md)
+1. Who you are (User.md + your web-presence links)
 2. How the system works (skills, hooks, rules)
-3. Who Claude is in this workspace (Agent.md)
+3. Long-term observations about the collaboration accrue automatically in Claude Code's auto-memory at `~/.claude/projects/<id>/memory/MEMORY.md`
 ```
 
 ### B1: Your Identity (User.md)
 
 ```
-🧙‍♂️ Let me show you what a User.md looks like. Here's Avi's (the creator 
-of this scaffold):
+🧙‍♂️ Let me show you what a User.md looks like. Here's the template:
 ```
 
-Show a sanitized version of Avi's User.md:
+Show this template:
 ```markdown
 # User.md — [Name]
 
@@ -430,10 +456,9 @@ Walk through each core skill with a 1-sentence value prop. For each:
 | `/audit` | Full paper review: editor, fact-checker, red team, all in parallel. |
 | `/fact-check` | Every claim traced to primary sources. |
 | `/memory-synthesis` | Weekly memory cleanup. Your corrections become permanent automatically. |
-| `/save-conversation` | Export conversations to clean readable transcripts. |
 | `/voice-capture` | Voice memos → transcribe → extract todos → route to inbox. |
 | `/BOTEC-brief` | Back-of-the-envelope calculations with tables. |
-| `/proofread` | Spell check and grammar. |
+| `/meeting` | Schedule calendar events or cold-outreach for a meeting. |
 | `/health-check` | Verify scaffold integrity. |
 | `/skill-list` | Show all available skills by category. |
 
@@ -443,7 +468,6 @@ Walk through each core skill with a 1-sentence value prop. For each:
 📚 Scientific (~175 skills): arxiv, matplotlib, pytorch, astropy...
 🎓 Academic (4 skills): deep-research, academic-paper, pipeline...
 🔧 Engineering (8 skills): browse, review, ship, QA...
-📝 Forethought (6 skills): publish, style, diagrams...
 🧠 Epistemic (12 skills): ask-mega, epistemax, decompose, explore-tree...
 
 These load on demand — they don't use context budget until you invoke them.
@@ -491,18 +515,19 @@ Want to add any custom rules? Examples:
 - "Always include confidence levels on factual claims"
 ```
 
-### B3: Agent.md
+### B3: Auto-memory (no setup required)
 
 ```
-🧙‍♂️ Finally — this is where Claude keeps its own notes about the 
-collaboration. Think of it as Claude's side of the relationship.
+🧙‍♂️ One more thing about Town Hall — Claude Code keeps its own
+auto-memory at `~/.claude/projects/<project-id>/memory/`. Observations
+about you and the collaboration accrue there automatically across
+sessions and instances. You don't need to do anything; it just runs.
 
-I'll create an initial Agent.md. Over time, Claude updates it with 
-observations about what works, what doesn't, and how the collaboration 
-is evolving. You can read it anytime.
+If you ever want to read what Claude has noticed, the index is at
+`~/.claude/projects/<project-id>/memory/MEMORY.md`.
 ```
 
-Create initial Agent.md.
+(Nothing to create — auto-memory is built into Claude Code.)
 
 ---
 
@@ -560,12 +585,13 @@ For each agent:
 ```
 🧙‍♂️ Recommended overnight schedule:
 
-  4:00 AM  Watchlist monitor scans overnight news
-  4:20 AM  Opportunity scan finds new opportunities
-  4:40 AM  Network scout identifies connection targets
-  5:00 AM  Inbox monitor counts pending items
-  6:30 AM  Email triage builds the day's queue file
-  7:00 AM  Morning briefing synthesizes everything
+  4:00 AM   Watchlist monitor scans overnight news
+  4:20 AM   Opportunity scan finds new opportunities
+  4:40 AM   Network scout identifies connection targets
+  4:50 AM   Crossroads scan checks whitelisted external repos
+  6:30 AM   Email triage builds the day's queue file
+  7:00 AM   Morning briefing synthesizes everything
+  Sun 10AM  Memory synthesis (weekly cleanup, pattern promotion)
 
 How these get scheduled depends on the automation lane you picked
 back in Phase A.
@@ -615,16 +641,15 @@ Want to configure scouts? [yes/skip/customize times]
 ### C3: Standing Lists
 
 ```
-🧙‍♂️ The Harbor also keeps three standing lists your agents reference:
+🧙‍♂️ The Harbor also keeps two standing lists your agents reference:
 ```
 
-Show Avi's versions as examples, then let user customize:
+Show templates, then let user customize:
 
-- **watchlist.md** — "Topics, people, and institutions you want monitored. Here's Avi's:" [show example]
-- **wanted.md** — "Specific things you're waiting for. A deal, a tool, a paper."
-- **todo.md** — "Your running to-do list. Priority-scored."
+- **watchlist.md** — "Topics, people, and institutions you want monitored. The watchlist scout reads this." [show template]
+- **wanted.md** — "Specific things you're waiting for. A deal, a tool, a paper. Agents check periodically." [show template]
 
-For each: show example, ask "Want to customize this, accept the template, or skip?"
+For each: show template, ask "Want to customize this, accept the template, or skip?"
 
 ### C4: Morning Briefing
 
@@ -698,7 +723,7 @@ a permanent part of your knowledge base.
 3. wiki/ — standalone synthesis pages that compile what you know about 
    topics. These grow automatically as you triage research.
 
-Here's what Avi's PREMISES.md looks like: [show example]
+Here's what a PREMISES.md template looks like: [show example]
 Want to write your own premises? Even 3-5 sentences about what you believe 
 is a powerful start.
 ```
@@ -760,7 +785,7 @@ For now, it's just a Network.md where you track contacts and relationships.
 As your network of AI-augmented collaborators grows, this space grows with it.
 ```
 
-Create Crossroads/Network.md with template.
+If the user wants to populate their Network now, copy `Crossroads/Network.md.example` to `Crossroads/Network.md` and walk through filling in their first few contacts. The `.example` file remains as the canonical template for future reference.
 
 ---
 
@@ -832,8 +857,8 @@ reply on your behalf:
   • Hyperlink your name to your website (from links.md)
   • Casual polite tone (no "I hope this email finds you well")
   • Real timeframes for asks
-  • Close with: "Avi's experimenting with letting me handle some
-    of his email. If anything was off, let us know so we can calibrate."
+  • Close with: "[The user] is experimenting with letting me handle some
+    of their email. If anything was off, let us know so we can calibrate."
   • Sign off as Claude (not as you)
 
 Full playbook: Harbor/Dispatch/agents/playbook-email.md
@@ -868,7 +893,7 @@ If accept: do nothing (the playbook is already templated). If edit: walk through
 ### H1: Smoke Tests
 
 Run each and report:
-- [ ] Symlinks resolve (skill count)
+- [ ] Custom skills loaded (run `/skill-list` and confirm count looks right)
 - [ ] CLAUDE.md loads (check @import)
 - [ ] Hooks fire (test metadata logger)
 - [ ] At least one skill invocation works
@@ -895,6 +920,19 @@ things around. The scaffold evolves with you.
 
 Come back to /setup anytime to configure more, or just explore!
 ```
+
+### H3: Retire the First Run prompt in CLAUDE.md
+
+If `CLAUDE.md` still contains the `## 🔧 First run — start here` block, replace the entire block (from the `## 🔧 First run — start here` line through the `> *✅ Setup foundation complete...` blockquote line) with just the blockquote one-liner. The wizard now retreats into the background — the user can summon it again with `/setup` whenever they want.
+
+After this edit, mark `H3` complete in both `setup-state.json` and `Town-Hall/Scaffold/setup-todo.md`, and tell the user:
+
+```
+🧙‍♂️ The First Run prompt is gone — your CLAUDE.md is yours now.
+   /setup is always one command away when you want to revisit.
+```
+
+If the user signals they want to **pause** mid-setup ("I'll continue later"), still run H3 once Phase A is complete — that way subsequent sessions don't re-prompt them. Their incomplete phases stay visible in `setup-todo.md`.
 
 ---
 
@@ -928,7 +966,7 @@ Come back to /setup anytime to configure more, or just explore!
           "rules": {"status": "pending"}
         }
       },
-      "B3_agent": {"status": "pending", "required": false}
+      "B3_auto_memory_note": {"status": "info-only", "required": false}
     },
     "C_harbor": {
       "C1_inbox_triage": {"status": "pending", "required": false},
@@ -959,7 +997,8 @@ Come back to /setup anytime to configure more, or just explore!
     },
     "H_verification": {
       "H1_smoke_tests": {"status": "pending", "required": false},
-      "H2_first_steps": {"status": "pending", "required": false}
+      "H2_first_steps": {"status": "pending", "required": false},
+      "H3_retire_first_run_prompt": {"status": "pending", "required": false}
     }
   }
 }

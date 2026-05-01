@@ -3,7 +3,7 @@ name: morning-briefing
 description: "Generate a daily briefing: calendar, active projects, todo, inbox, opportunities, and optionally email. Use when the user says 'morning briefing', 'what's my day', 'daily summary', 'brief me', or '/morning-briefing'."
 argument-hint: "[--no-calendar] [--no-email] [--telegram]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 
@@ -24,7 +24,7 @@ List events for today and tomorrow.
 Format as:
 ```
 📅 TODAY (Thursday Apr 24)
-  18:00  Coffee Social Stanford (Spilker Engineering)
+  18:00  [Example: a calendar event title shows here]
   
 📅 TOMORROW (Friday Apr 25)
   [events or "clear"]
@@ -141,7 +141,7 @@ Send via Telegram MCP (`mcp__plugin_telegram_telegram__reply`). Keep under 500 c
 ```
 ☀️ Morning Brief — Apr 24
 
-📅 18:00 Coffee Social Stanford
+📅 18:00 [Calendar event]
 📋 Top todo: [item]
 📬 3 items in inbox
 ⚡ [any urgent flags]
@@ -149,10 +149,10 @@ Send via Telegram MCP (`mcp__plugin_telegram_telegram__reply`). Keep under 500 c
 ```
 
 ### 3. Slack → full report DM
-Send the full briefing as a Slack DM to Avi:
+Send the full briefing as a Slack DM to the user:
 ```
 mcp__claude_ai_Slack__slack_send_message
-  channel_id: "U0AC12ZAAV6"  (Avi's Slack user ID)
+  channel_id: "U0AC12ZAAV6"  (the user's Slack user ID)
   message: [full briefing markdown]
 ```
 If the briefing exceeds 5000 chars (Slack limit), split into headline message + thread reply with details.
@@ -165,7 +165,7 @@ git commit -m "☀️ Morning briefing — YYYY-MM-DD"
 git push origin main
 ```
 
-## Avi's Personal Schedule (Mac Mini)
+## the user's Personal Schedule (Mac Mini)
 
 **Scouts (overnight, results ready for briefing):**
 

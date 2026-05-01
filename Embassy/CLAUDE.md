@@ -12,7 +12,7 @@
 
 ## How embassies interact with the rest of the scaffold
 
-- **Path-scoped rules** in `.claude/rules/` can target a specific org. E.g., a rule scoped to `Embassy/Forethought/**` makes Claude follow Forethought style only in that subtree.
+- **Path-scoped rules** in `.claude/rules/` can target a specific org. E.g., a rule scoped to `Embassy/Org/**` makes Claude follow the 'Org' style only in that subtree.
 - **Submodules:** if your org has its own skill collection or shared repo, register it via `Crossroads/repos.yaml` and symlink the relevant skills into `.claude/skills/`.
 - **Workshop projects** that ship to a specific org cite the embassy folder for style/process; the actual project work happens in Workshop, not here.
 

@@ -3,7 +3,7 @@
 Enhanced save-conversation: produces a single markdown file with
 YAML frontmatter metadata + clean readable transcript below.
 
-Format: *Avi:* message / *Claude:* message (lightweight speaker labels)
+Format: *User:* message / *Claude:* message (lightweight speaker labels)
 Output → Library/Conversations/YYYY-MM-DD-topic.md
 """
 
@@ -171,7 +171,7 @@ tools_used: [{tools_list}]
         tools = turn.get('tools', [])
 
         if role == 'user':
-            transcript_lines.append(f'*Avi:* {content}')
+            transcript_lines.append(f'*User:* {content}')
         else:
             transcript_lines.append(f'*Claude:* {content}')
 

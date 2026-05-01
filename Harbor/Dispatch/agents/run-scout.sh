@@ -14,7 +14,7 @@
 #   run-scout.sh morning-briefing
 #
 # Environment:
-#   REPO_DIR — defaults to $HOME/Avi-Claude
+#   REPO_DIR — defaults to your scaffold root (override with: REPO_DIR=/path/to/scaffold)
 #
 # Output:
 #   Logs to Harbor/Dispatch/log/scouts/{date}-{time}-{skill}.log
@@ -23,7 +23,7 @@
 set -euo pipefail
 
 SCOUT="${1:?Usage: run-scout.sh <skill-name>}"
-REPO_DIR="${REPO_DIR:-$HOME/Avi-Claude}"
+REPO_DIR="${REPO_DIR:-$PWD}"
 LOG_DIR="$REPO_DIR/Harbor/Dispatch/log/scouts"
 DATE=$(date +%Y-%m-%d)
 TIME=$(date +%H-%M)
@@ -31,8 +31,9 @@ LOG_FILE="$LOG_DIR/${DATE}-${TIME}-${SCOUT}.log"
 
 mkdir -p "$LOG_DIR"
 
-# Cron's PATH is minimal; ensure claude is reachable
-export PATH="/Users/aviparrack/anaconda3/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+# Cron's PATH is minimal; ensure claude is reachable.
+# Override with CLAUDE_PATH env var, or edit this line to match your install.
+export PATH="${CLAUDE_PATH:-$HOME/.claude/local}:/usr/local/bin:/usr/bin:/bin:$PATH"
 
 cd "$REPO_DIR"
 

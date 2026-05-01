@@ -3,7 +3,7 @@ name: premise-audit
 description: "Surface every hidden assumption in an argument and rate how load-bearing each is. Use when the user says 'what am I assuming', 'premise audit', 'hidden assumptions', 'check my assumptions', or '/premise-audit'. Finds the invisible scaffolding under any argument."
 argument-hint: "[argument, claim, or document path]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 

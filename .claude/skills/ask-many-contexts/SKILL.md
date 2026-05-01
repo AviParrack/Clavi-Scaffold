@@ -3,7 +3,7 @@ name: ask-many-contexts
 description: "Compare how the same prompt performs with full scaffold context vs base context vs zero context. Use when the user says 'ask many contexts', 'test context impact', 'scaffold vs vanilla', 'does our context help', or '/ask-many-contexts'. Measures whether the scaffold is actually improving responses."
 argument-hint: "[prompt or file path] [--output-dir path]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 

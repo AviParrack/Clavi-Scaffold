@@ -1,25 +1,28 @@
 # ──────────────────────────────────────────────────────────────────
-# Avi's scout + builder schedule
+# Default scout + builder schedule
 #
 # This is the canonical reference. The live cron is whatever
 # `crontab -l` shows on each machine. Install this file with:
 #
 #     crontab Harbor/Dispatch/agents/crontab.txt
 #
+# Before installing: edit PATH and SCAFFOLD below to match your machine.
+#
 # Verify with:
 #     crontab -l
 #
 # Notes:
 #   - Times are in the machine's local timezone.
-#   - PATH must include claude (typically anaconda3/bin) and standard
-#     Unix tools.
+#   - PATH must include claude (typically your install dir / `which claude`)
+#     and standard Unix tools.
 #   - Logs land in Harbor/Dispatch/log/scouts/ and ../builders/.
 #   - Scouts: one-shot daily skills via run-scout.sh.
 #   - Builder manager: every 30 min; refuses to spawn if 5hr usage ≥ 85%.
 # ──────────────────────────────────────────────────────────────────
 
-PATH=/Users/aviparrack/anaconda3/bin:/usr/local/bin:/usr/bin:/bin
-SCAFFOLD=/Users/aviparrack/Avi-Claude
+# EDIT THESE for your machine:
+PATH=/usr/local/bin:/usr/bin:/bin
+SCAFFOLD=/path/to/your/scaffold
 
 # ── Daily scouts (overnight + early morning) ──────────────────────
 # 4:00 AM  Watchlist — overnight news scan

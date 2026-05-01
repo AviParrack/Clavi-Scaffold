@@ -3,7 +3,7 @@ name: blind-review
 description: "Strip identifying information from a document before evaluating it, then compare blinded vs unblinded assessments to detect prestige bias. Use when the user says 'blind review', 'remove bias', 'evaluate without knowing who wrote it', or '/blind-review'."
 argument-hint: "[document path]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 

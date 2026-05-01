@@ -3,7 +3,7 @@ name: fact-check
 description: "Deep automated fact-checking for research documents. Use this skill when the user asks to 'fact-check', 'verify claims', 'check sources', 'verify this paper', or says '/fact-check'. Can run standalone or as a sub-skill of /audit. Spawns parallel agents for each section. Every verifiable claim is traced to primary sources, cross-referenced, and assessed for consensus vs. cherry-picking. Output is a structured report with severity ratings, source links, and Ctrl+F search snippets for every finding."
 argument-hint: "[document path] [--section N] [--section-text 'raw text']"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 
@@ -15,9 +15,9 @@ This skill can run **standalone** (`/fact-check path/to/doc.md`) or be invoked a
 
 ---
 
-## Forethought Epistemic Standards
+## Epistemic Standards
 
-All output follows Forethought's epistemic standards (see `.claude/rules/forethought-default.md`). Key principles:
+All output follows the user's epistemic standards (see `.claude/rules/`). Key principles:
 - Directional conviction with calibrated confidence
 - Source hierarchy: peer-reviewed > government reports > investigative journalism > expert assessment > training data (flagged)
 - Never fabricate a citation. "I could not verify this" is always acceptable.

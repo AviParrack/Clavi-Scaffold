@@ -6,7 +6,7 @@
 
 ## Knowledge Graph
 
-The foundation + compiled knowledge. Constitutional docs amend only with Avi's approval.
+The foundation + compiled knowledge. Constitutional docs amend only with the user's approval.
 
 - [PREMISES.md](Knowledge-Graph/PREMISES.md) — worldview commitments, grounds all research
 - [KEY_FINDINGS.md](Knowledge-Graph/KEY_FINDINGS.md) — canonical S/A-tier claims
@@ -16,41 +16,29 @@ The foundation + compiled knowledge. Constitutional docs amend only with Avi's a
 
 ## Topic Collections
 
-Reference material organized by research area. Grows as agents bring back findings.
+Reference material organized by research area. Grows organically as agents bring back findings — when scouts or research sprints produce material that isn't tied to a specific Workshop project, it accrues here.
 
-- [Space-Energy/](Space-Energy/) — strategy notes, old todos, reference material for space research
-- [Governance/](Governance/) — raw dossiers (political figures), old governance drafts
-- [Business/](Business/) — Seed business plan, corporate structures, financial research
-
-*New topics get their own folder as material accumulates.*
+*Empty in a fresh clone. Topic folders appear as you research — name them after the topics you accrue knowledge on. (No fixed schema.)*
 
 ## Conversations
 
-Saved conversation transcripts and historical sessions.
+Saved conversation transcripts. See [Conversations/README.md](Conversations/README.md) for details.
 
-- [transcripts/](Conversations/transcripts/) — exported conversations via `/save-conversation`
-- [calibration-sessions/](Conversations/calibration-sessions/) — early Claude calibration transcripts (historical)
+- `transcripts/` — exported conversations via `/save-conversation`
 
 ## Logs
 
-System logs and pattern analysis. Mostly written by hooks and automated skills.
+System logs + pattern analysis. Mostly written by hooks and automated skills — see [Logs/README.md](Logs/README.md) for full details.
 
-- [avi-log.md](Logs/avi-log.md) — Avi's session log
-- [claude-log.md](Logs/claude-log.md) — Claude's session log
-- [PATTERNS.md](Logs/PATTERNS.md) — weekly pattern synthesis output
-- [feedback-log.md](Logs/feedback-log.md) — auto-captured feedback (UserPromptSubmit hook)
-- [metadata/](Logs/metadata/) — daily JSONL tool usage logs (PostToolUse + SubagentStart hooks)
+- `PATTERNS.md` — weekly pattern synthesis output (from `/memory-synthesis`)
+- `feedback-log.md` — auto-captured feedback (UserPromptSubmit hook)
+- `metadata/*.jsonl` — daily tool-usage logs (PostToolUse + SubagentStart hooks)
+- *(Per-user session logs are gitignored — they're machine-specific.)*
 
 ## Someday
 
-Ideas that haven't been promoted to Workshop projects yet. 🟡 triage items land here.
-
-- [Project-Ideas/](Someday/Project-Ideas/) — backlog of project ideas awaiting triage
+Ideas that haven't been promoted to Workshop projects yet. 🟡 triage items land here. See [Someday/README.md](Someday/README.md) for details.
 
 ## Archive
 
-Completed, superseded, or historical material. Restorable if needed.
-
-- [autodesk-legacy/](Archive/autodesk-legacy/) — old autodesk scripts (pre-migration)
-- [old-scouts/](Archive/old-scouts/) — early scout reports (pre-Harbor)
-- [ALL-RESEARCH-NOTES.md](Archive/ALL-RESEARCH-NOTES.md) — consolidated early research
+Completed, superseded, or historical material. Restorable if needed. See [Archive/README.md](Archive/README.md) for details.

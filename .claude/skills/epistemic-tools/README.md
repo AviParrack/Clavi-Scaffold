@@ -53,7 +53,7 @@
 /premise-audit "EA is the most impactful framework for charitable giving because..."
 
 # Full epistemic audit before publication
-/epistemax Workshop/Space-Energy/papers/lunar-ie-draft.md
+/epistemax Workshop/your-project/draft.md
 
 # Map the possibility space
 /explore-tree "nanotech self-replication" --intention "problem-solving" --depth 2

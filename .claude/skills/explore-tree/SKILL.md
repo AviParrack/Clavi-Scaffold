@@ -3,7 +3,7 @@ name: explore-tree
 description: "Recursive branching exploration from any input — a word, question, or document. Use when the user says 'explore tree', 'branch out from', 'brainstorm directions', 'map the space of', or '/explore-tree'. Produces a tree of explored territory with a summary of most promising branches."
 argument-hint: "[seed — any text] [--depth 2] [--branch 10,5] [--intention 'free association']"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 

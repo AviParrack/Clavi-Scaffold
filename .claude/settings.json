@@ -1,6 +1,6 @@
 {
   "permissions": {
-    "_comment_defaultMode": "Public scaffold default: 'default' (Claude Code asks before risky operations). Avi's private setting was 'bypassPermissions' — change to that only after auditing the skills you've installed.",
+    "_comment_defaultMode": "Public scaffold default: 'default' (Claude Code asks before risky operations). The maintainer's private setting was 'bypassPermissions' — change to that only after auditing the skills you've installed.",
     "defaultMode": "default",
     "_comment_allow": "Public scaffold ships without a blanket allow list. Add specific permissions as you learn what you want auto-approved. The deny list below is a safety net regardless of allow rules.",
     "deny": [

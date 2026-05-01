@@ -7,7 +7,7 @@ paths: ["Workshop/**"]
 
 You are working inside a Workshop project. Follow these rules:
 
-1. **All outputs stay inside this project folder.** Never create files in Workshop/ root, other projects, or random locations. If you're working on SDC, everything goes in Workshop/SDC/.
+1. **All outputs stay inside this project folder.** Never create files in Workshop/ root, other projects, or random locations. If you're working on a project named `[project]`, everything goes in `Workshop/[project]/`.
 
 2. **Use subfolders to organize.** Research in research/, drafts in drafts/, figures in figures/, etc. Don't pile everything flat at the project root.
 

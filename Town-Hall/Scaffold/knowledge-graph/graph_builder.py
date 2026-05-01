@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Knowledge Graph Builder — Avi-Claude Workspace
+Knowledge Graph Builder — Clavi Workspace
 Parses all markdown files across Harbor/Town-Hall/Workshop/Library/Embassy/Crossroads, extracts links and
 frontmatter, and outputs a structured graph as JSON.
 """
@@ -15,19 +15,19 @@ from pathlib import Path
 from typing import Optional
 from collections import defaultdict
 
-WORKSPACE = Path(__file__).resolve().parents[3]  # Avi-Claude root
+WORKSPACE = Path(__file__).resolve().parents[3]  # repo root
 SPACES = ["Harbor", "Town-Hall", "Workshop", "Library", "Embassy", "Crossroads"]
 
 SPACE_COLORS = {
     "Harbor": "#9CA3AF",     # gray
     "Town-Hall": "#3B82F6",  # blue
-    "Workshop": "#E87040",   # orange (Forethought)
+    "Workshop": "#E87040",   # orange
     "Library": "#0D9488",    # teal/green
     "Embassy": "#A855F7",    # purple
     "Crossroads": "#EF4444", # red
 }
 
-CANONICAL_COLOR = "#E87040"  # Forethought orange
+CANONICAL_COLOR = "#E87040"  # canonical orange (matches Workshop space color)
 
 # Topic clusters — map top-level subdirs to cluster names
 def get_cluster(rel_path: str) -> str:
@@ -138,16 +138,15 @@ def build_graph():
     ALL_EXTS = TEXT_EXTS | BINARY_EXTS
     SKIP_DIRS = {'node_modules', '__pycache__', 'venv', '.venv', 'dist', 'build'}
 
-    # Exclude paths — submodule bulk that clutters the graph
+    # Exclude paths — submodule bulk that clutters the graph.
+    # Add your own large submodule / generated-asset directories here.
     EXCLUDE_PREFIXES = [
         "Town-Hall/Scaffold/claude-scientific-skills/",
         "Town-Hall/Scaffold/academic-research-skills/",
         "Town-Hall/Scaffold/gstack/",
-        "Crossroads/forethought-starter/",
         "Town-Hall/Scaffold/trailofbits-config/",
         "Town-Hall/User/Web-Presence/",
         "Town-Hall/User/Aesthetics/",
-        "Public-Repo/",
     ]
 
     for space in SPACES:

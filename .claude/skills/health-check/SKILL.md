@@ -18,7 +18,7 @@ All submodules should show a commit hash (not a `-` prefix, which means uninitia
 - `claude-scientific-skills/`
 - `academic-research-skills/`
 - `trailofbits-config/`
-- `Crossroads/forethought-starter/`
+- 
 
 ### 2. Skill Symlinks
 Verify all symlinks in `.claude/skills/` resolve to real targets:
@@ -39,7 +39,7 @@ Expected prefixes and counts:
 - `gstack-*`: 8 skills
 - `sci-*`: 22 skills
 - `acad-*`: 4 skills
-- Native + Forethought: ~7 skills (debugging-mode, draft-it, forethought-post, forethought-publish, forethought-style, forethought-diagrams, proofread, research-sprint, tweet-queue)
+- Custom skills: see `.claude/skills/` for the current set
 
 ### 3. Hooks
 Check that hook scripts exist and are executable:
@@ -64,7 +64,7 @@ cat .claude/settings.json 2>/dev/null || echo "⚠️ No project-level settings.
 ### 5. Key Files
 Verify core orientation files exist and aren't empty:
 ```bash
-for f in CLAUDE.md Avi.md MASTER_TODO.md Logbooks/avi-log.md Logbooks/claude-log.md easter-eggs.md README.md; do
+for f in CLAUDE.md README.md Town-Hall/User/User.md Library/Knowledge-Graph/PREMISES.md Library/Knowledge-Graph/KEY_FINDINGS.md Clavi-Scaffold-Guide.md; do
   if [ -s "$f" ]; then
     echo "✅ $f ($(wc -l < "$f") lines)"
   else

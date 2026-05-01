@@ -3,7 +3,7 @@ name: epistemax
 description: "Full epistemic audit: chains adversarial-prompt + consensus-check + steelman-duel + premise-audit + blind-review into a master report. Use when the user says 'epistemax', 'full epistemic audit', 'make this bulletproof epistemically', 'run the full battery', or '/epistemax'. The nuclear option for epistemic rigor."
 argument-hint: "[document path or claim]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 
@@ -163,7 +163,7 @@ Save to `reviews/epistemax-YYYY-MM-DD.md` inside the current Workshop project (o
 
 ## Notes
 
-- This is compute-heavy but still cheap (~$1-2). For any Forethought publication, running epistemax should be standard practice.
+- This is compute-heavy but still cheap (~$1-2). For any publication, running epistemax should be standard practice.
 - The convergence map is the most valuable part — issues flagged by multiple independent analyses are almost certainly real.
 - Individual analyses can also be run standalone via their own skills (`/adversarial-prompt`, `/premise-audit`, etc.)
 - The `--skip` flag lets you run a lighter version if you don't need all 5 (e.g., skip blind-review for a claim without an author).

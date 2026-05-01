@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Idea Garden Data Adapter — Avi-Claude Workspace
+Idea Garden Data Adapter — Clavi Workspace
 
 Reads graph_data.json (from knowledge-graph graph_builder.py) and transforms it
 into garden_data.json — the format Idea Garden expects.
@@ -14,7 +14,7 @@ import math
 import os
 from pathlib import Path
 
-WORKSPACE = Path(__file__).resolve().parents[2].parent  # Avi-Claude root
+WORKSPACE = Path(__file__).resolve().parents[2].parent  # repo root
 GRAPH_DATA = WORKSPACE / "Town-Hall" / "Scaffold" / "knowledge-graph" / "graph_data.json"
 OUTPUT = Path(__file__).parent / "garden_data.json"
 
@@ -36,12 +36,10 @@ EXCLUDE_PREFIXES = [
     "Town-Hall/Scaffold/academic-research-skills/",
     "Town-Hall/Scaffold/gstack/",
     "Town-Hall/Scaffold/trailofbits-config/",
-    "Crossroads/forethought-starter/",
     "Town-Hall/Scaffold/session-pulser/node_modules/",
     "Town-Hall/Scaffold/cabinet/node_modules/",
     "Town-Hall/User/Web-Presence/",
     "Town-Hall/User/Aesthetics/",
-    "Public-Repo/",
 ]
 
 

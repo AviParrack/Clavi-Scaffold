@@ -60,7 +60,7 @@ def project_display_name(project_path):
 def folder_to_project_key(folder_name):
     """Convert a projects/ folder name back to a path.
     Folder names encode / as - with a leading -, e.g.:
-    -Users-aviparrack-Avi-Claude -> /Users/aviparrack/Avi-Claude
+    -Users-username-Repo-Name -> /Users/username/Repo-Name
     We reconstruct by checking which path actually exists."""
     # Try the simple approach first: leading dash = /
     candidate = "/" + folder_name.lstrip("-").replace("-", "/")
@@ -100,55 +100,16 @@ def extract_text_from_content(content):
 
 
 
-# Workspace root — used to extract relative paths for topic inference
-WORKSPACE_ROOT = "/Users/aviparrack/Avi-Claude/"
+# Workspace root — used to extract relative paths for topic inference.
+# Override via REPO_DIR env var; defaults to current working directory.
+WORKSPACE_ROOT = os.environ.get("REPO_DIR", os.getcwd()).rstrip("/") + "/"
 
-# Map old folder names to current workspace structure
-TOPIC_ALIASES = {
-    "Space": "Workshop/SDC",
-    "Agent-Research": "Workshop/AI-Agents",
-    "Automating-Macrostrategy": "Workshop/AI-Agents",
-    "Websites": "Town-Hall/User/Web-Presence",
-    "Blog": "Workshop/backburner/Blog",
-    "Twitter": "Workshop/Twitter",
-    "Forethought": "Embassy/Forethought",
-    "AI Character": "Workshop/AI-Character",
-    "AI-Character": "Workshop/AI-Character",
-    "Orgs": "Workshop/backburner/Orgs",
-    "Personal Dev": "Town-Hall/User",
-    "Becoming": "Town-Hall/User",
-    "The-Futurists": "Workshop/archived/Movements",
-    "Finance": "Town-Hall/User",
-    "Politics": "Workshop/Governance",
-    "in-path-out-path": "Library/Archive",
-    ".claude": "Town-Hall/Scaffold",
-    "Bridge/Claude": "Town-Hall",
-    "Lab/inbox": "Harbor/Inbox",
-}
+# Optional aliases: map historical/renamed folder names to current paths.
+# Edit name_map.json (gitignored) to add your own — keys = raw folder name, values = current scaffold path.
+TOPIC_ALIASES = {}
 
-# Map topic paths to display names
-TOPIC_DISPLAY = {
-    "Bridge/Avi": "Avi (Personal)",
-    "Bridge/Claude": "Claude (Meta)",
-    "Bridge/Scaffold": "Scaffold & Config",
-    "Lab/Space-Energy": "Space & Energy",
-    "Lab/AI-Agents": "AI Agents & Strategy",
-    "Lab/Governance": "Governance",
-    "Lab/Compute": "Compute",
-    "Lab/Movements": "Movements",
-    "Lab/Forethought-Admin": "Forethought Admin",
-    "Lab/inbox": "Research Inbox",
-    "Lab/Archive": "Archive",
-    "Workshop/Space": "Space (SDC Paper)",
-    "Workshop/Blog": "Blog & Writing",
-    "Workshop/Twitter": "Twitter Pipeline",
-    "Workshop/AI-Character": "AI Character Eval",
-    "Workshop/Aesthetics": "Aesthetics & Design",
-    "Workshop/Orgs": "Orgs (Seed, ACAI)",
-    "Workshop/Websites": "Websites",
-    "Workshop/Lighthouse": "Lighthouse",
-    "Workshop/Stanford-EA": "Stanford EA",
-}
+# Optional display names for topic paths. Edit name_map.json to override per-folder labels.
+TOPIC_DISPLAY = {}
 
 # Map topic paths to categories (for treemap colors)
 TOPIC_CATEGORIES = {
@@ -208,14 +169,12 @@ def extract_file_paths_from_messages(messages):
                     elif isinstance(block, str):
                         text = block
                     # Extract ide_opened_file paths
-                    matches = re.findall(
-                        r'/Users/aviparrack/Avi-Claude/([^<\n\s"]+)', text
-                    )
+                    pattern = re.escape(WORKSPACE_ROOT) + r'([^<\n\s"]+)'
+                    matches = re.findall(pattern, text)
                     paths.extend(matches)
             elif isinstance(content, str):
-                matches = re.findall(
-                    r'/Users/aviparrack/Avi-Claude/([^<\n\s"]+)', content
-                )
+                pattern = re.escape(WORKSPACE_ROOT) + r'([^<\n\s"]+)'
+                matches = re.findall(pattern, content)
                 paths.extend(matches)
 
         # Assistant messages: check tool_use file_path and path args
@@ -226,17 +185,17 @@ def extract_file_paths_from_messages(messages):
                     if isinstance(block, dict) and block.get("type") == "tool_use":
                         inp = block.get("input", {})
                         if isinstance(inp, dict):
+                            workspace_basename = WORKSPACE_ROOT.rstrip("/").split("/")[-1] + "/"
                             for key in ("file_path", "path", "pattern"):
                                 val = inp.get(key, "")
-                                if isinstance(val, str) and "Avi-Claude/" in val:
-                                    rel = val.split("Avi-Claude/")[-1]
+                                if isinstance(val, str) and workspace_basename in val:
+                                    rel = val.split(workspace_basename)[-1]
                                     paths.append(rel)
                             # Also check command strings for paths
                             cmd = inp.get("command", "")
                             if isinstance(cmd, str):
-                                matches = re.findall(
-                                    r'/Users/aviparrack/Avi-Claude/([^\s"\']+)', cmd
-                                )
+                                pattern = re.escape(WORKSPACE_ROOT) + r'([^\s"\']+)'
+                                matches = re.findall(pattern, cmd)
                                 paths.extend(matches)
 
     return paths

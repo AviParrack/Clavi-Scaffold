@@ -1,6 +1,6 @@
 ---
 name: crossroads-add
-description: "Whitelist a new external GitHub repo into Crossroads as a trusted source. Use when Avi says 'crossroads add <url>', 'whitelist this repo', 'add this to crossroads', or '/crossroads-add'. Adding to the whitelist = trusting whoever can push to that repo."
+description: "Whitelist a new external GitHub repo into Crossroads as a trusted source. Use when the user says 'crossroads add <url>', 'whitelist this repo', 'add this to crossroads', or '/crossroads-add'. Adding to the whitelist = trusting whoever can push to that repo."
 ---
 
 # Crossroads — Add Repo
@@ -35,7 +35,7 @@ gh api repos/<owner>/<repo>/contents -q '.[].path'                   # top-level
 gh api repos/<owner>/<repo>/readme -q '.content' | base64 -d | head -100   # README excerpt
 ```
 
-Show Avi:
+Show the user:
 - Repo name + description + star count + last activity
 - README excerpt (first ~80 lines)
 - Last 5 commit titles with dates
@@ -53,7 +53,7 @@ Inspect the file/folder layout for these signatures:
 
 For `foreign`, also note what's predominant: skill collection (`.claude/skills/` or top-level `skills/`), markdown notes, full project, etc.
 
-### Phase 3: Ask Avi the four questions
+### Phase 3: Ask the user the four questions
 
 Format as scannable questions, not a wall of prose. Include defaults:
 
@@ -87,7 +87,7 @@ Then append a new entry to `Crossroads/repos.yaml` with:
 - `last_scanned: null`
 - `last_pulled_sha:` and `pinned_sha:` set to current submodule HEAD (`cd Crossroads/<name> && git rev-parse HEAD`)
 - `symlinks: []` (populate after Phase 5)
-- `notes:` brief — date added, why, anything Avi mentioned
+- `notes:` brief — date added, why, anything the user mentioned
 
 ### Phase 5: Initial slotting scan
 
@@ -127,7 +127,7 @@ Append to `Crossroads/log/installs.md` (create the directory + file if needed):
 - Initial SHA: <sha>
 - Symlinks installed: <N>
   - <list>
-- Notes: <whatever Avi said>
+- Notes: <whatever the user said>
 ```
 
 Commit to the parent repo:
@@ -137,8 +137,8 @@ git add .gitmodules Crossroads/<name> Crossroads/repos.yaml Crossroads/log/insta
 git commit -m "Crossroads: add <repo-name> + install <N> skill(s)"
 ```
 
-(Do NOT push. Avi commits/pushes on their own cadence.)
+(Do NOT push. the user commits/pushes on their own cadence.)
 
 ### Phase 7: Confirm
 
-Tell Avi: repo is registered, N skills installed, scout will check it on next overnight run (4:50 AM). Note any open questions or unfamiliar files in the repo that Avi might want to look at manually.
+Tell the user: repo is registered, N skills installed, scout will check it on next overnight run (4:50 AM). Note any open questions or unfamiliar files in the repo that the user might want to look at manually.

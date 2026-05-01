@@ -41,7 +41,7 @@ sleep 1 && open http://localhost:8094/garden.html
 - **H** resets camera, **V** opens VFX panel to tweak colors/bloom/sizes
 - **Timeline scrubber** at the bottom filters by date
 - Color coding: Harbor=gray, Town-Hall=blue, Workshop=orange, Library=green, Embassy=purple, Crossroads=red
-- Canonical findings glow in Forethought orange
+- Canonical findings glow in the scaffold accent color
 
 ## Options
 

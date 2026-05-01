@@ -3,7 +3,7 @@ name: audit
 description: "Comprehensive paper review: editor, fact-checker, calculation auditor, red team, extensions, and simulated readers — all in parallel. Use this skill when the user asks to 'audit', 'review this paper', 'make this bulletproof', 'check this piece', or says '/audit'. Spawns parallel agents per section plus global and reader agents. Output is a structured reviews/ folder with severity-rated findings and a quick-scan index."
 argument-hint: "[document path] [--readers 'persona1; persona2'] [--skip-facts] [--skip-readers]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 
@@ -11,13 +11,13 @@ metadata:
 
 Make a paper bulletproof. This skill simulates a full editorial pipeline: professional editor, fact-checker, calculation auditor, red team, extensions analyst, and a panel of simulated readers — all running in parallel across every section of the document.
 
-**Design philosophy:** Compute is cheap, Avi's time is expensive. This skill is designed to be maximally thorough. A single run may take hours. That's fine. The goal is to catch everything so Avi can triage from a structured dashboard rather than re-reading the paper five times.
+**Design philosophy:** Compute is cheap, the user's time is expensive. This skill is designed to be maximally thorough. A single run may take hours. That's fine. The goal is to catch everything so the user can triage from a structured dashboard rather than re-reading the paper five times.
 
 ---
 
-## Forethought Standards
+## Epistemic Standards
 
-All output follows Forethought's epistemic and stylistic standards (see `.claude/rules/forethought-default.md`). Findings should be direct, calibrated, and actionable. No safety-speak, no over-hedging, no burying the lead.
+All output follows the user's epistemic and stylistic standards (see `.claude/rules/`). Findings should be direct, calibrated, and actionable. No safety-speak, no over-hedging, no burying the lead.
 
 ---
 
@@ -39,8 +39,8 @@ When invoked:
    **If `--readers` is provided:** Use those personas.
 
    **If no readers specified:** Ask the user:
-   > 🚩 **Who should read this piece?** I'll simulate reader reactions from specific personas. You can specify people by name and role (e.g., "Philip Johnston, CEO of Star Cloud" or "skeptical EA Forum commenter") or just say **"default"** and I'll use:
-   > - **EA Forum skeptic** — looks for weak arguments, motivated reasoning, and missing counterarguments
+   > 🚩 **Who should read this piece?** I'll simulate reader reactions from specific personas. You can specify people by name and role (e.g., "specific named person + role" or "skeptical-domain-commenter") or just say **"default"** and I'll use:
+   > - **domain-skeptic** — looks for weak arguments, motivated reasoning, and missing counterarguments
    > - **Relevant domain expert** — [auto-selected based on paper topic]
    > - **Relevant powerful actor** — [auto-selected: someone with decision-making power in the space]
    > - **Informed lay reader** — smart, curious, no domain expertise; tests clarity and accessibility
@@ -59,7 +59,7 @@ Each section agent reads the full document, then focuses on their assigned secti
 
 **Pass 1: Editor**
 - Prose quality, clarity, concision
-- Forethought style compliance (if applicable)
+- the user's style compliance (if applicable)
 - Awkward phrasing, unclear antecedents, jargon without definition
 - Paragraph-level flow and transitions
 - Severity: 🔴 for genuinely confusing passages, 🟡 for style issues, 🟢 for minor polish
@@ -209,7 +209,7 @@ Once all agents complete:
 
 | Persona | Verdict | Would Share? | Top Concern |
 |---|---|---|---|
-| EA Forum skeptic | Mixed | No | [one-line] |
+| domain-skeptic | Mixed | No | [one-line] |
 | Thermal engineer | Positive | Yes | [one-line] |
 | ... | | | |
 
@@ -234,30 +234,30 @@ Present the index to the user with a brief summary:
 
 ### Full audit (default)
 ```
-/audit Space/SDC/paper.md
+/audit path/to/your-paper.md
 ```
 Runs everything: all passes, all sections, fact-check, readers.
 
 ### With specific readers
 ```
-/audit Space/SDC/paper.md --readers "Philip Johnston, CEO Star Cloud; thermal engineer with 20 years satellite experience; EA Forum power user who's skeptical of space"
+/audit path/to/your-paper.md --readers "specific named person + role; expert with N years experience in your domain; community-skeptic"
 ```
 
 ### Skip fact-check (faster)
 ```
-/audit Space/SDC/paper.md --skip-facts
+/audit path/to/your-paper.md --skip-facts
 ```
 Skips the fact-check sub-skill. Useful for early drafts where the facts will change.
 
 ### Skip readers (faster)
 ```
-/audit Space/SDC/paper.md --skip-readers
+/audit path/to/your-paper.md --skip-readers
 ```
 Skips simulated reader personas.
 
 ### Fact-check only
 ```
-/fact-check Space/SDC/paper.md
+/fact-check path/to/your-paper.md
 ```
 Just the fact-check sub-skill, standalone.
 
@@ -268,9 +268,9 @@ Just the fact-check sub-skill, standalone.
 - **Every agent reads the full document first**, then focuses on their section. This ensures cross-references, defined terms, and context are understood.
 - **Maximize parallelism.** All section agents, fact-check agents, reader agents, and the global agent should launch simultaneously. The index is built only after all complete.
 - **Be genuinely critical.** The purpose of this skill is to find problems. Praise where deserved, but the primary value is in catching issues before publication.
-- **Actionable findings only.** Every finding should tell Avi what to do: fix this calculation, rewrite this paragraph, add this caveat, consider this objection. Vague "this could be improved" is worthless.
-- **The 📍 search snippet is mandatory** for every finding in every pass (not just fact-check). Avi needs to Ctrl+F to the exact location.
-- **Positive findings matter too.** Each section review should note what works well, not just what's broken. This helps Avi preserve strengths during revision.
+- **Actionable findings only.** Every finding should tell the user what to do: fix this calculation, rewrite this paragraph, add this caveat, consider this objection. Vague "this could be improved" is worthless.
+- **The 📍 search snippet is mandatory** for every finding in every pass (not just fact-check). the user needs to Ctrl+F to the exact location.
+- **Positive findings matter too.** Each section review should note what works well, not just what's broken. This helps the user preserve strengths during revision.
 
 ---
 
@@ -279,4 +279,4 @@ Just the fact-check sub-skill, standalone.
 - **Going soft.** This skill exists to find problems. Don't pull punches to be polite. Be respectful but direct.
 - **Missing the forest for the trees.** The global agent exists precisely because section agents can't see structural issues. Make sure the global agent actually addresses narrative arc, not just section-level concerns.
 - **Shallow red-teaming.** "Some might disagree" is not a red team finding. The red team pass should identify specific, named objections that a smart critic would raise, and assess whether the paper addresses them.
-- **Generic reader personas.** Reader agents should react as specific people with specific expertise and priors, not as vague archetypes. "A skeptic" is weak; "an EA Forum regular who thinks space is a distraction from near-term AI risk" is strong.
+- **Generic reader personas.** Reader agents should react as specific people with specific expertise and priors, not as vague archetypes. "A skeptic" is weak; "a community-regular who thinks the topic is a distraction from more urgent priorities" is strong.

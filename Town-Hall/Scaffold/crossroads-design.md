@@ -39,7 +39,7 @@ repos:
   - name: finn-skills
     url: https://github.com/finn-tan/finn-skills
     category: friend            # friend | skill-pack | infra | org
-    description: "Finn's experimental skill collection (Forethought)"
+    description: "Finn's experimental skill collection"
     summary_depth: rich         # rich | titles  — how thorough the scout summary is
     scaffold_shape: clavi-town  # clavi-town | clavi-ship | foreign  (auto-detected on first scan; can be overridden)
     watch:                      # globs the scout pays special attention to
@@ -94,7 +94,7 @@ For each repo in `repos.yaml`:
 2. If nothing new → skip silently.
 3. If new commits exist:
    - Fetch the diff against `last_pulled_sha`.
-   - For `summary_depth: rich`: Claude reads the diff and writes a value-prop block (what changed, why might Avi care, slotting suggestion, action recommendation).
+   - For `summary_depth: rich`: Claude reads the diff and writes a value-prop block (what changed, why might the user care, slotting suggestion, action recommendation).
    - For `summary_depth: titles`: just commit titles + changed file count.
 4. Write to `Harbor/Inbox/crossroads-YYYY-MM-DD.md`. Empty days produce no file.
 5. Update `last_scanned` in the manifest. **Do not** update `last_pulled_sha` — that only moves on approval.
@@ -126,7 +126,7 @@ Internal refactors, no user-facing change. Skipping.
 
 ### `/crossroads-install` — approval handler (Phase 1)
 
-Invoked from `/triage` when Avi approves a Crossroads inbox item. (Triage is extended to recognise reports from `/crossroads-scan` and route them to install/skip/revert actions — unified with the rest of the inbox flow.) Steps:
+Invoked from `/triage` when the user approves a Crossroads inbox item. (Triage is extended to recognise reports from `/crossroads-scan` and route them to install/skip/revert actions — unified with the rest of the inbox flow.) Steps:
 
 1. `git submodule update --remote Crossroads/<name>` — moves the pinned SHA forward.
 2. Apply any new symlinks specified in the action.
@@ -134,7 +134,7 @@ Invoked from `/triage` when Avi approves a Crossroads inbox item. (Triage is ext
 4. Append event to `Crossroads/log/installs.md` (timestamp, repo, SHA before, SHA after, reason).
 5. `git add` everything in the parent repo and commit with a message like `Crossroads: pull finn-skills (3 commits, +1 skill)`.
 
-Every approved update is therefore a single, named, revertable commit in `Avi-Claude`'s history.
+Every approved update is therefore a single, named, revertable commit in the scaffold repo's history.
 
 ### `/crossroads-revert` — rollback (Phase 1.5)
 
@@ -148,7 +148,7 @@ Every approved update is therefore a single, named, revertable commit in `Avi-Cl
 `/crossroads-add <github-url>` walks through:
 
 1. Fetch metadata (description, last commit, README excerpt).
-2. Show Avi the README + recent commits + estimated repo shape, ask for category + summary_depth + watch globs.
+2. Show the user the README + recent commits + estimated repo shape, ask for category + summary_depth + watch globs.
 3. Ask: trust this source? (Reminder: option (a), once added it's fully trusted.)
 4. On confirmation: `git submodule add <url> Crossroads/<name>`, append to `repos.yaml`, run an initial scan to populate `last_pulled_sha`, surface the first slotting proposal.
 
@@ -166,28 +166,28 @@ This is where the "automated cybersec health checker" lives. Future iteration: p
 ## Update Lifecycle (the Finn example, end-to-end)
 
 ```
-Day 0  Avi: /crossroads-add https://github.com/finn-tan/finn-skills
+Day 0  User: /crossroads-add https://github.com/finn-tan/finn-skills
        → repo cloned to Crossroads/finn-skills/, registered in repos.yaml
        → initial scan, finds skill `red-team-doc`
-       → Avi approves install → symlink at .claude/skills/finn-red-team-doc/
-       → Avi-Claude commit: "Crossroads: add finn-skills + install red-team-doc"
+       → User approves install → symlink at .claude/skills/finn-red-team-doc/
+       → Scaffold commit: "Crossroads: add finn-skills + install red-team-doc"
 
 Day 7  Finn pushes 3 commits to red-team-doc
 Day 8  4:50 AM  /crossroads-scan runs, fetches remote refs (read-only)
                 writes value-prop summary to Harbor/Inbox/crossroads-2026-05-06.md
        7:00 AM  morning-briefing surfaces it ("1 Crossroads update pending")
-       Avi:     reviews, approves → /crossroads-install finn-skills
+       User:    reviews, approves → /crossroads-install finn-skills
                 → submodule pointer moves forward
                 → symlinks pick up new content automatically (no rewatch needed)
-                → Avi-Claude commit: "Crossroads: pull finn-skills (3 commits)"
+                → Scaffold commit: "Crossroads: pull finn-skills (3 commits)"
 
 Day 9  Skill misbehaves
-       Avi: /crossroads-revert finn-skills
+       User: /crossroads-revert finn-skills
        → submodule rolls back to Day-8 SHA
-       → Avi-Claude commit: "Crossroads: revert finn-skills"
+       → Scaffold commit: "Crossroads: revert finn-skills"
 ```
 
-The auto-flow-through-after-approval is the key UX: once Avi approves a pull, all symlinks reflecting that submodule update without further action. He doesn't re-watch each version of each skill.
+The auto-flow-through-after-approval is the key UX: once the user approves a pull, all symlinks reflecting that submodule update without further action. They don't re-watch each version of each skill.
 
 ## Phase 1.5: Migrate Existing Submodules
 
@@ -198,7 +198,7 @@ Once the system is proven on 1-2 new repos, migrate the 5 existing ones from `To
 | `Town-Hall/Scaffold/gstack/` | `Crossroads/gstack/` |
 | `Town-Hall/Scaffold/claude-scientific-skills/` | `Crossroads/claude-scientific-skills/` |
 | `Town-Hall/Scaffold/academic-research-skills/` | `Crossroads/academic-research-skills/` |
-| `Town-Hall/Scaffold/forethought-starter/` | `Crossroads/forethought-starter/` |
+| `Town-Hall/Scaffold/<your-org-pack>/` | `Crossroads/<your-org-pack>/` |
 | `Town-Hall/Scaffold/trailofbits-config/` | `Crossroads/trailofbits-config/` |
 
 Migration steps per submodule:
@@ -214,7 +214,7 @@ Total estimated effort: ~30 min once the manifest schema is settled, mostly mech
 
 ## Default Seed Repos
 
-When a new user runs `/setup` and reaches Phase F (Embassy + Crossroads), Crossroads is pre-populated with one default entry: **the public Clavi repo itself**. Rationale: every Clavi user is implicitly subscribed to upstream improvements — new skills Avi adds, scaffold tweaks, hook refinements — and gets them surfaced via the same review-and-approve flow as any other repo. Distribution by inclusion, not by push.
+When a new user runs `/setup` and reaches Phase F (Embassy + Crossroads), Crossroads is pre-populated with one default entry: **the public Clavi repo itself**. Rationale: every Clavi user is implicitly subscribed to upstream improvements — new skills, scaffold tweaks, hook refinements — and gets them surfaced via the same review-and-approve flow as any other repo. Distribution by inclusion, not by push.
 
 Default seed config:
 
@@ -238,7 +238,7 @@ Default seed config:
 
 **Setup wizard integration:** Phase F asks: *"Subscribe to upstream Clavi updates? (Recommended — you'll get new skills and scaffold improvements surfaced for review without auto-installing.)"* Default = yes. Skipping just means the entry isn't added; the user can `/crossroads-add` it later.
 
-**For Avi specifically:** Clavi-Scaffold also seeds into Avi's *own* Crossroads. This means contributor PRs to the public repo, or pushes from another machine, surface as scout reports for review before being pulled locally. Same flow, different role.
+**For the maintainer:** the upstream Clavi repo also seeds into the maintainer's *own* Crossroads. This means contributor PRs to the public repo, or pushes from another machine, surface as scout reports for review before being pulled locally. Same flow, different role.
 
 ## Resolved Decisions (2026-04-29)
 
@@ -246,7 +246,7 @@ Default seed config:
 - **Forking is out of scope** — if a user wants to fork an installed skill, their Claude can copy out and de-symlink. Don't engineer for it.
 - **Non-GitHub sources deferred** — GitHub-only via `gh api` for v1.
 - **Skills do the mechanical git work** — no separate scripts. The skill prose carries clear instructions; Claude follows them. Reduces moving parts.
-- **Phase 1 test case: `forethought-starter`** (`https://github.com/HartreeWorks/forethought-starter.git`). It's already a submodule at `Town-Hall/Scaffold/forethought-starter/`, so the test simultaneously proves the migration step. Other 4 submodules follow in Phase 1.5.
+- **Phase 1 test case: an existing submodule.** Pick one already mounted under `Town-Hall/Scaffold/` so the test simultaneously proves the migration step. Other submodules follow in Phase 1.5.
 
 ## Phasing Summary
 
@@ -257,8 +257,8 @@ Default seed config:
 - `/crossroads-scan` skill (rich scout, runs at 4:50 AM)
 - `/crossroads-install` skill (approval handler, invoked from `/triage`)
 - `/triage` extension: recognise Crossroads inbox reports, route to install/skip
-- **Migrate `forethought-starter` from `Town-Hall/Scaffold/` → `Crossroads/`** as the end-to-end test
-- Seed `clavi-scaffold` entry into the manifest (default for new users + watcher for Avi)
+- **Migrate one existing submodule from `Town-Hall/Scaffold/` → `Crossroads/`** as the end-to-end test
+- Seed `clavi-scaffold` entry into the manifest (default for new users + watcher for the maintainer)
 
 **Phase 1.5 — migrate remaining submodules:**
 - Move the other 4: `gstack`, `claude-scientific-skills`, `academic-research-skills`, `trailofbits-config` from `Town-Hall/Scaffold/` → `Crossroads/`
@@ -272,7 +272,7 @@ Default seed config:
 
 ## Cross-References
 
-- [scaffold.md](../../scaffold.md) — system map, will need a Crossroads I/O section added
+- [Clavi-Scaffold-Guide.md](../../Clavi-Scaffold-Guide.md) — system map; the Crossroads I/O section is part of the consolidated guide
 - [CLAVI-OVERHAUL-NOTES.md](CLAVI-OVERHAUL-NOTES.md) — Phase 6 follow-up; this design becomes a new line item there
-- [setup-wizard-design.md](setup-wizard-design.md) — Phase F should mention Crossroads onboarding once this exists
+- `.claude/skills/setup/SKILL.md` — Phase F covers Crossroads onboarding
 - `.gitmodules` — current submodule registry; the source of truth for Phase 1.5 migration

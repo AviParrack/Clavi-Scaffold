@@ -3,7 +3,7 @@ name: steelman-duel
 description: "Generate the strongest possible argument for EACH side of a debate, by separate agents who can't see each other. Use when the user says 'steelman both sides', 'steelman duel', 'best arguments for and against', 'debate this', or '/steelman-duel'."
 argument-hint: "[debate topic or claim]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 

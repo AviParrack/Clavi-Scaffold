@@ -9,7 +9,7 @@
 #   run-builder.sh <project>
 #
 # Environment:
-#   REPO_DIR — defaults to $HOME/Avi-Claude
+#   REPO_DIR — defaults to $PWD (override with: REPO_DIR=/path/to/scaffold)
 #
 # Output:
 #   Logs to Harbor/Dispatch/log/builders/{date}-{time}-{project}.log
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 PROJECT="${1:?Usage: run-builder.sh <project-slug>}"
-REPO_DIR="${REPO_DIR:-$HOME/Avi-Claude}"
+REPO_DIR="${REPO_DIR:-$PWD}"
 LOG_DIR="$REPO_DIR/Harbor/Dispatch/log/builders"
 DATE=$(date +%Y-%m-%d)
 TIME=$(date +%H-%M)
@@ -26,8 +26,9 @@ LOG_FILE="$LOG_DIR/${DATE}-${TIME}-${PROJECT}.log"
 
 mkdir -p "$LOG_DIR"
 
-# Cron has a minimal PATH; ensure claude is reachable
-export PATH="/Users/aviparrack/anaconda3/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+# Cron has a minimal PATH; ensure claude is reachable.
+# Override with CLAUDE_PATH env var, or edit this line to match your install.
+export PATH="${CLAUDE_PATH:-$HOME/.claude/local}:/usr/local/bin:/usr/bin:/bin:$PATH"
 
 cd "$REPO_DIR"
 

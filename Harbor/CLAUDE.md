@@ -5,8 +5,7 @@
 ## Inbound
 
 - [Inbox/](Inbox/) — landing zone for all incoming material. Research sprints deposit here.
-- `/triage` skill processes inbox items: 🟢 → Workshop, 🟡 → Library/Someday, 🔴 → Delete.
-- [todo.md](todo.md) — running to-do list, actionable items not yet projects.
+- `/triage` skill processes inbox items: 🥇 Gold / 🟢 Green → wiki + cross-ref, 🟡 → Library/Someday, 🔴 → Delete.
 
 ## Outbound — Dispatch (mission control)
 
@@ -14,11 +13,11 @@
 - [Dispatch/agents/](Dispatch/agents/) — agent definitions (who does what, operating instructions)
 - [Dispatch/instructions/](Dispatch/instructions/) — format templates, packaging standards
 - [Dispatch/log/](Dispatch/log/) — flight manifest (who was sent, when, what mission, what returned)
+- [Dispatch/agents/crontab.txt](Dispatch/agents/crontab.txt) — canonical schedule for all scouts + builder-manager
 
-Active agents: Opportunity Scout (daily 9:07), Network Scout (daily 9:23), Watchlist Monitor (daily). On demand: Research Sprint, Tweet Queue, Publisher.
+Active agents (per default crontab): watchlist-monitor (4:00 AM), opportunity-scan (4:20), network-scout (4:40), crossroads-scan (4:50), email-triage (6:30), morning-briefing (7:00). On demand: research-sprint, draft-it.
 
 ## Standing Lists
 
-- [watchlist.md](watchlist.md) — topics, people, institutions to monitor. Agents scan periodically.
-- [wanted.md](wanted.md) — specific things waiting for. Agents check availability.
-- [opportunities.md](opportunities.md) — actionable opportunities (conferences, grants, ventures).
+- [watchlist.md](watchlist.md) — topics, people, institutions to monitor. The watchlist-monitor scout reads this.
+- [wanted.md](wanted.md) — specific things waiting for. Agents check availability periodically.

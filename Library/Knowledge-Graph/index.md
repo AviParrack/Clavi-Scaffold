@@ -7,7 +7,7 @@
 
 ## Constitutional
 
-- [PREMISES.md](PREMISES.md) — Worldview commitments. Grounds all research. Amend only with Avi's approval.
+- [PREMISES.md](PREMISES.md) — Worldview commitments. Grounds all research. Amend only with the user's approval.
 - [KEY_FINDINGS.md](KEY_FINDINGS.md) — Canonical S/A-tier claims. Load-bearing beliefs.
 
 ## Wiki Pages

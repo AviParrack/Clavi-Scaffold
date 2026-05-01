@@ -342,8 +342,8 @@
     simNodes.forEach(n => {
       const parts = n.id.split('/');
       parts.pop(); // remove filename
-      n.__folderLevels = parts;       // e.g. ['Lab', 'Space-Energy', 'synthesis']
-      n.__folderKey = parts.join('/'); // e.g. 'Lab/Space-Energy/synthesis'
+      n.__folderLevels = parts;       // e.g. ["Workshop", "your-topic", "folder"]
+      n.__folderKey = parts.join('/'); // e.g. 'Workshop/your-topic/folder'
     });
 
     // Build folder tree: key → { parent, level, children[], nodes[], color, seed }
@@ -526,7 +526,7 @@
 
     // Pre-compute: group nodes by space (level 0) and by level-1 folder
     const spaceGroups = {}; // 'Bridge' → [nodes]
-    const l1Groups = {};   // 'Lab/Space-Energy' → [nodes]
+    const l1Groups = {};   // 'Workshop/your-topic' → [nodes]
     simNodes.forEach(n => {
       const space = n.__folderLevels[0] || 'unknown';
       if (!spaceGroups[space]) spaceGroups[space] = [];

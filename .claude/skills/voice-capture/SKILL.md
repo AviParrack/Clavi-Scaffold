@@ -3,7 +3,7 @@ name: voice-capture
 description: "Process voice memos into transcripts, extract todos, and route to Harbor/Inbox. Use when the user says 'process voice memos', 'transcribe my recordings', 'check for voice notes', or '/voice-capture'. Also runs as a cron automation."
 argument-hint: "[audio file or folder path] [--watch]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 

@@ -1,11 +1,11 @@
 ---
 name: crossroads-scan
-description: "Daily scout that checks every whitelisted Crossroads repo for new commits, reads the diffs, and writes value-prop summaries to Harbor/Inbox/. Runs overnight at 4:50 AM. Use when Avi says 'crossroads scan', 'check the crossroads', 'any updates from friends', or '/crossroads-scan'."
+description: "Daily scout that checks every whitelisted Crossroads repo for new commits, reads the diffs, and writes value-prop summaries to Harbor/Inbox/. Runs overnight at 4:50 AM. Use when the user says 'crossroads scan', 'check the crossroads', 'any updates from friends', or '/crossroads-scan'."
 ---
 
 # Crossroads — Scan
 
-You are the overnight scout for external repos Avi depends on. Read-only inspection: you check remote refs and write summaries. You do **not** pull or move submodule pointers — that's `/crossroads-install`'s job, gated by Avi's approval through `/triage`.
+You are the overnight scout for external repos the user depends on. Read-only inspection: you check remote refs and write summaries. You do **not** pull or move submodule pointers — that's `/crossroads-install`'s job, gated by the user's approval through `/triage`.
 
 ## Before anything else
 
@@ -14,7 +14,7 @@ You are the overnight scout for external repos Avi depends on. Read-only inspect
 
 ## Idempotency check
 
-If `Harbor/Inbox/crossroads-YYYY-MM-DD.md` already exists for today, skip. Already ran. Tell Avi and stop.
+If `Harbor/Inbox/crossroads-YYYY-MM-DD.md` already exists for today, skip. Already ran. Tell the user and stop.
 
 ## Workflow
 
@@ -71,7 +71,7 @@ Write to `Harbor/Inbox/crossroads-YYYY-MM-DD.md` only if at least one repo had n
 - <bullet summary of substantive changes>
 - <new skill or rule or notable file, with one-line context>
 
-**Why you might care:** <1-3 sentences on relevance — overlap with existing skills, gaps it fills, alignment with Avi's interests. If nothing useful: write "Skipping — <one-line reason>" and stop here for this repo.>
+**Why you might care:** <1-3 sentences on relevance — overlap with existing skills, gaps it fills, alignment with the user's interests. If nothing useful: write "Skipping — <one-line reason>" and stop here for this repo.>
 
 **Slot:** <where would this install? — symlink path or merge plan>
 
@@ -106,11 +106,11 @@ Update `repos.yaml` for each repo that was scanned:
 
 ### Phase 5: Confirm
 
-Tell Avi: scanned N repos, M had updates, report at `Harbor/Inbox/crossroads-YYYY-MM-DD.md`. If nothing new across the board, write a one-line "all quiet" note instead of creating an empty inbox file.
+Tell the user: scanned N repos, M had updates, report at `Harbor/Inbox/crossroads-YYYY-MM-DD.md`. If nothing new across the board, write a one-line "all quiet" note instead of creating an empty inbox file.
 
 ## Notes for Claude running this skill
 
-- Be honest about diffs that look uninteresting. The `Skipping — <reason>` pattern saves Avi's time.
+- Be honest about diffs that look uninteresting. The `Skipping — <reason>` pattern saves the user's time.
 - Treat the value-prop as a real recommendation. If you genuinely don't think something is worth installing, say so — don't manufacture reasons to install.
 - For repos shaped `clavi-town`, file changes in our matching room (e.g., upstream Workshop/X) are particularly worth flagging for direct slot mapping.
 - Never auto-pull. The scan is read-only by design.

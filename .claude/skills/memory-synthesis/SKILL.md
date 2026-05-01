@@ -3,7 +3,7 @@ name: memory-synthesis
 description: "Weekly memory consolidation: resolve contradictions, merge duplicates, convert dates, promote feedback patterns, prune stale entries. Use when the user says 'memory synthesis', 'consolidate memory', 'clean up memories', 'dream', or '/memory-synthesis'. Also runs as a Sunday cron."
 argument-hint: "[--dry-run] [--auto-apply] [--full-report]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 
@@ -23,8 +23,8 @@ Read ALL of these before making any changes:
 
 ### 1. Auto-memory (loaded every session)
 ```
-~/.claude/projects/-Users-aviparrack-Avi-Claude/memory/MEMORY.md  ← the index
-~/.claude/projects/-Users-aviparrack-Avi-Claude/memory/*.md       ← all topic files
+~/.claude/projects/<your-project-id>/memory/MEMORY.md  ← the index
+~/.claude/projects/<your-project-id>/memory/*.md       ← all topic files
 ```
 
 ### 2. Feedback log (auto-captured by hook)
@@ -68,7 +68,7 @@ Find memory entries that say the same thing in different words. Merge into one e
 
 Example:
 ```
-Entry A: "Avi prefers short paragraphs"
+Entry A: "the user prefers short paragraphs"
 Entry B: "Default to scannable: bold leads, short paragraphs"
 → Keep B (more specific), delete A, update MEMORY.md index
 ```
@@ -77,16 +77,16 @@ Entry B: "Default to scannable: bold leads, short paragraphs"
 
 ### Operation 3: Resolve Contradictions (flag for review)
 
-Find memory entries that conflict with each other. Present both to Avi with a recommendation.
+Find memory entries that conflict with each other. Present both to the user with a recommendation.
 
 Example:
 ```
-Entry A (March 5): "Avi wants more epistemic hedging"
-Entry B (April 10): "Avi said stop over-hedging"
+Entry A (March 5): "the user wants more epistemic hedging"
+Entry B (April 10): "the user said stop over-hedging"
 → FLAG: These contradict. Likely A is outdated. Recommend: keep B, archive A.
 ```
 
-**Auto-apply:** No — present to Avi. Contradictions often reflect genuine changes in preference, and only Avi knows which is current.
+**Auto-apply:** No — present to the user. Contradictions often reflect genuine changes in preference, and only the user knows which is current.
 
 ### Operation 4: Prune Stale Entries (flag for review)
 
@@ -113,7 +113,7 @@ Feedback log shows:
   and add to MEMORY.md index. Consider: should this be a .claude/rules/ file instead?
 ```
 
-**Auto-apply:** No — present the pattern to Avi. He decides if it becomes a memory, a rule, or is just situational.
+**Auto-apply:** No — present the pattern to the user. He decides if it becomes a memory, a rule, or is just situational.
 
 ### Operation 6: Lint Knowledge Graph (auto-apply safe, flag rest)
 
@@ -151,13 +151,13 @@ Read everything listed above. Build a complete picture of current memory state.
 For each operation, track:
 - What was found
 - What was auto-applied
-- What needs Avi's review
+- What needs the user's review
 
 ### Step 3: Apply safe changes
 Auto-apply operations 1 (dates), 2 (clear duplicates), and path fixes from 4 (stale paths).
 
 ### Step 4: Present review items
-Show Avi everything that needs approval:
+Show the user everything that needs approval:
 ```
 ## 🔍 Memory Synthesis — Items for Review
 
@@ -171,7 +171,7 @@ Show Avi everything that needs approval:
 1. [pattern] (seen [N] times) → Recommend: [memory entry / rule / ignore]
 ```
 
-Wait for Avi's approval before applying flagged changes.
+Wait for the user's approval before applying flagged changes.
 
 ### Step 5: Write synthesis log
 Append a dated entry to `Library/Logs/PATTERNS.md`:
@@ -189,7 +189,7 @@ Append a dated entry to `Library/Logs/PATTERNS.md`:
 - [N] stale entries
 - [N] feedback patterns
 
-**Avi's decisions:**
+**the user's decisions:**
 - [what was approved/rejected]
 
 **Metadata insights:**
@@ -221,7 +221,7 @@ git push origin main
 
 ## Schedule
 
-**Avi's personal config:** Sunday 10:00 AM via autodesk cron.
+**the user's personal config:** Sunday 10:00 AM via autodesk cron.
 
 ```
 Cron: 0 10 * * 0
@@ -231,7 +231,7 @@ Prompt: "Run /memory-synthesis. Auto-apply safe changes. Present flagged items f
 ## Notes
 
 - This skill modifies memory files. That's intentional — it's the only skill authorized to do so automatically (for safe operations).
-- The feedback-log → memory promotion pipeline is the mechanism that makes Avi's corrections permanent without him having to manually save memories.
+- The feedback-log → memory promotion pipeline is the mechanism that makes the user's corrections permanent without him having to manually save memories.
 - Metadata insights are the empirical basis for skill budget decisions — if a skill is never invoked, it shouldn't be in the active set.
 - The synthesis log in PATTERNS.md is the audit trail. If a memory was changed, you can trace when and why.
 - For new users: this skill works with whatever memory exists. Empty memory = nothing to clean. It's safe from day one.

@@ -1,6 +1,6 @@
 # Songwriting
 
-Collaborative songwriting skill for crafting lyrics with Avi. Designed for producing songs for Suno AI, typically based on writings by friends and colleagues at Forethought.
+Collaborative songwriting skill for crafting lyrics with the user. Designed for producing songs (e.g., for Suno AI), typically based on a source text — an essay, a post, a piece of writing the user wants to set to music.
 
 ## When to use
 
@@ -8,7 +8,7 @@ When the user says "write a song", "let's make a song", "songwriting", "/songwri
 
 ## Context
 
-Avi makes songs based on the writings of colleagues at Forethought and others. The album is called "Lyricized versions of writings from friends." Songs so far include pieces based on Toby Ord, Max Dalton, Matthew Clifford, and Joe Carlsmith, plus "Ben Lay Day" based on Lizka Vaintrob's post about Benjamin Lay.
+This skill is for **lyricizing source material** — turning writing into song. Common pattern: the user picks an essay or post they admire, the song captures its emotional arc and key ideas in a singable form. Reference example below shows one finished workflow.
 
 Songs are output as markdown files in `Workshop/Songs/` with:
 - Annotated working draft (syllable counts, rhyme labels, audit table)
@@ -22,13 +22,13 @@ Reference example: `references/example-ben-lay-day.md`
 
 1. **Identify the source material.** What writing/person is this based on? Read the source if available (web fetch the post, read the file, etc.).
 
-2. **Pick the emotional arc.** Songs need a journey. Discuss with Avi:
+2. **Pick the emotional arc.** Songs need a journey. Discuss with the user:
    - What's the core image or story?
    - What feeling should it start with? End with?
    - What's the turn / pivot / surprise?
    - What's the one line someone would quote?
 
-3. **Pick the genre/vibe.** This shapes everything. Discuss with Avi:
+3. **Pick the genre/vibe.** This shapes everything. Discuss with the user:
    - Acoustic folk ballad? Stomp-folk? Indie? Post-rock? Anthemic?
    - Reference tracks? ("Like X meets Y")
    - Suno style prompt keywords to try
@@ -93,13 +93,13 @@ Reference example: `references/example-ben-lay-day.md`
 
 11. **Common problems to watch for:**
     - **Meter drift** — the #1 issue. Count every syllable every time.
-    - **Slant rhymes** — flag explicitly. Avi prefers perfect rhymes.
+    - **Slant rhymes** — flag explicitly. the user prefers perfect rhymes.
     - **Rhyme scheme breaks** — especially in later verses where you're focused on content.
     - **Lines that read well but don't sing** — the test is: can you tap your foot to it?
     - **Too many syllables in sung "every" (3) vs spoken (2)** — in folk, "every" = "ev-ry" = 2.
     - **Abstract lines** — prefer concrete images. "He kept his cave and kept his ground" > "He maintained his position firmly."
 
-12. **Avi will suggest specific words, phrases, hooks.** Build around his suggestions — they're usually the seed of the best lines. (e.g., "toed the line" → "He toed — and moved — the line" was Avi's seed.)
+12. **the user will suggest specific words, phrases, hooks.** Build around his suggestions — they're usually the seed of the best lines. (e.g., "toed the line" → "He toed — and moved — the line" was the user's seed.)
 
 ### Phase 5: Output
 

@@ -1,14 +1,14 @@
 ---
-description: "Triage inbox items: reduce, reflect, gate, integrate. Use when Avi says 'triage', 'triage inbox', 'review inbox', 'what's in the inbox', or '/triage'."
+description: "Triage inbox items: reduce, reflect, gate, integrate. Use when the user says 'triage', 'triage inbox', 'review inbox', 'what's in the inbox', or '/triage'."
 ---
 
 # Triage — Gated Knowledge Integration
 
-You are running the triage pipeline for Avi's workspace. This is a **gated** system — you propose, Avi decides. Never integrate research into the knowledge base without Avi's explicit sign-off.
+You are running the triage pipeline for the user's workspace. This is a **gated** system — you propose, the user decides. Never integrate research into the knowledge base without the user's explicit sign-off.
 
 ## Before anything else
 
-1. Read `Library/Knowledge-Graph/PREMISES.md`. These are Avi's worldview commitments. All analysis must be grounded in these premises.
+1. Read `Library/Knowledge-Graph/PREMISES.md`. These are the user's worldview commitments. All analysis must be grounded in these premises.
 2. Read `Harbor/Inbox/README.md` for the tier definitions.
 
 ## Pipeline
@@ -21,7 +21,7 @@ Items are already in `Harbor/Inbox/`. List what's pending triage:
 ls Harbor/Inbox/*.md | grep -v README
 ```
 
-If inbox is empty, tell Avi and stop.
+If inbox is empty, tell the user and stop.
 
 ### Phase 1.5: Special inbox types (handle before the standard pipeline)
 
@@ -40,12 +40,12 @@ A Crossroads scan report lists update proposals for one or more whitelisted exte
 **Workflow:**
 
 1. **Read the full report.** It already contains Claude's value-prop summary per repo. Don't re-summarise — the work has been done.
-2. **Present each repo's section to Avi** in turn (or all at once if there are 3 or fewer). Lead with the repo name, the commit count, and the value-prop in 1-2 sentences. Don't ask Avi to read the whole report — surface what's actionable.
+2. **Present each repo's section to the user** in turn (or all at once if there are 3 or fewer). Lead with the repo name, the commit count, and the value-prop in 1-2 sentences. Don't ask the user to read the whole report — surface what's actionable.
 3. **For each repo, ask the action question** (`install / pull-only / skip / view-diff`):
-   - `install` — pull the submodule + add specified symlinks. If the report proposed specific skills to install, confirm them; if it just said "install," default to pulling and ask Avi which skills (if any) to symlink.
+   - `install` — pull the submodule + add specified symlinks. If the report proposed specific skills to install, confirm them; if it just said "install," default to pulling and ask the user which skills (if any) to symlink.
    - `pull-only` — move the submodule pointer but don't add new symlinks. Useful for skill packs where existing symlinks should auto-update but no new skills are wanted.
    - `skip` — note the scan but don't pull. Mark the section in the inbox file as `**SKIPPED <date>**`.
-   - `view-diff` — show Avi the actual diff (`gh api repos/<owner>/<repo>/compare/<old>...<new>` or `cd Crossroads/<name> && git log --stat <old>..origin/HEAD`) and re-ask the action question.
+   - `view-diff` — show the user the actual diff (`gh api repos/<owner>/<repo>/compare/<old>...<new>` or `cd Crossroads/<name> && git log --stat <old>..origin/HEAD`) and re-ask the action question.
 4. **For each `install` or `pull-only`**, invoke `/crossroads-install <repo-name>` with the appropriate action. That skill handles: submodule pull, symlink creation, manifest update, install log, parent-repo commit.
 5. **After all repo sections handled**, mark the inbox file as processed:
    - If everything was installed/pull-only/skipped (i.e., every section is now resolved), move the file to `Library/Archive/inbox/crossroads-YYYY-MM-DD.md` to preserve history without cluttering the inbox.
@@ -59,10 +59,10 @@ For each pending item:
 
 1. **Read the full document.**
 2. **Extract key claims** — what are the 3-5 most important assertions or findings?
-3. **Check premise alignment** — does the research assume Avi's premises (PREMISES.md), or does it operate from different assumptions? Flag any divergence explicitly:
+3. **Check premise alignment** — does the research assume the user's premises (PREMISES.md), or does it operate from different assumptions? Flag any divergence explicitly:
    - "This analysis assumes no intelligence explosion"
    - "This treats space expansion as speculative rather than engineering-feasible"
-   - "This critique comes from a utilitarian framework Avi doesn't fully endorse"
+   - "This critique comes from a utilitarian framework the user doesn't fully endorse"
 4. **Tag confidence levels** — for each key claim, is it well-sourced, speculative, or somewhere between?
 5. **Produce a reduction card** — a structured summary block.
 
@@ -70,13 +70,13 @@ For each pending item:
 
 For each reduced item:
 
-1. **Scan both Lab AND Workshop.** Read HANDOFF.md files and key documents across all active projects in both spaces (check CLAUDE.md Active Projects table for the list). Research lives in Lab; things being built live in Workshop. A finding about compute scaling connects to `Workshop/Space-Energy/` (research) AND `Workshop/Space/SDC/` (the paper) AND `Workshop/Space/Papers/` (blog posts).
+1. **Scan Workshop projects.** Read HANDOFF.md files and key documents across all active projects (check CLAUDE.md Active Projects table for the list). A finding may connect to multiple projects at once — note all of them.
 2. **Identify connections** — which projects or files would be affected if this research were integrated? Be specific: name files, name claims that would change.
-3. **Produce a connection map** — a list of "If integrated, this would affect X because Y." Separate Lab connections from Workshop connections so Avi can see the research impact vs. the publishing impact.
+3. **Produce a connection map** — a list of "If integrated, this would affect X because Y." Separate research connections (knowledge graph, premises) from project connections (active workshops, drafts) so the user can see the research impact vs. the publishing impact.
 
-### Phase 4: GATE (Avi decides)
+### Phase 4: GATE (the user decides)
 
-Present each item to Avi in this format:
+Present each item to the user in this format:
 
 ```
 ## [Item title]
@@ -97,19 +97,19 @@ Present each item to Avi in this format:
 **Rationale:** [why this color]
 ```
 
-Then ask Avi:
+Then ask the user:
 
 > 🥇 Gold / 🟢 Green / 🟡 Yellow / 🔴 Red?
 
-**Wait for Avi's response.** Do not proceed without it.
+**Wait for the user's response.** Do not proceed without it.
 
 ### Phase 5: INTEGRATE (gated by color)
 
-Based on Avi's assigned color:
+Based on the user's assigned color:
 
 **🥇 Gold — Core (load-bearing knowledge, updates premises):**
 
-1. **Update PREMISES.md.** Propose the specific addition or revision to `Library/Knowledge-Graph/PREMISES.md`. Show the diff. Avi approves before committing.
+1. **Update PREMISES.md.** Propose the specific addition or revision to `Library/Knowledge-Graph/PREMISES.md`. Show the diff. the user approves before committing.
 2. **Add to KEY_FINDINGS.md.** Dated entry with: core claim, confidence level, source file, which premises it affects.
 3. **Create wiki page** at `Library/Knowledge-Graph/wiki/{topic-slug}.md`:
    ```yaml
@@ -119,7 +119,7 @@ Based on Avi's assigned color:
    date: YYYY-MM-DD
    sources: [list of source files]
    related: [links to related wiki pages]
-   projects: [Workshop projects this feeds, e.g. Workshop/Space-Energy/]
+   projects: [Workshop projects this feeds]
    tags: [topic tags for discovery]
    ---
    ```
@@ -128,7 +128,7 @@ Based on Avi's assigned color:
 5. **Update log.md.** Append ingest entry to `Library/Knowledge-Graph/log.md`.
 6. **Cross-reference.** Read index.md for related wiki pages. Add bidirectional links (new→old, old→new). A single ingest might touch 5-15 pages.
 7. **Link back to Workshop.** If this feeds an active Workshop project, update that project's HANDOFF.md with a "Wiki pages" reference: `Wiki: [[topic-slug]]`.
-8. **Propose reweave edits** to connected Workshop files. Show diffs. Avi reviews.
+8. **Propose reweave edits** to connected Workshop files. Show diffs. the user reviews.
 9. Move inbox item to relevant Workshop project folder.
 
 **🟢 Green — Solid (worth compiling into knowledge):**
@@ -169,7 +169,7 @@ After all integrations:
 
 1. Check that HANDOFF.md files for affected projects are up to date.
 2. Check for contradictions — does the newly integrated content conflict with anything already in the knowledge base?
-3. Report any issues to Avi.
+3. Report any issues to the user.
 
 ## Reverse flow: Workshop → Lab
 
@@ -181,7 +181,7 @@ source: workshop-feedback
 date: [YYYY-MM-DD]
 status: pending
 tier: null
-originating_project: [e.g. Workshop/Space/SDC/]
+originating_project: [Workshop/<project-slug>/]
 question: [the gap or question that needs research]
 ---
 ```
@@ -192,15 +192,15 @@ This closes the loop — Workshop identifies what needs investigating, Lab proce
 
 ## Key principles
 
-- **You propose, Avi decides.** Never skip the gate.
-- **Premise alignment is the first filter.** If research doesn't take Avi's premises seriously, flag it immediately — don't wait for the gate to mention it.
-- **Be specific about what would change.** "This affects the Space project" is useless. "This would change the cost-competitiveness timeline in Space/SDC/HANDOFF.md from 'within decades' to 'within years'" is useful.
-- **Avi is bandwidth-constrained.** Make the gate as efficient as possible. Lead with the tier recommendation and the most important claim. Don't bury the lead.
+- **You propose, the user decides.** Never skip the gate.
+- **Premise alignment is the first filter.** If research doesn't take the user's premises seriously, flag it immediately — don't wait for the gate to mention it.
+- **Be specific about what would change.** Vague claims like "this affects project X" are useless. Concrete claims like "this would change timeline T in Workshop/X/HANDOFF.md from 'within decades' to 'within years'" are useful.
+- **the user is bandwidth-constrained.** Make the gate as efficient as possible. Lead with the tier recommendation and the most important claim. Don't bury the lead.
 - **When in doubt, go Yellow.** It's cheap to promote something to Green later. It's expensive to undo a bad Gold integration.
 
 ## Scaling notes
 
 As trust builds:
-- Yellow items can auto-archive without review (Avi opts in)
-- Green items in well-understood domains can auto-integrate (Avi opts in per-domain)
-- Gold always requires Avi's eyes. Always. It touches PREMISES.md.
+- Yellow items can auto-archive without review (the user opts in)
+- Green items in well-understood domains can auto-integrate (the user opts in per-domain)
+- Gold always requires the user's eyes. Always. It touches PREMISES.md.

@@ -1,13 +1,13 @@
 ---
-description: Writing voice and anti-patterns for Avi's blog, Forethought posts, and Twitter content
+description: Writing voice and anti-patterns. Edit to your own taste — this ships as the original Clavi author's setup.
 paths: ["Workshop/**"]
 ---
 
 # Writing Voice
 
-*For serious drafting, read [Blog/02-style/README.md](Blog/02-style/README.md) in full first.*
+*This rule is shipped as inspiration — edit it to fit your own writing voice. The anti-patterns at the bottom are universal; the influences are Clavi's original author's.*
 
-**Style composition:** ~40% Sagan, ~40% Carlsmith, ~20% other (Ord's rigor and clarity + Avi's emerging voice).
+**Style composition** (Clavi original): ~40% Sagan, ~40% Carlsmith, ~20% other (Ord's rigor and clarity + the author's emerging voice).
 
 **Key moves:**
 - **The litany** (Sagan) — accumulation that builds to overwhelming force; rhythm and repetition as emotional architecture

@@ -1,7 +1,7 @@
 # Agent: Watchlist Monitor
 
 **Skill:** `/watchlist-monitor`
-**Schedule:** Daily (via autodesk cron)
+**Schedule:** Daily 4:00 AM (via cron, see Harbor/Dispatch/agents/crontab.txt)
 **Returns to:** `Harbor/Inbox/watchlist-YYYY-MM-DD.md`
 
 ## Mission

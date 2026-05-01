@@ -3,7 +3,7 @@ name: consensus-check
 description: "Deeply investigate a single claim by independently searching for evidence FOR and AGAINST, then synthesize. Use when the user says 'is this actually true', 'consensus check', 'what does the evidence say', 'verify this claim deeply', or '/consensus-check'."
 argument-hint: "[factual claim to investigate]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 

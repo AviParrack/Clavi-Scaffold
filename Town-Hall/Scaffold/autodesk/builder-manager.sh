@@ -17,7 +17,7 @@ set -euo pipefail
 
 MAX_BUILDERS="${MAX_BUILDERS:-2}"
 STALE_THRESHOLD="${STALE_THRESHOLD:-1800}"  # 30 minutes in seconds
-REPO_DIR="$HOME/Avi-Claude"
+REPO_DIR="${REPO_DIR:-$PWD}"
 AUTODESK_DIR="$REPO_DIR/Town-Hall/Scaffold/autodesk"
 IDEAS_FILE="$REPO_DIR/Workshop/Claudes-Projects/IDEAS.md"
 RUN_BUILDER="$AUTODESK_DIR/run-builder.sh"
@@ -29,7 +29,7 @@ echo "[$(date)] ═══ Builder Manager ═══"
 
 # ── Token budget gate ─────────────────────────────────────────────
 # Refuse to spawn new builders if 5hr session usage is at or above threshold.
-# Keeps autonomous work from consuming the daily budget Avi might want to use.
+# Keeps autonomous work from consuming the daily budget the user might want to use.
 USAGE_GATE_THRESHOLD="${USAGE_GATE_THRESHOLD:-85}"
 if bash "$AUTODESK_DIR/check-usage.sh" gate "$USAGE_GATE_THRESHOLD" >/dev/null 2>&1; then
     echo "✅ Usage under ${USAGE_GATE_THRESHOLD}% — proceeding"

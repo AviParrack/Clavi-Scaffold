@@ -3,7 +3,7 @@ name: decompose
 description: "Break a complex question into answerable sub-questions, recursively, until each leaf is a single search/calculation/lookup. Use when the user says 'decompose this', 'break this down', 'how would we answer this', 'research plan for', or '/decompose'. Produces a question tree + action plan that feeds into /research-sprint."
 argument-hint: "[complex question or file path] [--max-depth 3] [--output-dir path]"
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 
@@ -49,7 +49,7 @@ Every leaf gets an action tag:
 | `SEARCH` | Web search can answer | `/research-sprint` or `WebSearch` |
 | `CALC` | Needs a calculation or BOTEC | `/BOTEC-brief` or manual |
 | `LOOKUP` | Specific data source exists | API, database, or specific URL |
-| `EXPERT` | Needs human domain expertise | Flag for Avi or collaborator |
+| `EXPERT` | Needs human domain expertise | Flag for the user or collaborator |
 | `SPECULATIVE` | No definitive answer exists | Flag as genuine uncertainty |
 | `META` | About the question itself (framing, scope) | Resolve before researching |
 

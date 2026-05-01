@@ -37,7 +37,7 @@ For each correction or preference the user expressed:
 - What gets them excited vs what do they skip?
 - Add to User.md interests section
 
-**5. Relationship Notes → Agent.md**
+**5. Relationship Notes → memory entries**
 - How does the user relate to Claude?
 - Any standing agreements ("always push back", "don't sugarcoat")
 - Any communication patterns observed
@@ -48,12 +48,11 @@ Produce these files:
 
 ```
 user_additions.md      — bullet points to merge into User.md
-memory_entries/        — one .md file per feedback/preference memory
+memory_entries/        — one .md file per feedback/preference memory (auto-memory format)
   feedback_[topic1].md
   feedback_[topic2].md
   ...
 project_notes.md       — summary of active projects discovered
-agent_notes.md         — observations for Agent.md
 scout_calibration.md   — interests, excitement patterns, skip patterns
 ```
 

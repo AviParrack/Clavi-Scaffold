@@ -1,12 +1,12 @@
 # Agent: Network Scout
 
 **Skill:** `/network-scout`
-**Schedule:** Daily 9:23 AM (via autodesk cron)
+**Schedule:** Daily 4:40 AM (via cron)
 **Returns to:** `Harbor/Inbox/network-scout-YYYY-MM-DD.md`
 
 ## Mission
 
-Identify 2-3 high-value people Avi should connect with. Find warm intro paths, draft outreach in Avi's voice, identify which of Avi's work to share.
+Identify 2-3 high-value people the user should connect with. Find warm intro paths, draft outreach in the user's voice, identify which of the user's work to share.
 
 ## Reads Before Launch
 

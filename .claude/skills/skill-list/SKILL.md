@@ -2,7 +2,7 @@
 name: skill-list
 description: "Show all available skills organized by category. Use when the user says 'what skills do I have', 'list skills', 'show skills', 'what can you do', or '/skill-list'."
 metadata:
-  author: Avi Parrack & Claude
+  author: the user & Claude
   version: 0.1.0
 ---
 
@@ -45,7 +45,7 @@ Show all available skills, organized by category. Read the .claude/skills/ direc
 - **Scientific** (~175): /sci-arxiv, /sci-matplotlib, /sci-pytorch-lightning...
 - **Academic** (4): /acad-deep-research, /acad-academic-paper...
 - **Engineering** (8): /gstack-browse, /gstack-review, /gstack-ship...
-- **Forethought** (6): /forethought-publish, /forethought-style...
+- **Org skill packs:** add via `/crossroads-add` (org-specific publish/style toolkits)
 
 Total: [N] skills available
 ```

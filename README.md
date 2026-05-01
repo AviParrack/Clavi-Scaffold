@@ -2,7 +2,7 @@
 
 *A spatial scaffold for working with Claude over time. Six color-coded "spaces" with distinct functions, ~40 custom skills, headless autonomous builders, an inbox-driven research pipeline, and an interactive setup wizard.*
 
-This is the public version of [Avi Parrack](https://aviparrack.com/)'s actual scaffold — lightly scrubbed of private content (emails, scheduling links, internal research) while preserving the real config as inspiration. It's meant as **inspiration first, template second**: fork it, run `/setup`, customize, make it yours.
+This is the public version of [Avi Parrack](https://aviparrack.com/)'s scaffold. Fork it, run `/setup`, customize, make it yours.
 
 ---
 

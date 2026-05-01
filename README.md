@@ -30,58 +30,9 @@ This is the public version of [Avi Parrack](https://aviparrack.com/)'s scaffold.
 
 ## Quick visual: The Town
 
-```
-                          World + Internet
-                            ↕         ↑
-                ┌───────────┴──────┐  │
-  CROSSROADS (NW)  │   HARBOR (N)     │  │  EMBASSY (NE)
-  Network.md       │                  │  │  [Your orgs]
-       ·           │  Inbox ←── World │  │       ·
-         ·         │    ↓             │  │     ·
-           ·       │  /triage         │  │   ·
-             ·     │    ↓             │  │ ·
-               ·   │ 🥇🟢 → wiki +   │──┘
-                ·  │       cross-ref  │
-                 · │ 🟡 → Someday    │
-                   │ 🔴 → Delete     │
-                   │                  │
-                   │  Dispatch ──→ World
-                   │  agents/ log/    │
-                   │  📬 watchlist    │
-                   │  🎯 wanted      │
-                   └──┬───────────┬──┘
-                      │           │
-   ┌──────────────────┘           └──────────────────┐
-   │                                                  │
-   │  TOWN HALL (W)              WORKSHOP (E)         │
-   │  ┌──────────────┐          ┌──────────────┐      │
-   │  │ User/User.md │   ←───→  │ [projects]   │      │
-   │  │ Scaffold/    │ context  │ Complete/    │      │
-   │  │  skills      │          │ backburner/  │      │
-   │  │  hooks       │          │ archived/    │      │
-   │  │  rules       │   wiki   │ HANDOFF.md ←─┼── PreCompact hook
-   │  │  guide       │  links   │   ↕          │      │
-   │  └──────────────┘   ↕      └──────┬───────┘      │
-   │                     │             │               │
-   │               ┌─────┴─────────────┴─────┐         │
-   │               │     LIBRARY (S)         │         │
-   │               │                         │         │
-   │               │  Knowledge-Graph/       │         │
-   │               │    PREMISES.md ← 🥇    │         │
-   │               │    KEY_FINDINGS.md      │         │
-   │               │    index.md ← auto-sync │         │
-   │               │    wiki/ ← 🥇🟢 pages   │         │
-   │               │  Logs/                  │         │
-   │               │    metadata/ ← hooks    │         │
-   │               │    feedback-log ← hook  │         │
-   │               │    PATTERNS.md ← weekly │         │
-   │               │  Someday/ ← 🟡         │         │
-   │               │  Archive/               │         │
-   │               └─────────────────────────┘         │
-   │                                                   │
-   └── CLAUDE.md (loaded every session) +
-       Clavi-Scaffold-Guide.md (full reference, on demand)
-```
+<p align="center">
+  <img src="Town-Hall/User/Aesthetics/Clavi_Town.png" alt="The Clavi Town — a hand-drawn map of the six spaces: Harbor (N) with lighthouse and inbound ship-agents, Crossroads (NW), Embassy (NE), Town Hall (W), Workshop (E), and Library (S), with CLAUDE.md and Clavi-Scaffold-Guide.md as the orientation roots." width="500">
+</p>
 
 ---
 

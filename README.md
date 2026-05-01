@@ -42,12 +42,12 @@ Spatially organized for ease of orientation so you get a sense of where things a
 
 | Direction | Space | Function |
 |---|---|---|
-| **N — Harbor** Intake, triage, dispatch, specs for your agents to go interface with the internet/world. |
-| **W — Town Hall** Identity + infrastructure. Who you are, your scaffold and meta level docs, universal constants, and ground truth. |
-| **E — Workshop** Active projects. Each project is a self-contained unit for workflows, context files, scripts, etc. Claude projects sit in queue waiting for you to greenlight with your spare tokens. |
-| **S — Library** Long-term memory. Your knowledge/context accrues here over years. |
-| **NE — Embassy** Org-specific files, skills, workflows, etc. |
-| **NW — Crossroads** your personal network. Collaborators, and shared repos. |
+| **N — Harbor** - Intake, triage, dispatch, specs for your agents to go interface with the internet/world. |
+| **W — Town Hall** - Identity + infrastructure. Who you are, your scaffold and meta level docs, universal constants, and ground truth. |
+| **E — Workshop** - Active projects. Each project is a self-contained unit for workflows, context files, scripts, etc. Claude projects sit in queue waiting for you to greenlight with your spare tokens. |
+| **S — Library** - Long-term memory. Your knowledge/context accrues here over years. |
+| **NE — Embassy** - Org-specific files, skills, workflows, etc. |
+| **NW — Crossroads** - your personal network. Collaborators, and shared repos. |
 
 ---
 

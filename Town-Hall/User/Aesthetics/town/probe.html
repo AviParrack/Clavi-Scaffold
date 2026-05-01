@@ -1,0 +1,105 @@
+<!doctype html>
+<html><head><title>Tileset Probe</title><style>
+body{background:#222;color:#eee;font-family:monospace;padding:14px;font-size:13px}
+h3{margin:18px 0 6px}
+canvas{image-rendering:pixelated;border:1px solid #555;background:#111}
+.row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.lbl{font-size:11px;color:#bbb}
+.cells canvas{display:inline-block;margin:2px;vertical-align:top}
+.cells .c{display:inline-block;text-align:center;margin:2px}
+.cells .c div{color:#8cf;font-size:11px}
+</style></head><body>
+
+<h3>Walls (80×48 = 5 cols × 3 rows) — each 16×16 tile shown 8×</h3>
+<div id="walls" class="cells"></div>
+<canvas id="wallsFull" width="640" height="384"></canvas>
+
+<h3>Roof (112×80 = 7 cols × 5 rows) — each tile 8×</h3>
+<div id="roofs" class="cells"></div>
+<canvas id="roofsFull" width="896" height="640"></canvas>
+
+<h3>Test: assemble the wall panel from cols 0-1 rows 0-2 + roof crop cols 3-6 rows 0-3</h3>
+<canvas id="assemble1" width="512" height="896"></canvas>
+
+<h3>Test: wall panel from cols 2-3 + assorted roof regions</h3>
+<canvas id="assemble2" width="640" height="896"></canvas>
+
+<script>
+function loadImg(src){return new Promise(r=>{const i=new Image();i.onload=()=>r(i);i.src=src})}
+
+function tileGrid(container, img, cols, rows, tile, scale) {
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'c';
+      const cv = document.createElement('canvas');
+      cv.width = tile*scale; cv.height = tile*scale;
+      const g = cv.getContext('2d');
+      g.imageSmoothingEnabled = false;
+      g.drawImage(img, c*tile, r*tile, tile, tile, 0, 0, cv.width, cv.height);
+      const lbl = document.createElement('div');
+      lbl.textContent = `${c},${r}`;
+      cell.appendChild(cv);
+      cell.appendChild(lbl);
+      container.appendChild(cell);
+    }
+    container.appendChild(document.createElement('br'));
+  }
+}
+
+function drawFull(canvasId, img, cols, rows, tile, scale) {
+  const cv = document.getElementById(canvasId);
+  cv.width = cols * tile * scale;
+  cv.height = rows * tile * scale;
+  const g = cv.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.drawImage(img, 0, 0, cv.width, cv.height);
+  g.strokeStyle = 'rgba(255,0,0,0.45)';
+  g.lineWidth = 1;
+  const cellW = tile * scale, cellH = tile * scale;
+  for (let i = 0; i <= cols; i++) { g.beginPath(); g.moveTo(i*cellW,0); g.lineTo(i*cellW,cv.height); g.stroke(); }
+  for (let i = 0; i <= rows; i++) { g.beginPath(); g.moveTo(0,i*cellH); g.lineTo(cv.width,i*cellH); g.stroke(); }
+  g.fillStyle = 'yellow'; g.font = '12px monospace';
+  for (let c = 0; c < cols; c++) g.fillText(c, c*cellW+3, 12);
+  for (let r = 0; r < rows; r++) g.fillText(r, 2, r*cellH+24);
+}
+
+async function main() {
+  const walls = await loadImg('assets/sprout-lands/Tilesets/Building parts/Wooden_House_Walls_Tilset.png');
+  const roofs = await loadImg('assets/sprout-lands/Tilesets/Building parts/Wooden_House_Roof_Tilset.png');
+
+  tileGrid(document.getElementById('walls'), walls, 5, 3, 16, 6);
+  tileGrid(document.getElementById('roofs'), roofs, 7, 5, 16, 6);
+  drawFull('wallsFull', walls, 5, 3, 16, 8);
+  drawFull('roofsFull', roofs, 7, 5, 16, 8);
+
+  // Test assembly 1: wall cols 0-1 × rows 0-2 + roof cols 3-6 × rows 0-3 (current code)
+  {
+    const cv = document.getElementById('assemble1');
+    const g = cv.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    const S = 16; // source tile px
+    const D = 64; // render 64px per tile (4×)
+    cv.width = 4*D; cv.height = 7*D;
+    // roof 4 wide × 4 tall from (3,0)
+    g.drawImage(roofs, 3*S, 0, 4*S, 4*S, 0, 0, 4*D, 4*D);
+    // walls 2 wide × 3 tall at (0, 4*D), tiled twice
+    g.drawImage(walls, 0, 0, 2*S, 3*S, 0, 4*D, 2*D, 3*D);
+    g.drawImage(walls, 2*S, 0, 2*S, 3*S, 2*D, 4*D, 2*D, 3*D);
+  }
+  // Test assembly 2: other combos
+  {
+    const cv = document.getElementById('assemble2');
+    const g = cv.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    const S = 16, D = 64;
+    // try roof cols 0-3 × rows 0-4 (left portion)
+    g.drawImage(roofs, 0, 0, 4*S, 5*S, 0, 0, 4*D, 5*D);
+    // walls below
+    g.drawImage(walls, 0, 0, 2*S, 3*S, 0, 5*D, 2*D, 3*D);
+    g.drawImage(walls, 0, 0, 2*S, 3*S, 2*D, 5*D, 2*D, 3*D);
+  }
+}
+main();
+</script>
+</body></html>

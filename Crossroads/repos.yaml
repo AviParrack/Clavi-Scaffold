@@ -1,0 +1,49 @@
+# Crossroads — trusted external repos
+#
+# Each entry is a whitelisted source. Adding here = trusting whoever can push there.
+# The whitelist is the trust boundary; once a repo is on it, all updates flow
+# through /crossroads-scan → /triage → /crossroads-install.
+#
+# See Town-Hall/Scaffold/crossroads-design.md for full design.
+
+repos:
+  # The upstream Clavi scaffold itself — useful as a watcher on contributor PRs / pushes.
+  # Comment this out if you don't want to track upstream Clavi updates.
+  - name: clavi-scaffold
+    url: https://github.com/AviParrack/Clavi.git
+    category: infra
+    description: "Upstream Clavi scaffold — skills, hooks, rules, wizard updates"
+    summary_depth: rich
+    scaffold_shape: clavi-town
+    watch:
+      - .claude/skills/**
+      - .claude/rules/**
+      - .claude/hooks/**
+      - Town-Hall/Scaffold/**
+    symlinks: []
+    last_scanned: null
+    last_pulled_sha: null
+    pinned_sha: null
+    notes: |
+      🚩 NOT YET CLONED LOCALLY. Run /crossroads-add to fetch + register.
+
+  # Add your own whitelisted repos below. The /crossroads-add skill walks you through it.
+  #
+  # Example structure for adding a friend's skill collection or a third-party skill pack:
+  #
+  # - name: example-skill-pack
+  #   url: https://github.com/some-author/some-skill-pack.git
+  #   category: friend  # or 'infra' or 'tooling'
+  #   description: "What this provides"
+  #   summary_depth: rich  # or 'minimal'
+  #   scaffold_shape: foreign  # or 'clavi-town' if it mirrors this scaffold
+  #   watch:
+  #     - skills/**
+  #     - agents/**
+  #   symlinks:
+  #     - { from: skills/some-skill,  to: .claude/skills/some-skill,  installed_at: YYYY-MM-DD }
+  #   last_scanned: null
+  #   last_pulled_sha: null
+  #   pinned_sha: null
+  #   notes: |
+  #     One-line context about why you added this and what to expect from updates.

@@ -1,37 +1,91 @@
 {
   "permissions": {
+    "_comment_defaultMode": "Public scaffold default: 'default' (Claude Code asks before risky operations). Avi's private setting was 'bypassPermissions' — change to that only after auditing the skills you've installed.",
+    "defaultMode": "default",
+    "_comment_allow": "Public scaffold ships without a blanket allow list. Add specific permissions as you learn what you want auto-approved. The deny list below is a safety net regardless of allow rules.",
     "deny": [
-      "Bash(rm -rf *)",
-      "Bash(rm -fr *)",
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf ~/*)",
+      "Bash(rm -fr /)",
+      "Bash(rm -fr ~)",
+      "Bash(rm -fr ~/*)",
       "Bash(sudo *)",
       "Bash(mkfs *)",
       "Bash(dd *)",
       "Bash(wget *|bash*)",
       "Bash(wget *| bash*)",
+      "Bash(curl *|bash*)",
+      "Bash(curl *| bash*)",
+      "Bash(curl *|sh*)",
+      "Bash(curl *| sh*)",
       "Bash(git push --force*)",
       "Bash(git push *--force*)",
       "Bash(git reset --hard*)",
-      "Edit(~/.bashrc)",
-      "Edit(~/.zshrc)",
-      "Edit(~/.ssh/**)",
       "Read(~/.ssh/**)",
       "Read(~/.gnupg/**)",
-      "Read(~/.aws/**)",
-      "Read(~/.azure/**)",
-      "Read(~/.config/gh/**)",
-      "Read(~/.git-credentials)",
-      "Read(~/.docker/config.json)",
-      "Read(~/.kube/**)",
-      "Read(~/.npmrc)",
-      "Read(~/.npm/**)",
-      "Read(~/.pypirc)",
-      "Read(~/.gem/credentials)",
-      "Read(~/Library/Keychains/**)",
-      "Read(~/Library/Application Support/**/metamask*/**)",
-      "Read(~/Library/Application Support/**/electrum*/**)",
-      "Read(~/Library/Application Support/**/exodus*/**)",
-      "Read(~/Library/Application Support/**/phantom*/**)",
-      "Read(~/Library/Application Support/**/solflare*/**)"
+      "Read(~/Library/Keychains/**)"
+    ]
+  },
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-compact.py\"",
+            "statusMessage": "Preparing handoff before compaction..."
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/metadata-logger.py\"",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/feedback-capture.py\"",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-logger.py\"",
+            "async": true
+          }
+        ]
+      }
     ]
   }
 }

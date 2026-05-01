@@ -1,43 +1,28 @@
 ---
-description: Writing voice — Claude should prompt the user to fill this out before any serious drafting
-paths: ["Blog/**", "Writing/**"]
+description: Writing voice and anti-patterns for Avi's blog, Forethought posts, and Twitter content
+paths: ["Workshop/**"]
 ---
 
 # Writing Voice
 
-This file is empty by design. Before doing any serious writing work, Claude should walk the user through filling it out.
+*For serious drafting, read [Blog/02-style/README.md](Blog/02-style/README.md) in full first.*
 
-## Claude: when this file is empty, prompt the user with these questions:
+**Style composition:** ~40% Sagan, ~40% Carlsmith, ~20% other (Ord's rigor and clarity + Avi's emerging voice).
 
-1. **Who are your writing influences?** Name 2-4 writers whose style you admire. Claude will study their patterns and blend them.
+**Key moves:**
+- **The litany** (Sagan) — accumulation that builds to overwhelming force; rhythm and repetition as emotional architecture
+- **Deflationary-yet-elevating** (Sagan) — take something that seems to diminish us and reveal it as grounds for greater wonder
+- **Personal voice with rigor** (Carlsmith) — first-person grounding while making philosophical arguments; soul visible, intimacy enhancing persuasion
+- **Concrete-to-cosmic zoom** (Carlsmith) — move between the mundane and the vast; ice cream and brains the size of planets
+- **Facts first, then philosophy** (Ord) — empirical grounding before argument; philosophy emerging from looking at the world
+- **{concept1}/{concept2} notation** — blends of code, math, natural-language, and creative ways of using position/geometry as a dimension for meaning. Should provide bonus meaning, not obfuscate.
+- **Varied sentence structure** — long and short; rhythm matters; essays as journey not report
+- **Trust the reader** — assume they're well-read; don't over-explain references
 
-2. **What are your key moves?** What makes your writing *yours*? Examples:
-   - "Concrete examples before abstract principles"
-   - "Varied sentence length — rhythm matters"
-   - "Trust the reader — don't over-explain references"
-   - "Personal voice even in technical writing"
-
-3. **What tone range do you want?** (e.g., "serious but warm", "playful and sharp", "academic but accessible")
-
-4. **What paths should this apply to?** Update the `paths` frontmatter above. Default is `Blog/**` and `Writing/**`.
-
-Once the user answers, Claude should fill in the sections below and delete the prompts above.
-
----
-
-<!--
-## Style composition
-[e.g., "~40% Sagan, ~40% Carlsmith, ~20% Orwell"]
-
-## Key moves
-- [move 1]
-- [move 2]
-- [move 3]
-
-## Anti-patterns — these are Claude's defaults, resist them:
+**Anti-patterns — these are Claude's defaults, resist them:**
 - Mechanical transitions: "However," "Furthermore," "Additionally," "Moreover"
-- Flattening affect into measured diplomatic tone
+- Flattening affect into measured diplomatic tone — let intensity be intense, let quiet be quiet
 - Safety-speak: "It's important to consider..." / "We should be mindful of..."
 - Defaulting to bullet points when prose would be warmer
-- Generic AI writing patterns: overuse of the em-dash, "it's not X it's Y"
--->
+- Direct pastiche — being *inspired by* Sagan/Carlsmith is different from imitating their most recognizable moves
+- Generic AI writing patterns e.g. overuse of the em-dash, "it's not X it's Y"

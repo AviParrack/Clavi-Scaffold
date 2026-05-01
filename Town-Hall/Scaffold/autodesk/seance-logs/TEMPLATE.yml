@@ -1,0 +1,34 @@
+# Seance Log Template
+# Written by autonomous agents (Scout/Builder) at session end.
+# New sessions read the most recent log for their role on startup.
+#
+# Naming convention: {role}-{ISO-timestamp}.yml
+# Example: builder-2026-04-23T14-30.yml
+# Keep last 10 per role; archive older ones.
+
+session_id: ""
+role: ""          # scout | builder
+started: ""       # ISO timestamp
+ended: ""         # ISO timestamp
+project: ""       # which Workshop project (if applicable)
+
+accomplished:
+  - ""
+
+pending:
+  - ""
+
+tried_but_failed:
+  - ""
+  # Include WHY it failed — this is the key value over HANDOFF.md
+
+gotchas:
+  - ""
+  # Warnings for successor: inconsistent data, hardcoded constants, tricky edge cases
+
+decisions_and_reasoning:
+  - ""
+  # What was decided and WHY — so successor can judge if the reasoning still holds
+
+files_touched:
+  - ""

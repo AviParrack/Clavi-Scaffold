@@ -1,0 +1,47 @@
+# ──────────────────────────────────────────────────────────────────
+# Avi's scout + builder schedule
+#
+# This is the canonical reference. The live cron is whatever
+# `crontab -l` shows on each machine. Install this file with:
+#
+#     crontab Harbor/Dispatch/agents/crontab.txt
+#
+# Verify with:
+#     crontab -l
+#
+# Notes:
+#   - Times are in the machine's local timezone.
+#   - PATH must include claude (typically anaconda3/bin) and standard
+#     Unix tools.
+#   - Logs land in Harbor/Dispatch/log/scouts/ and ../builders/.
+#   - Scouts: one-shot daily skills via run-scout.sh.
+#   - Builder manager: every 30 min; refuses to spawn if 5hr usage ≥ 85%.
+# ──────────────────────────────────────────────────────────────────
+
+PATH=/Users/aviparrack/anaconda3/bin:/usr/local/bin:/usr/bin:/bin
+SCAFFOLD=/Users/aviparrack/Avi-Claude
+
+# ── Daily scouts (overnight + early morning) ──────────────────────
+# 4:00 AM  Watchlist — overnight news scan
+0  4  *  *  *  $SCAFFOLD/Harbor/Dispatch/agents/run-scout.sh watchlist-monitor
+
+# 4:20 AM  Opportunities — conferences, grants, fellowships
+20 4  *  *  *  $SCAFFOLD/Harbor/Dispatch/agents/run-scout.sh opportunity-scan
+
+# 4:40 AM  Network — high-value people to connect with
+40 4  *  *  *  $SCAFFOLD/Harbor/Dispatch/agents/run-scout.sh network-scout
+
+# 4:50 AM  Crossroads — updates from whitelisted external repos
+50 4  *  *  *  $SCAFFOLD/Harbor/Dispatch/agents/run-scout.sh crossroads-scan
+
+# 6:30 AM  Email triage — pull last 24h, build queue, urgent → Telegram
+30 6  *  *  *  $SCAFFOLD/Harbor/Dispatch/agents/run-scout.sh email-triage
+
+# 7:00 AM  Morning briefing — synthesize all above + calendar + todos
+0  7  *  *  *  $SCAFFOLD/Harbor/Dispatch/agents/run-scout.sh morning-briefing
+
+# ── Weekly: memory synthesis (Sunday 10 AM) ───────────────────────
+0  10 *  *  0  $SCAFFOLD/Harbor/Dispatch/agents/run-scout.sh memory-synthesis
+
+# ── Builder manager (every 30 min, gated on 5hr usage < 85%) ──────
+*/30 * * *  *  $SCAFFOLD/Town-Hall/Scaffold/autodesk/builder-manager.sh >> $SCAFFOLD/Harbor/Dispatch/log/builders/manager.log 2>&1

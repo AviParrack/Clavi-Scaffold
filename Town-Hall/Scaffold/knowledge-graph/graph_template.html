@@ -1,0 +1,2288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>⟪ Knowledge Graph ⟫ — Avi-Claude</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* ═══════════════════════════════════════════════════════
+       PoetEng v3 — Pulser chrome + Garden glow
+       ═══════════════════════════════════════════════════════ */
+    :root {
+      --bg: #060610;
+      --bg-panel: rgba(10, 10, 18, 0.92);
+      --bg-card: #0e0e16;
+      --border: #1a1a24;
+      --border-bright: #2a2a3a;
+      --text: #b8b8b8;
+      --text-dim: #5a5a6a;
+      --text-bright: #e8e8e8;
+      --accent: #b4e62e;
+      --harbor: #9CA3AF;
+      --town-hall: #3B82F6;
+      --workshop: #E87040;
+      --library: #0D9488;
+      --embassy: #A855F7;
+      --crossroads: #EF4444;
+      --canonical: #E87040;
+      --orphan: #ef4444;
+      --mono: 'Fira Code', 'JetBrains Mono', 'SF Mono', monospace;
+      --sans: 'Space Grotesk', system-ui, sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: var(--bg); color: var(--text); font-family: var(--mono); overflow: hidden; height: 100vh; }
+    #scene-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+    #scene-container canvas { display: block; }
+
+    /* ─── Loading ─── */
+    #loading {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+      background: var(--bg);
+      transition: opacity 1s ease, visibility 1s ease;
+    }
+    #loading.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+    #load-title { font-family: var(--sans); font-size: 18px; font-weight: 500; color: var(--text-dim); letter-spacing: 0.2em; }
+    #load-title .br { color: var(--accent); }
+    #load-bar { width: 200px; height: 2px; background: var(--border); overflow: hidden; }
+    #load-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.3s ease; }
+    #load-status { font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; }
+
+    /* ─── Panel (Pulser chrome) ─── */
+    #panel {
+      position: fixed; top: 16px; left: 16px; z-index: 100;
+      background: var(--bg-panel); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      padding: 20px; width: 264px; font-size: 12px;
+      opacity: 0; transition: opacity 0.6s ease;
+    }
+    #panel.visible { opacity: 1; }
+
+    /* Corner brackets — from Pulser */
+    .corner { position: absolute; width: 12px; height: 12px; border-color: var(--accent); border-style: solid; pointer-events: none; z-index: 2; }
+    .corner.tl { top: 3px; left: 3px; border-width: 1px 0 0 1px; }
+    .corner.tr { top: 3px; right: 3px; border-width: 1px 1px 0 0; }
+    .corner.bl { bottom: 3px; left: 3px; border-width: 0 0 1px 1px; }
+    .corner.br { bottom: 3px; right: 3px; border-width: 0 1px 1px 0; }
+
+    #panel-title {
+      font-family: var(--sans); font-size: 14px; font-weight: 600;
+      color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 14px;
+    }
+
+    .stat-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-label { color: var(--text-dim); font-size: 11px; }
+    .stat-value { color: var(--text-bright); font-weight: 600; font-size: 11px; }
+
+    .section-label {
+      font-size: 9px; color: var(--text-dim); letter-spacing: 0.18em;
+      text-transform: uppercase; margin: 16px 0 6px; font-family: var(--sans);
+    }
+
+    #search {
+      width: 100%; padding: 7px 10px; background: var(--bg-card); border: 1px solid var(--border);
+      color: var(--text-bright); font-family: var(--mono); font-size: 11px; outline: none;
+      transition: border-color 0.15s ease;
+    }
+    #search:focus { border-color: var(--accent); }
+    #search::placeholder { color: var(--text-dim); }
+
+    .filter-row { display: flex; gap: 3px; flex-wrap: wrap; }
+    .fbtn {
+      padding: 4px 9px; border: 1px solid var(--border); background: transparent;
+      color: var(--text-dim); font-family: var(--mono); font-size: 10px;
+      cursor: pointer; transition: all 0.15s ease; letter-spacing: 0.03em;
+    }
+    .fbtn:hover { background: var(--bg-card); color: var(--text); }
+    .fbtn.active { background: rgba(180,230,46,0.08); color: var(--text-bright); border-color: var(--border-bright); }
+
+    .legend-item { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: 11px; }
+    .ldot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .ldot.glow { box-shadow: 0 0 6px var(--canonical); }
+
+    /* ─── Cluster List ─── */
+    #cluster-list {
+      max-height: 280px; overflow-y: auto; margin-top: 4px;
+    }
+    #cluster-list::-webkit-scrollbar { width: 3px; }
+    #cluster-list::-webkit-scrollbar-thumb { background: var(--border-bright); }
+    .cluster-card {
+      padding: 5px 8px; cursor: pointer; border-left: 2px solid var(--border);
+      transition: background 0.12s ease; font-size: 11px; display: flex; justify-content: space-between; align-items: center;
+    }
+    .cluster-card:hover { background: var(--bg-card); }
+    .cluster-card .cc-name { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px; }
+    .cluster-card .cc-count { color: var(--text-dim); font-size: 10px; flex-shrink: 0; }
+
+    /* ─── Detail Panel ─── */
+    #detail {
+      position: fixed; top: 16px; right: 16px; z-index: 100;
+      background: var(--bg-panel); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      padding: 20px; width: 340px; max-height: calc(100vh - 32px); overflow-y: auto;
+      transform: translateX(calc(100% + 32px));
+      transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+    #detail.open { transform: translateX(0); }
+
+    #d-path { font-size: 12px; color: var(--text-bright); word-break: break-all; line-height: 1.4; margin-bottom: 4px; }
+    #d-meta { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .badge { display: inline-block; padding: 2px 7px; font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+    .badge-c { background: rgba(232,112,64,0.15); color: var(--canonical); }
+    .badge-t { background: rgba(245,158,11,0.15); color: var(--lab); }
+    .badge-o { background: rgba(239,68,68,0.15); color: var(--orphan); }
+
+    .d-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 14px; }
+    .d-stat { padding: 6px 8px; background: var(--bg-card); border: 1px solid var(--border); }
+    .d-stat-l { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.1em; }
+    .d-stat-v { font-size: 14px; color: var(--text-bright); font-weight: 600; margin-top: 2px; }
+
+    .preview {
+      font-size: 11px; color: var(--text); background: var(--bg-card);
+      padding: 10px 12px; border: 1px solid var(--border);
+      white-space: pre-wrap; line-height: 1.5; max-height: 100px; overflow: hidden;
+    }
+
+    .conn { display: flex; align-items: center; gap: 6px; padding: 4px 6px; cursor: pointer; font-size: 11px; color: var(--text-dim); transition: background 0.12s; }
+    .conn:hover { background: var(--bg-card); color: var(--text); }
+    .conn .cd { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+    .close-btn {
+      position: absolute; top: 14px; right: 14px; background: none; border: none;
+      color: var(--text-dim); cursor: pointer; font-size: 14px; font-family: var(--mono);
+      padding: 4px; transition: all 0.12s;
+    }
+    .close-btn:hover { color: var(--text); background: var(--bg-card); }
+
+    .hint {
+      position: fixed; bottom: 14px; right: 16px; z-index: 100;
+      font-size: 10px; color: var(--text-dim); text-align: right; line-height: 1.8; opacity: 0.5;
+    }
+    .hint kbd { display: inline-block; padding: 1px 5px; border: 1px solid var(--border); background: var(--bg-card); font-family: var(--mono); font-size: 9px; }
+
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+
+    /* ─── Hover Tooltip ─── */
+    #tooltip {
+      position: fixed; z-index: 200; pointer-events: none;
+      background: var(--bg-panel); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border-bright);
+      padding: 8px 12px; max-width: 320px;
+      opacity: 0; transform: translateY(4px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+    }
+    #tooltip.visible { opacity: 1; transform: translateY(0); }
+    #tooltip .tt-name { font-family: var(--sans); font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+    #tooltip .tt-path { font-size: 10px; color: var(--text-dim); word-break: break-all; margin-bottom: 4px; }
+    #tooltip .tt-stats { font-size: 10px; color: var(--text-dim); display: flex; gap: 10px; }
+    #tooltip .tt-stats span { color: var(--text); font-weight: 500; }
+
+    /* ─── Screenshot flash ─── */
+    #screenshot-flash {
+      position: fixed; inset: 0; z-index: 9998;
+      background: white; opacity: 0; pointer-events: none;
+      transition: opacity 0.1s ease;
+    }
+    #screenshot-flash.flash { opacity: 0.3; }
+    #screenshot-notify {
+      position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%); z-index: 200;
+      background: var(--bg-panel); border: 1px solid var(--accent);
+      padding: 8px 18px; font-size: 11px; color: var(--accent);
+      opacity: 0; transition: opacity 0.3s ease; pointer-events: none;
+    }
+    #screenshot-notify.visible { opacity: 1; }
+
+    /* ─── Watermark ─── */
+    #watermark {
+      position: fixed; bottom: 14px; left: 16px; z-index: 100;
+      font-size: 9px; color: var(--text-dim); opacity: 0.3;
+      font-family: var(--mono); letter-spacing: 0.05em;
+    }
+    #watermark a { color: var(--text-dim); text-decoration: none; }
+    #watermark a:hover { color: var(--accent); }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <!-- Loading -->
+  <div id="loading">
+    <div id="load-title"><span class="br">⟪</span> building graph <span class="br">⟫</span></div>
+    <div id="load-bar"><div id="load-fill"></div></div>
+    <div id="load-status">initializing force simulation...</div>
+  </div>
+
+  <!-- Three.js container -->
+  <div id="scene-container"></div>
+
+  <!-- Control Panel -->
+  <div id="panel">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+    <div id="panel-title">KNOWLEDGE GRAPH</div>
+    <div id="stats"></div>
+    <div class="section-label">search</div>
+    <input type="text" id="search" placeholder="filename or path..." autocomplete="off" spellcheck="false">
+    <div class="section-label">spaces</div>
+    <div class="filter-row" id="space-filters"></div>
+    <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
+      <span>file types</span>
+      <button id="type-mode-btn" style="font-family:var(--mono);font-size:8px;color:var(--accent);background:none;border:1px solid var(--border);padding:1px 6px;cursor:pointer;letter-spacing:0.05em">toggle</button>
+    </div>
+    <div class="filter-row" id="type-filters"></div>
+    <div class="section-label">view</div>
+    <div class="filter-row" id="view-filters"></div>
+    <div class="section-label">legend</div>
+    <div id="legend"></div>
+    <div class="section-label">clusters</div>
+    <div id="cluster-list"></div>
+  </div>
+
+  <!-- Detail Panel -->
+  <div id="detail">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+    <button class="close-btn" id="close-detail">✕</button>
+    <div id="d-path"></div>
+    <div id="d-meta"></div>
+    <div class="d-stats">
+      <div class="d-stat"><div class="d-stat-l">outgoing</div><div class="d-stat-v" id="d-out">0</div></div>
+      <div class="d-stat"><div class="d-stat-l">incoming</div><div class="d-stat-v" id="d-in">0</div></div>
+    </div>
+    <div id="d-preview"></div>
+    <div id="d-conns"></div>
+  </div>
+
+  <!-- Watermark -->
+  <div id="watermark">⟪ avi-claude ⟫ knowledge graph</div>
+
+  <!-- Tooltip -->
+  <div id="tooltip">
+    <div class="tt-name" id="tt-name"></div>
+    <div class="tt-path" id="tt-path"></div>
+    <div class="tt-stats" id="tt-stats"></div>
+  </div>
+
+  <!-- Screenshot -->
+  <div id="screenshot-flash"></div>
+  <div id="screenshot-notify">screenshot saved</div>
+
+  <div class="hint">
+    <kbd>scroll</kbd> zoom · <kbd>drag</kbd> rotate · <kbd>click</kbd> inspect · <kbd>esc</kbd> close · <kbd>/</kbd> search<br>
+    <kbd>R</kbd> reset · <kbd>space</kbd> auto-rotate · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> toggle spaces · <kbd>0</kbd> all · <kbd>L</kbd> cycle links · <kbd>E</kbd> cycle edges · <kbd>⇧L</kbd>/<kbd>⇧E</kbd> toggle off · <kbd>P</kbd> screenshot
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+    // ═══════════════════════════════════════════════════════
+    //  Data
+    // ═══════════════════════════════════════════════════════
+    const RAW = %%GRAPH_DATA%%;
+    const SPACE_COLORS = { Harbor: '#9CA3AF', 'Town-Hall': '#3B82F6', Workshop: '#E87040', Library: '#0D9488', Embassy: '#A855F7', Crossroads: '#EF4444' };
+    const CANONICAL_COLOR = '#E87040';
+
+    const nodeMap = {};
+    RAW.nodes.forEach(n => { nodeMap[n.id] = n; });
+
+    // Filter to valid edges only
+    const validEdges = RAW.edges.filter(e => nodeMap[e.source] && nodeMap[e.target]);
+
+    // Build adjacency
+    const nodeLinks = {};
+    RAW.nodes.forEach(n => { nodeLinks[n.id] = []; });
+    validEdges.forEach(e => {
+      if (nodeLinks[e.source]) nodeLinks[e.source].push({ dir: 'out', other: e.target, edge: e });
+      if (nodeLinks[e.target]) nodeLinks[e.target].push({ dir: 'in', other: e.source, edge: e });
+    });
+
+    // ═══════════════════════════════════════════════════════
+    //  Force Simulation (custom — no d3 dependency)
+    // ═══════════════════════════════════════════════════════
+    function setStatus(s) { document.getElementById('load-status').textContent = s; }
+    function setProgress(p) { document.getElementById('load-fill').style.width = p + '%'; }
+
+    const simNodes = RAW.nodes.map(n => ({
+      ...n,
+      x: 0, y: 0, z: 0,
+      vx: 0, vy: 0, vz: 0,
+      __size: Math.sqrt(n.size || 10) * 0.22,
+      __color: '#888', // will be set by folder colors below
+    }));
+
+    const simNodeById = {};
+    simNodes.forEach(n => { simNodeById[n.id] = n; });
+
+    const simEdges = validEdges
+      .map(e => ({ source: simNodeById[e.source], target: simNodeById[e.target], weight: e.weight }))
+      .filter(e => e.source && e.target);
+
+    // ═══════════════════════════════════════════════════════
+    //  Hierarchical Folder Structure
+    // ═══════════════════════════════════════════════════════
+    setStatus('building folder hierarchy...');
+    setProgress(5);
+
+    // Parse each node's directory path into levels
+    simNodes.forEach(n => {
+      const parts = n.id.split('/');
+      parts.pop(); // remove filename
+      n.__folderLevels = parts;       // e.g. ['Lab', 'Space-Energy', 'synthesis']
+      n.__folderKey = parts.join('/'); // e.g. 'Lab/Space-Energy/synthesis'
+    });
+
+    // Build folder tree: key → { parent, level, children[], nodes[], color, seed }
+    const folders = {};
+    simNodes.forEach(n => {
+      for (let i = 0; i < n.__folderLevels.length; i++) {
+        const key = n.__folderLevels.slice(0, i + 1).join('/');
+        if (!folders[key]) {
+          folders[key] = {
+            key,
+            parent: i > 0 ? n.__folderLevels.slice(0, i).join('/') : null,
+            level: i,
+            children: new Set(),
+            nodes: [],
+            color: null,
+            seed: { x: 0, y: 0, z: 0 },
+          };
+        }
+        // Leaf folder gets the node
+        if (i === n.__folderLevels.length - 1) {
+          folders[key].nodes.push(n);
+        }
+        // Register as child of parent
+        if (i > 0) {
+          const parentKey = n.__folderLevels.slice(0, i).join('/');
+          if (folders[parentKey]) folders[parentKey].children.add(key);
+        }
+      }
+    });
+
+    // ── Generate per-folder colors ──
+    // Space base hues (HSL): Bridge=170 (teal), Lab=38 (amber), Workshop=142 (green)
+    const SPACE_HUES = { Harbor: 220, 'Town-Hall': 217, Workshop: 16, Library: 174, Embassy: 271, Crossroads: 0 };
+    const SPACE_SATS = { Harbor: 10, 'Town-Hall': 90, Workshop: 77, Library: 84, Embassy: 91, Crossroads: 84 };
+
+    // Helper: convert HSL to hex string (Three.js needs hex, not CSS hsl())
+    function hslToHex(h, s, l) {
+      const c = new THREE.Color();
+      c.setHSL(h / 360, s / 100, l / 100);
+      return '#' + c.getHexString();
+    }
+
+    Object.keys(folders).forEach(key => {
+      const f = folders[key];
+      const space = key.split('/')[0];
+      const baseHue = SPACE_HUES[space] || 200;
+      const baseSat = SPACE_SATS[space] || 60;
+
+      if (f.level === 0) {
+        // Root level: use space colors directly
+        f.color = SPACE_COLORS[space] || '#888';
+      } else {
+        // Subfolders: shift hue proportionally among siblings
+        const parent = folders[f.parent];
+        const siblings = parent ? [...parent.children] : [key];
+        const idx = siblings.indexOf(key);
+        const count = siblings.length;
+        const hueRange = 50;
+        const hueOffset = count > 1 ? (idx / (count - 1) - 0.5) * hueRange : 0;
+        const hue = (baseHue + hueOffset + 360) % 360;
+        const sat = Math.max(30, baseSat - f.level * 8);
+        const light = Math.min(65, 42 + f.level * 6);
+        f.color = hslToHex(hue, sat, light);
+      }
+    });
+
+    // ── File type color tints ──
+    // Non-md files get a hue shift toward their type accent color
+    const TYPE_TINTS = {
+      py: '#6088ff', html: '#ff7744', css: '#44ccff', js: '#ffdd44', ts: '#3388ff',
+      json: '#66dd88', yaml: '#cc88ff', yml: '#cc88ff', sh: '#88ffcc', txt: '#aaaacc',
+      png: '#ff6688', jpg: '#ff6688', jpeg: '#ff6688', gif: '#ff88aa', webp: '#ff6688',
+      svg: '#ffaa44', pdf: '#ff5555', csv: '#88ddaa', docx: '#5588ff', xlsx: '#44bb88',
+      zip: '#999999', toml: '#66dd88', plist: '#bb88dd', otf: '#ddaa66', ttf: '#ddaa66',
+      folder: '#b4e62e',
+    };
+
+    // Apply folder colors to nodes (canonical overrides, type tinting)
+    simNodes.forEach(n => {
+      if (n.canonical) {
+        n.__color = CANONICAL_COLOR;
+      } else if (folders[n.__folderKey]) {
+        n.__color = folders[n.__folderKey].color;
+      } else {
+        n.__color = SPACE_COLORS[n.space] || '#888';
+      }
+    });
+
+    // ── Hierarchical seed positions ──
+    // Subfolders orbit FURTHER out than files at each level.
+    // Each deeper level shrinks — telescoping hierarchy.
+    setStatus('seeding hierarchy...');
+    setProgress(8);
+
+    // How far child SUBFOLDERS are placed from their parent's center
+    // Each level telescopes: 150 → 55 → 22 → 10
+    const SUBFOLDER_RADII = [180, 75, 35, 16];
+    // How far DIRECT FILES spread from their folder center (always < subfolder radius)
+    const FILE_RADII = [14, 8, 4.5, 2.5];
+
+    function seedFolder(key) {
+      const f = folders[key];
+      if (!f) return;
+
+      const childKeys = [...f.children];
+      const childRadius = SUBFOLDER_RADII[Math.min(f.level + 1, SUBFOLDER_RADII.length - 1)];
+
+      // Compute outward direction from origin through this folder
+      const dist = Math.sqrt(f.seed.x * f.seed.x + f.seed.z * f.seed.z) || 1;
+      const outX = f.seed.x / dist;
+      const outZ = f.seed.z / dist;
+
+      childKeys.forEach((childKey, i) => {
+        const count = childKeys.length;
+        // Spread children in a cone facing outward from center
+        // Base angle spreads laterally, with an outward bias
+        const spreadAngle = (count <= 1) ? 0 : ((i / (count - 1)) - 0.5) * Math.PI * 0.8;
+        // Perpendicular direction for lateral spread
+        const perpX = -outZ;
+        const perpZ = outX;
+        // Outward bias: 0.7 of radius pushes away from center, 0.3 spreads laterally
+        const outwardBias = 0.7;
+        const lateralBias = Math.sin(spreadAngle) * (1 - outwardBias);
+        const childPos = {
+          x: f.seed.x + childRadius * (outX * outwardBias + perpX * lateralBias),
+          y: f.seed.y + childRadius * Math.cos(spreadAngle) * 0.15,
+          z: f.seed.z + childRadius * (outZ * outwardBias + perpZ * lateralBias),
+        };
+        folders[childKey].seed = childPos;
+        seedFolder(childKey);
+      });
+    }
+
+    // Seed root-level folders at compass positions
+    // Compass layout (screen-space: +Z = toward camera = South, -Z = away = North)
+    // Default Three.js top-down: -Z is "up" on screen (North), +X is right (East)
+    const COMPASS_POSITIONS = {
+      'Harbor':     { x:  0,   y: 0, z: -180 },   // North (top of screen)
+      'Town-Hall':  { x: -180, y: 0, z:  0   },   // West (left of screen)
+      'Workshop':   { x:  180, y: 0, z:  0   },   // East (right of screen)
+      'Library':    { x:  0,   y: 0, z:  180 },   // South (bottom of screen)
+      'Embassy':    { x:  250, y: 0, z: -250 },   // Northeast (top-right, 2x)
+      'Crossroads': { x: -250, y: 0, z: -250 },   // Northwest (top-left, 2x)
+    };
+    const rootKeys = Object.keys(folders).filter(k => folders[k].level === 0);
+    rootKeys.forEach((key, i) => {
+      const compassPos = COMPASS_POSITIONS[key];
+      if (compassPos) {
+        folders[key].seed = { ...compassPos };
+      } else {
+        // Fallback for any unknown root folders — place in a ring
+        const count = rootKeys.length;
+        const phi = Math.acos(1 - 2 * (i + 0.5) / count);
+        const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+        folders[key].seed = {
+          x: r * Math.sin(phi) * Math.cos(theta),
+          y: r * Math.cos(phi) * 0.3,
+          z: r * Math.sin(phi) * Math.sin(theta),
+        };
+      }
+      seedFolder(key);
+    });
+
+    // ── Pre-compute shared ancestor depth for each node pair (used in forces) ──
+    // Cache per-node: folderLevels is already on each node
+    function sharedDepth(a, b) {
+      const la = a.__folderLevels, lb = b.__folderLevels;
+      let d = 0;
+      for (let i = 0; i < Math.min(la.length, lb.length); i++) {
+        if (la[i] === lb[i]) d++; else break;
+      }
+      return d;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  Force Simulation — Hierarchical
+    // ═══════════════════════════════════════════════════════
+    setStatus('running force simulation...');
+    setProgress(10);
+
+    // Pre-compute: group nodes by space (level 0) and by level-1 folder
+    const spaceGroups = {}; // 'Bridge' → [nodes]
+    const l1Groups = {};   // 'Lab/Space-Energy' → [nodes]
+    simNodes.forEach(n => {
+      const space = n.__folderLevels[0] || 'unknown';
+      if (!spaceGroups[space]) spaceGroups[space] = [];
+      spaceGroups[space].push(n);
+      if (n.__folderLevels.length >= 2) {
+        const l1 = n.__folderLevels.slice(0, 2).join('/');
+        if (!l1Groups[l1]) l1Groups[l1] = [];
+        l1Groups[l1].push(n);
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════
+    //  Deterministic layout + local spreading
+    //  Nodes are placed at their folder seed with jitter.
+    //  A short sim only handles local overlap — no drift possible.
+    // ═══════════════════════════════════════════════════════
+
+    // ── Create folder nodes ──
+    // Folders become visible nodes, larger than files, at fixed seed positions
+    setStatus('creating folder nodes...');
+    setProgress(8);
+    const folderNodes = [];
+    Object.values(folders).forEach(f => {
+      // Count all descendant files
+      let totalFiles = f.nodes.length;
+      function countAll(key) {
+        const folder = folders[key]; if (!folder) return;
+        totalFiles += folder.nodes.length;
+        folder.children.forEach(c => countAll(c));
+      }
+      f.children.forEach(c => countAll(c));
+      if (totalFiles === 0 && f.children.size === 0) return;
+
+      const name = f.key.split('/').pop();
+      const size = f.level === 0 ? 2.0 : f.level === 1 ? 1.4 : f.level === 2 ? 1.0 : 0.8;
+      const folderNode = {
+        id: '__folder__' + f.key,
+        label: name + '/',
+        __folderKey: f.key,
+        __folderLevels: f.key.split('/'),
+        __color: f.color,
+        __size: size,
+        __origScale: size,
+        __isFolder: true,
+        space: f.key.split('/')[0],
+        x: f.seed.x,
+        y: f.seed.y,
+        z: f.seed.z,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        in_links: 0,
+        out_links: totalFiles,
+        canonical: false,
+        tier: null,
+        title: `${f.key}/ — ${totalFiles} files`,
+        extension: 'folder',
+      };
+      folderNodes.push(folderNode);
+      f.__folderNode = folderNode;
+    });
+
+    // Merge folder nodes into simulation arrays
+    folderNodes.forEach(fn => {
+      simNodes.push(fn);
+      simNodeById[fn.id] = fn;
+      nodeMap[fn.id] = fn;
+      nodeLinks[fn.id] = [];
+    });
+
+    // ── Build hierarchy edges (folder→folder + file→parent folder) ──
+    const hierarchyEdges = [];
+    // Folder parent→child connections
+    Object.values(folders).forEach(f => {
+      if (!f.parent || !f.__folderNode) return;
+      const parentFolder = folders[f.parent];
+      if (!parentFolder || !parentFolder.__folderNode) return;
+      hierarchyEdges.push({
+        source: parentFolder.__folderNode,
+        target: f.__folderNode,
+      });
+    });
+    // File→parent folder connections
+    Object.values(folders).forEach(f => {
+      if (!f.__folderNode) return;
+      f.nodes.forEach(n => {
+        hierarchyEdges.push({
+          source: f.__folderNode,
+          target: n,
+        });
+      });
+    });
+
+    // ── Place file nodes in tight sphere around their folder center ──
+    // Files are CLOSER than subfolders at every level — radius shrinks with depth
+    setStatus('placing nodes...');
+    setProgress(10);
+
+    Object.values(folders).forEach(f => {
+      const nodes = f.nodes;
+      if (nodes.length === 0) return;
+      const maxR = FILE_RADII[Math.min(f.level, FILE_RADII.length - 1)];
+      const jitter = Math.min(maxR, 1.5 + Math.sqrt(nodes.length) * 0.8);
+      nodes.forEach((n, i) => {
+        // Fibonacci sphere distribution within the cluster
+        const phi = Math.acos(1 - 2 * (i + 0.5) / nodes.length);
+        const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+        const r = jitter * Math.cbrt((i + 1) / nodes.length);
+        n.x = f.seed.x + r * Math.sin(phi) * Math.cos(theta);
+        n.y = f.seed.y + r * Math.cos(phi) * 0.6;
+        n.z = f.seed.z + r * Math.sin(phi) * Math.sin(theta);
+      });
+    });
+
+    // ── Short force sim: local repulsion only ──
+    // Just prevents overlap within clusters. Nodes stay near their seeds.
+    setStatus('spreading nodes...');
+    setProgress(30);
+    const MIN_DISTANCE = 3.0;
+    for (let iter = 0; iter < 80; iter++) {
+      const alpha = 0.4 * (1 - iter / 80);
+
+      // Light repulsion — same-folder only
+      for (const f of Object.values(folders)) {
+        const nodes = f.nodes;
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const a = nodes[i], b = nodes[j];
+            let dx = b.x-a.x, dy = b.y-a.y, dz = b.z-a.z;
+            let d2 = dx*dx + dy*dy + dz*dz;
+            if (d2 < 0.1) {
+              dx = (Math.random()-0.5)*2; dy = (Math.random()-0.5)*1; dz = (Math.random()-0.5)*2;
+              d2 = dx*dx + dy*dy + dz*dz + 0.01;
+            }
+            const d = Math.sqrt(d2);
+            const f2 = -15 * alpha / d2;
+            const fx = (dx/d)*f2, fy = (dy/d)*f2, fz = (dz/d)*f2;
+            a.vx -= fx; a.vy -= fy; a.vz -= fz;
+            b.vx += fx; b.vy += fy; b.vz += fz;
+          }
+        }
+      }
+
+      // Gentle anchor spring — keep nodes near their folder seed
+      simNodes.forEach(n => {
+        const f = folders[n.__folderKey];
+        if (!f) return;
+        n.vx += (f.seed.x - n.x) * 0.04 * alpha;
+        n.vy += (f.seed.y - n.y) * 0.04 * alpha;
+        n.vz += (f.seed.z - n.z) * 0.04 * alpha;
+      });
+
+      // Damping + update
+      simNodes.forEach(n => {
+        n.vx *= 0.5; n.vy *= 0.5; n.vz *= 0.5;
+        n.x += n.vx; n.y += n.vy; n.z += n.vz;
+      });
+    }
+
+    // Collision resolution
+    setStatus('resolving overlaps...');
+    setProgress(55);
+    for (let pass = 0; pass < 20; pass++) {
+      let collisions = 0;
+      for (const f of Object.values(folders)) {
+        const nodes = f.nodes;
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const a = nodes[i], b = nodes[j];
+            const dx = b.x-a.x, dy = b.y-a.y, dz = b.z-a.z;
+            const d = Math.sqrt(dx*dx + dy*dy + dz*dz);
+            const minDist = MIN_DISTANCE * (a.__size + b.__size);
+            if (d < minDist && d > 0.01) {
+              collisions++;
+              const overlap = (minDist - d) * 0.5;
+              a.x -= (dx/d)*overlap; a.y -= (dy/d)*overlap; a.z -= (dz/d)*overlap;
+              b.x += (dx/d)*overlap; b.y += (dy/d)*overlap; b.z += (dz/d)*overlap;
+            }
+          }
+        }
+      }
+      if (collisions === 0) break;
+    }
+
+    // Folder nodes stay at their seed positions — the CENTER of their cluster.
+    // Files orbit close, subfolders orbit further out. No centroid drift.
+
+    setStatus('building scene...');
+    setProgress(70);
+
+    // ═══════════════════════════════════════════════════════
+    //  Three.js Scene
+    // ═══════════════════════════════════════════════════════
+    const container = document.getElementById('scene-container');
+    const W = window.innerWidth, H = window.innerHeight;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x060610);
+
+    const camera = new THREE.PerspectiveCamera(45, W / H, 0.1, 1000);
+    camera.position.set(0, 120, 250);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(W, H);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    container.appendChild(renderer.domElement);
+
+    // Bloom
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(W, H), 0.9, 0.4, 0.25);
+    composer.addPass(bloomPass);
+
+    // Controls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = -0.15;
+    controls.target.set(0, 2, 0);
+    controls.maxDistance = 600;
+    controls.minDistance = 8;
+
+    // (Grid removed — knowledge floats free in 3D space)
+
+    // ─── Node meshes ───
+    setStatus('creating nodes...');
+    setProgress(75);
+    // Polyhedra: file size → face count (tiny→tetra, huge→sphere)
+    const geoTetra = new THREE.TetrahedronGeometry(1, 0);       // 4 faces — tiny files
+    const geoOcta  = new THREE.OctahedronGeometry(1, 0);        // 8 faces — small files
+    const geoDodeca = new THREE.DodecahedronGeometry(1, 0);     // 12 faces — medium files
+    const geoIcosa = new THREE.IcosahedronGeometry(1, 0);       // 20 faces — large files
+    const geoSphere = new THREE.SphereGeometry(1, 16, 16);      // smooth — huge files
+    const folderGeo = new THREE.IcosahedronGeometry(1, 1);      // wireframe folders
+
+    function pickGeo(n) {
+      if (n.__isFolder) return folderGeo;
+      // For binary files, use byte_count / 50 as line proxy
+      const lines = n.line_count || Math.ceil((n.byte_count || 0) / 50) || 100;
+      if (lines < 50) return geoTetra;
+      if (lines < 150) return geoOcta;
+      if (lines < 400) return geoDodeca;
+      if (lines < 1000) return geoIcosa;
+      return geoSphere;
+    }
+
+    const nodeMeshes = [];
+    const allMeshGroup = new THREE.Group();
+
+    simNodes.forEach(n => {
+      const color = new THREE.Color(n.__color);
+      // Apply type tint for non-md, non-folder, non-canonical nodes
+      const ext = (n.extension || 'md').toLowerCase();
+      const tint = TYPE_TINTS[ext];
+      if (tint && !n.canonical && !n.__isFolder) {
+        color.lerp(new THREE.Color(tint), 0.4);
+        n.__color = '#' + color.getHexString();
+      }
+      const geo = pickGeo(n);
+      const mat = new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: 0,
+        wireframe: !!n.__isFolder,
+        depthTest: !n.__isFolder, // folders render on top
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(n.x, n.y, n.z);
+      mesh.scale.setScalar(n.__size);
+      mesh.userData = n;
+      allMeshGroup.add(mesh);
+      nodeMeshes.push(mesh);
+      n.__mesh = mesh;
+      n.__origScale = n.__size;
+    });
+    scene.add(allMeshGroup);
+
+    // ─── Text Labels ───
+    setStatus('rendering labels...');
+    setProgress(80);
+    const labelGroup = new THREE.Group();
+    const labelSprites = [];
+
+    function makeLabel(text, color, fontSize) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const px = fontSize || 48;
+      ctx.font = `500 ${px}px 'Space Grotesk', system-ui, sans-serif`;
+      const w = ctx.measureText(text).width + 16;
+      canvas.width = Math.min(w, 512);
+      canvas.height = px + 16;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = `500 ${px}px 'Space Grotesk', system-ui, sans-serif`;
+      ctx.fillStyle = color;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 8, canvas.height / 2);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.minFilter = THREE.LinearFilter;
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true });
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.set(canvas.width / 80, canvas.height / 80, 1);
+      return sprite;
+    }
+
+    // Rank nodes by importance: canonical first, then by total links
+    const rankedNodes = [...simNodes].sort((a, b) => {
+      if (a.canonical !== b.canonical) return b.canonical ? 1 : -1;
+      return (b.in_links + b.out_links) - (a.in_links + a.out_links);
+    });
+
+    // Label tiers: top nodes always visible, next tier on zoom
+    const LABEL_TIER_1 = 40;  // always visible (canonical + top connected)
+    const LABEL_TIER_2 = 120; // visible on medium zoom
+    // remaining: visible only on close zoom
+
+    rankedNodes.forEach((n, i) => {
+      const label = n.__isFolder ? n.label : n.label.replace(/\.md$/, '');
+      const isCanonical = n.canonical;
+      const isFolder = n.__isFolder;
+      const sprite = makeLabel(label, isCanonical ? '#E87040' : isFolder ? n.__color : '#b8b8b8', isCanonical ? 52 : isFolder ? 48 : 40);
+      sprite.position.set(n.x, n.y + n.__size * 1.8 + 0.6, n.z);
+      const tier = isFolder ? 1 : (i < LABEL_TIER_1 ? 1 : i < LABEL_TIER_2 ? 2 : 3);
+      sprite.userData = { nodeId: n.id, tier };
+      labelGroup.add(sprite);
+      labelSprites.push(sprite);
+      n.__label = sprite;
+    });
+    scene.add(labelGroup);
+
+    // ═══════════════════════════════════════════════════════
+    //  Link Variant System — 5 visual modes for file-to-file edges
+    // ═══════════════════════════════════════════════════════
+    const LINK_VARIANTS = ['straight', 'arcs', 'glow', 'chain', 'particles'];
+    let currentLinkVariant = 0;
+    const linkObjects = {}; // variant name → { lines, geo, mat } or null for particles
+
+    const maxWeight = Math.max(...simEdges.map(e => e.weight), 1);
+
+    // ── Helper: perpendicular vector for an edge ──
+    function edgePerp(sx, sy, sz, tx, ty, tz) {
+      const dx = tx - sx, dy = ty - sy, dz = tz - sz;
+      const len = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+      let px, py, pz;
+      if (Math.abs(dy / len) > 0.9) {
+        px = 0; py = -dz; pz = dy;
+      } else {
+        px = dz; py = 0; pz = -dx;
+      }
+      const pLen = Math.sqrt(px*px + py*py + pz*pz) || 1;
+      return { x: px/pLen, y: py/pLen, z: pz/pLen };
+    }
+
+    // ── Helper: edge color pair ──
+    function edgeColorPair(e) {
+      const wf = 0.15 + 0.5 * (e.weight / maxWeight);
+      const sc = new THREE.Color(e.source.__color);
+      const tc = new THREE.Color(e.target.__color);
+      return {
+        sr: sc.r * wf, sg: sc.g * wf, sb: sc.b * wf,
+        tr: tc.r * wf * 0.6, tg: tc.g * wf * 0.6, tb: tc.b * wf * 0.6,
+        sc, tc, wf
+      };
+    }
+
+    // ── 1. STRAIGHT — simple line segments (original) ──
+    {
+      const pos = [], col = [];
+      simEdges.forEach(e => {
+        pos.push(e.source.x, e.source.y, e.source.z);
+        pos.push(e.target.x, e.target.y, e.target.z);
+        const c = edgeColorPair(e);
+        col.push(c.sr, c.sg, c.sb, c.tr, c.tg, c.tb);
+      });
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0 });
+      const lines = new THREE.LineSegments(geo, mat);
+      lines.visible = false;
+      scene.add(lines);
+      linkObjects.straight = { lines, geo, mat, stride: 2 }; // 2 verts per edge
+    }
+
+    // ── 2. ARCS — quadratic bezier curves ──
+    const ARC_SEGS = 16;
+    {
+      const pos = [], col = [];
+      simEdges.forEach(e => {
+        const sx = e.source.x, sy = e.source.y, sz = e.source.z;
+        const tx = e.target.x, ty = e.target.y, tz = e.target.z;
+        const p = edgePerp(sx, sy, sz, tx, ty, tz);
+        const mx = (sx+tx)/2, my = (sy+ty)/2, mz = (sz+tz)/2;
+        const len = Math.sqrt((tx-sx)**2 + (ty-sy)**2 + (tz-sz)**2);
+        const off = len * 0.18;
+        const cx = mx + p.x*off, cy = my + p.y*off, cz = mz + p.z*off;
+        const c = edgeColorPair(e);
+        for (let i = 0; i < ARC_SEGS; i++) {
+          const t0 = i / ARC_SEGS, t1 = (i+1) / ARC_SEGS;
+          for (const t of [t0, t1]) {
+            const u = 1-t;
+            pos.push(u*u*sx + 2*u*t*cx + t*t*tx);
+            pos.push(u*u*sy + 2*u*t*cy + t*t*ty);
+            pos.push(u*u*sz + 2*u*t*cz + t*t*tz);
+            const r = THREE.MathUtils.lerp(c.sr, c.tr, t);
+            const g = THREE.MathUtils.lerp(c.sg, c.tg, t);
+            const b = THREE.MathUtils.lerp(c.sb, c.tb, t);
+            col.push(r, g, b);
+          }
+        }
+      });
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0 });
+      const lines = new THREE.LineSegments(geo, mat);
+      lines.visible = false;
+      scene.add(lines);
+      linkObjects.arcs = { lines, geo, mat, stride: ARC_SEGS * 2 };
+    }
+
+    // ── 3. GLOW — same arc geometry, bright colors for bloom ──
+    {
+      const pos = [], col = [];
+      simEdges.forEach(e => {
+        const sx = e.source.x, sy = e.source.y, sz = e.source.z;
+        const tx = e.target.x, ty = e.target.y, tz = e.target.z;
+        const p = edgePerp(sx, sy, sz, tx, ty, tz);
+        const mx = (sx+tx)/2, my = (sy+ty)/2, mz = (sz+tz)/2;
+        const len = Math.sqrt((tx-sx)**2 + (ty-sy)**2 + (tz-sz)**2);
+        const off = len * 0.18;
+        const cx = mx + p.x*off, cy = my + p.y*off, cz = mz + p.z*off;
+        // Glow: bright saturated colors
+        const sc = new THREE.Color(e.source.__color);
+        const tc = new THREE.Color(e.target.__color);
+        for (let i = 0; i < ARC_SEGS; i++) {
+          const t0 = i / ARC_SEGS, t1 = (i+1) / ARC_SEGS;
+          for (const t of [t0, t1]) {
+            const u = 1-t;
+            pos.push(u*u*sx + 2*u*t*cx + t*t*tx);
+            pos.push(u*u*sy + 2*u*t*cy + t*t*ty);
+            pos.push(u*u*sz + 2*u*t*cz + t*t*tz);
+            const r = THREE.MathUtils.lerp(sc.r, tc.r, t);
+            const g = THREE.MathUtils.lerp(sc.g, tc.g, t);
+            const b = THREE.MathUtils.lerp(sc.b, tc.b, t);
+            col.push(r * 1.4, g * 1.4, b * 1.4); // overbright for bloom
+          }
+        }
+      });
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0 });
+      const lines = new THREE.LineSegments(geo, mat);
+      lines.visible = false;
+      scene.add(lines);
+      linkObjects.glow = { lines, geo, mat, stride: ARC_SEGS * 2 };
+    }
+
+    // ── 4. CHAIN — double sinusoid with pi phase offset + rungs ──
+    const CHAIN_SEGS = 20;
+    const CHAIN_RUNGS = 4;
+    const CHAIN_VERTS_PER_EDGE = (CHAIN_SEGS * 2 + CHAIN_RUNGS) * 2; // pairs for LineSegments
+    // Store per-edge data for animation
+    const chainEdgeData = [];
+    {
+      const pos = [], col = [];
+      simEdges.forEach((e, ei) => {
+        const sx = e.source.x, sy = e.source.y, sz = e.source.z;
+        const tx = e.target.x, ty = e.target.y, tz = e.target.z;
+        const dx = tx-sx, dy = ty-sy, dz = tz-sz;
+        const len = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+        const dirX = dx/len, dirY = dy/len, dirZ = dz/len;
+        const p = edgePerp(sx, sy, sz, tx, ty, tz);
+        // Second perpendicular (cross dir × perp)
+        const p2x = dirY*p.z - dirZ*p.y;
+        const p2y = dirZ*p.x - dirX*p.z;
+        const p2z = dirX*p.y - dirY*p.x;
+
+        const amplitude = Math.min(len * 0.03, 1.25);
+        // Harmonic number from metadata — more refs or bidirectional = higher mode
+        const baseN = Math.min(e.weight + 1, 4); // weight 1→n=2, 2→n=3, 3+→n=4
+        const harmonic = baseN + (e.bidirectional ? 1 : 0); // bidirectional adds +1
+        const c = edgeColorPair(e);
+
+        chainEdgeData.push({
+          sx, sy, sz, tx, ty, tz, len,
+          dirX, dirY, dirZ,
+          px: p.x, py: p.y, pz: p.z,
+          p2x, p2y, p2z,
+          amplitude, harmonic,
+          startIdx: pos.length / 3,
+        });
+
+        // Strand 1 (CHAIN_SEGS line segment pairs)
+        for (let i = 0; i < CHAIN_SEGS; i++) {
+          const t0 = i / CHAIN_SEGS, t1 = (i+1) / CHAIN_SEGS;
+          for (const t of [t0, t1]) {
+            // Base position along edge
+            const bx = sx + dx*t, by = sy + dy*t, bz = sz + dz*t;
+            // Sine displacement (will be animated — start flat)
+            pos.push(bx, by, bz);
+            const r = THREE.MathUtils.lerp(c.sr, c.tr, t);
+            const g = THREE.MathUtils.lerp(c.sg, c.tg, t);
+            const b = THREE.MathUtils.lerp(c.sb, c.tb, t);
+            col.push(r, g, b);
+          }
+        }
+        // Strand 2 (CHAIN_SEGS line segment pairs, pi offset)
+        for (let i = 0; i < CHAIN_SEGS; i++) {
+          const t0 = i / CHAIN_SEGS, t1 = (i+1) / CHAIN_SEGS;
+          for (const t of [t0, t1]) {
+            const bx = sx + dx*t, by = sy + dy*t, bz = sz + dz*t;
+            pos.push(bx, by, bz);
+            const r = THREE.MathUtils.lerp(c.tr, c.sr, t); // reversed colors for strand 2
+            const g = THREE.MathUtils.lerp(c.tg, c.sg, t);
+            const b = THREE.MathUtils.lerp(c.tb, c.sb, t);
+            col.push(r, g, b);
+          }
+        }
+        // Rungs at crossing points
+        for (let r = 0; r < CHAIN_RUNGS; r++) {
+          const t = (r + 0.5) / CHAIN_RUNGS;
+          const bx = sx + dx*t, by = sy + dy*t, bz = sz + dz*t;
+          // Two endpoints of the rung (will be animated)
+          pos.push(bx, by, bz); pos.push(bx, by, bz);
+          const cm = THREE.MathUtils.lerp(c.sr, c.tr, t);
+          const gm = THREE.MathUtils.lerp(c.sg, c.tg, t);
+          const bm = THREE.MathUtils.lerp(c.sb, c.tb, t);
+          col.push(cm*0.7, gm*0.7, bm*0.7); // rungs slightly dimmer
+          col.push(cm*0.7, gm*0.7, bm*0.7);
+        }
+      });
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0 });
+      const lines = new THREE.LineSegments(geo, mat);
+      lines.visible = false;
+      scene.add(lines);
+      linkObjects.chain = { lines, geo, mat, stride: CHAIN_VERTS_PER_EDGE };
+    }
+
+    // ── 5. PARTICLES — no line geometry, just flow particles (reuses flowGroup) ──
+    linkObjects.particles = null; // handled via flowGroup visibility
+
+    // ── Compat aliases for existing code ──
+    const edgeGeo = linkObjects.straight.geo;
+    const edgeMat = linkObjects.straight.mat;
+    const edgeLines = linkObjects.straight.lines;
+
+    // Show default variant
+    linkObjects.straight.lines.visible = true;
+
+    // ── Sync function: show only active link variant ──
+    function syncLinkVariant() {
+      const name = LINK_VARIANTS[currentLinkVariant];
+      LINK_VARIANTS.forEach(v => {
+        if (v === 'particles') return; // particles handled separately
+        if (linkObjects[v]) linkObjects[v].lines.visible = (v === name) && linksVisible;
+      });
+      // Flow particles always visible when links are on (ambient or primary)
+      flowGroup.visible = linksVisible;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  Hierarchy Edge Variant System — 3 visual modes
+    // ═══════════════════════════════════════════════════════
+    const HIER_VARIANTS = ['thin', 'dotted', 'gradient'];
+    let currentHierVariant = 0;
+    const hierObjects = {};
+
+    // Pre-compute shared data
+    const hierBasePositions = [];
+    const hierBaseColors = [];
+    const validHierEdges = hierarchyEdges.filter(e => e.source && e.target);
+    validHierEdges.forEach(e => {
+      hierBasePositions.push(e.source.x, e.source.y, e.source.z);
+      hierBasePositions.push(e.target.x, e.target.y, e.target.z);
+      const sc = new THREE.Color(e.source.__color || '#888');
+      const tc = new THREE.Color(e.target.__color || '#888');
+      hierBaseColors.push(sc.r, sc.g, sc.b);
+      hierBaseColors.push(tc.r * 0.7, tc.g * 0.7, tc.b * 0.7);
+    });
+
+    if (hierBasePositions.length > 0) {
+      // ── 1. THIN — subtle, low opacity (default) ──
+      {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute([...hierBasePositions], 3));
+        geo.setAttribute('color', new THREE.Float32BufferAttribute([...hierBaseColors], 3));
+        const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.35 });
+        const lines = new THREE.LineSegments(geo, mat);
+        lines.visible = true;
+        scene.add(lines);
+        hierObjects.thin = { lines, geo, mat };
+      }
+
+      // ── 2. DOTTED — dashed material ──
+      {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute([...hierBasePositions], 3));
+        geo.setAttribute('color', new THREE.Float32BufferAttribute([...hierBaseColors], 3));
+        const mat = new THREE.LineDashedMaterial({
+          vertexColors: true, transparent: true, opacity: 0.45,
+          dashSize: 1.2, gapSize: 0.8, scale: 1,
+        });
+        const lines = new THREE.LineSegments(geo, mat);
+        lines.computeLineDistances();
+        lines.visible = false;
+        scene.add(lines);
+        hierObjects.dotted = { lines, geo, mat };
+      }
+
+      // ── 3. GRADIENT — bright at parent, fading toward child ──
+      {
+        const pos = [...hierBasePositions];
+        const col = [];
+        validHierEdges.forEach(e => {
+          const sc = new THREE.Color(e.source.__color || '#888');
+          const tc = new THREE.Color(e.target.__color || '#888');
+          // Source: bright
+          col.push(sc.r * 1.2, sc.g * 1.2, sc.b * 1.2);
+          // Target: very dim
+          col.push(tc.r * 0.15, tc.g * 0.15, tc.b * 0.15);
+        });
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+        const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6 });
+        const lines = new THREE.LineSegments(geo, mat);
+        lines.visible = false;
+        scene.add(lines);
+        hierObjects.gradient = { lines, geo, mat };
+      }
+    } else {
+      // Fallback: empty objects
+      HIER_VARIANTS.forEach(v => {
+        const geo = new THREE.BufferGeometry();
+        const mat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0 });
+        hierObjects[v] = { lines: new THREE.LineSegments(geo, mat), geo, mat };
+      });
+    }
+
+    // Compat aliases
+    const hierGeo = hierObjects.thin.geo;
+    const hierMat = hierObjects.thin.mat;
+    const hierLines = hierObjects.thin.lines;
+
+    // ── Sync function: show only active hierarchy variant ──
+    function syncHierVariant() {
+      const name = HIER_VARIANTS[currentHierVariant];
+      HIER_VARIANTS.forEach(v => {
+        if (hierObjects[v]) hierObjects[v].lines.visible = (v === name) && hierarchyVisible;
+      });
+    }
+
+    // ─── Highlight edges (overlay) ───
+    const highlightGroup = new THREE.Group();
+    scene.add(highlightGroup);
+
+    // ─── Pollen particles (from Garden DNA) ───
+    setStatus('seeding particles...');
+    setProgress(90);
+    const pollenGroup = new THREE.Group();
+    const pollenParticles = [];
+
+    // Spark texture
+    const sparkCanvas = document.createElement('canvas');
+    sparkCanvas.width = 64; sparkCanvas.height = 64;
+    const sCtx = sparkCanvas.getContext('2d');
+    const grad = sCtx.createRadialGradient(32, 32, 0, 32, 32, 28);
+    grad.addColorStop(0, 'rgba(255,248,220,1)');
+    grad.addColorStop(0.4, 'rgba(255,240,200,0.4)');
+    grad.addColorStop(1, 'rgba(255,230,180,0)');
+    sCtx.fillStyle = grad;
+    sCtx.fillRect(0, 0, 64, 64);
+    const sparkTex = new THREE.CanvasTexture(sparkCanvas);
+
+    for (let i = 0; i < 80; i++) {
+      const mat = new THREE.SpriteMaterial({ map: sparkTex, color: 0xfff8dc, transparent: true, opacity: 0, depthWrite: false });
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.setScalar(0.15 + Math.random() * 0.25);
+      const angle = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * 70;
+      sprite.position.set(Math.cos(angle) * r, 1 + Math.random() * 12, Math.sin(angle) * r);
+      pollenGroup.add(sprite);
+      pollenParticles.push({ sprite, seed: Math.random() * 100, speed: 0.3 + Math.random() * 0.8 });
+    }
+    scene.add(pollenGroup);
+
+    // ─── Starfield background ───
+    setStatus('scattering stars...');
+    const starCount = 600;
+    const starPositions = new Float32Array(starCount * 3);
+    const starSizes = new Float32Array(starCount);
+    const starSeeds = new Float32Array(starCount);
+    for (let i = 0; i < starCount; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 140 + Math.random() * 80;
+      starPositions[i*3] = r * Math.sin(phi) * Math.cos(theta);
+      starPositions[i*3+1] = r * Math.sin(phi) * Math.sin(theta) * 0.5 + 10;
+      starPositions[i*3+2] = r * Math.cos(phi);
+      starSizes[i] = 0.3 + Math.random() * 1.2;
+      starSeeds[i] = Math.random() * 100;
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+    starGeo.setAttribute('size', new THREE.Float32BufferAttribute(starSizes, 1));
+    const starMat = new THREE.PointsMaterial({
+      color: 0x8888aa, size: 0.4, transparent: true, opacity: 0,
+      sizeAttenuation: true, depthWrite: false,
+    });
+    const starField = new THREE.Points(starGeo, starMat);
+    scene.add(starField);
+
+    // ─── Nebula halos — soft glow at level-1 folder centroids ───
+    const nebulaGroup = new THREE.Group();
+    Object.values(folders).forEach(f => {
+      if (f.level > 1) return; // only root and level-1 folders get nebulae
+      // Compute centroid from all descendant nodes
+      const allNodes = [];
+      function collectNodes(key) {
+        const folder = folders[key];
+        if (!folder) return;
+        allNodes.push(...folder.nodes);
+        folder.children.forEach(c => collectNodes(c));
+      }
+      collectNodes(f.key);
+      if (allNodes.length < 3) return;
+      const cx = allNodes.reduce((s,n) => s+n.x, 0) / allNodes.length;
+      const cy = allNodes.reduce((s,n) => s+n.y, 0) / allNodes.length;
+      const cz = allNodes.reduce((s,n) => s+n.z, 0) / allNodes.length;
+
+      const nebulaCanvas = document.createElement('canvas');
+      nebulaCanvas.width = 128; nebulaCanvas.height = 128;
+      const nCtx = nebulaCanvas.getContext('2d');
+      const nGrad = nCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
+      // Use folder color for nebula tint
+      const baseColor = f.color || '#888888';
+      // Parse color to get a hex-like value for gradient stops
+      const tmpCol = new THREE.Color(baseColor);
+      const hexStr = '#' + tmpCol.getHexString();
+      nGrad.addColorStop(0, hexStr + '1a');
+      nGrad.addColorStop(0.5, hexStr + '0a');
+      nGrad.addColorStop(1, hexStr + '00');
+      nCtx.fillStyle = nGrad;
+      nCtx.fillRect(0, 0, 128, 128);
+      const nTex = new THREE.CanvasTexture(nebulaCanvas);
+      const nMat = new THREE.SpriteMaterial({ map: nTex, transparent: true, opacity: 0, depthWrite: false });
+      const nebula = new THREE.Sprite(nMat);
+      nebula.position.set(cx, cy, cz);
+      nebula.scale.setScalar(Math.sqrt(allNodes.length) * (f.level === 0 ? 10 : 6));
+      nebula.userData = { space: f.key.split('/')[0] };
+      nebulaGroup.add(nebula);
+    });
+    scene.add(nebulaGroup);
+
+    // ─── Hub rings — glowing rings for top connected nodes ───
+    setStatus('marking hubs...');
+    const hubRings = [];
+    const hubThreshold = 8; // total links to qualify
+    const ringGeo = new THREE.RingGeometry(1.6, 2.0, 32);
+    simNodes.forEach(n => {
+      const totalLinks = n.in_links + n.out_links;
+      if (totalLinks >= hubThreshold || n.canonical) {
+        const color = new THREE.Color(n.__color);
+        const mat = new THREE.MeshBasicMaterial({
+          color, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false,
+        });
+        const ring = new THREE.Mesh(ringGeo, mat);
+        ring.position.set(n.x, n.y, n.z);
+        const scale = n.__size * (n.canonical ? 1.8 : 1.4);
+        ring.scale.setScalar(scale);
+        ring.lookAt(camera.position);
+        ring.userData = { nodeId: n.id, baseScale: scale };
+        scene.add(ring);
+        hubRings.push(ring);
+        n.__ring = ring;
+      }
+    });
+
+    // ─── Edge flow particles — dots that travel along edges ───
+    setStatus('launching edge particles...');
+    const FLOW_COUNT = Math.min(simEdges.length * 3, 1200); // generous for particles mode
+    const flowGroup = new THREE.Group();
+    const flowParticles = [];
+
+    // Pick edges weighted by importance (higher weight = more particles)
+    const weightedEdges = [];
+    simEdges.forEach(e => {
+      for (let k = 0; k < Math.min(e.weight, 3); k++) weightedEdges.push(e);
+    });
+
+    for (let i = 0; i < FLOW_COUNT; i++) {
+      const edge = weightedEdges[i % weightedEdges.length];
+      const color = new THREE.Color(
+        SPACE_COLORS[edge.source.space] || '#888'
+      ).lerp(new THREE.Color('#ffffff'), 0.3);
+      const mat = new THREE.SpriteMaterial({
+        map: sparkTex, color, transparent: true, opacity: 0, depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.setScalar(0.12);
+      const progress = Math.random();
+      sprite.position.lerpVectors(
+        new THREE.Vector3(edge.source.x, edge.source.y, edge.source.z),
+        new THREE.Vector3(edge.target.x, edge.target.y, edge.target.z),
+        progress
+      );
+      flowGroup.add(sprite);
+      flowParticles.push({
+        sprite, edge, progress,
+        speed: 0.003 + Math.random() * 0.008,
+        srcVec: new THREE.Vector3(edge.source.x, edge.source.y, edge.source.z),
+        tgtVec: new THREE.Vector3(edge.target.x, edge.target.y, edge.target.z),
+      });
+    }
+    scene.add(flowGroup);
+
+    // ═══════════════════════════════════════════════════════
+    //  State
+    // ═══════════════════════════════════════════════════════
+    let hoveredNode = null;
+    let selectedNode = null;
+    const activeSpaces = new Set(['Harbor', 'Town-Hall', 'Workshop', 'Library', 'Embassy', 'Crossroads']); // all on by default
+    let activeView = 'default';
+    let linksVisible = true;
+    let hierarchyVisible = true;
+    let searchQuery = '';
+    let cameraTarget = null;
+    const hiddenNodes = new Set();
+
+    // ═══════════════════════════════════════════════════════
+    //  Interaction — Raycaster
+    // ═══════════════════════════════════════════════════════
+    const raycaster = new THREE.Raycaster();
+    raycaster.params.Points = { threshold: 0.5 };
+    const mouse = new THREE.Vector2(-999, -999);
+
+    let mouseClientX = 0, mouseClientY = 0;
+    renderer.domElement.addEventListener('mousemove', (e) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      mouseClientX = e.clientX;
+      mouseClientY = e.clientY;
+    });
+
+    renderer.domElement.addEventListener('click', (e) => {
+      if (hoveredNode) {
+        selectedNode = hoveredNode;
+        openDetail(selectedNode);
+        cameraTarget = new THREE.Vector3(selectedNode.x, selectedNode.y, selectedNode.z);
+      } else {
+        closeDetail();
+      }
+    });
+
+    // Double-click: zoom in close to node
+    renderer.domElement.addEventListener('dblclick', (e) => {
+      if (hoveredNode) {
+        selectedNode = hoveredNode;
+        openDetail(selectedNode);
+        const n = hoveredNode;
+        const dir = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+        const targetPos = new THREE.Vector3(n.x, n.y, n.z).add(dir.multiplyScalar(20));
+        cameraTarget = new THREE.Vector3(n.x, n.y, n.z);
+        // Smooth camera position transition
+        const startPos = camera.position.clone();
+        let progress = 0;
+        const zoomIn = () => {
+          progress += 0.03;
+          if (progress >= 1) return;
+          camera.position.lerpVectors(startPos, targetPos, 1 - Math.pow(1 - progress, 3));
+          requestAnimationFrame(zoomIn);
+        };
+        controls.autoRotate = false;
+        zoomIn();
+      }
+    });
+
+    renderer.domElement.style.cursor = 'grab';
+    renderer.domElement.addEventListener('mousedown', () => { renderer.domElement.style.cursor = 'grabbing'; });
+    renderer.domElement.addEventListener('mouseup', () => { renderer.domElement.style.cursor = hoveredNode ? 'pointer' : 'grab'; });
+
+    // ═══════════════════════════════════════════════════════
+    //  Highlight Logic
+    // ═══════════════════════════════════════════════════════
+    function setHighlight(node) {
+      // Clear highlight edges
+      while (highlightGroup.children.length) {
+        const ch = highlightGroup.children[0];
+        ch.geometry.dispose(); ch.material.dispose();
+        highlightGroup.remove(ch);
+      }
+
+      if (!node) {
+        nodeMeshes.forEach(m => {
+          if (!hiddenNodes.has(m.userData.id)) {
+            m.material.opacity = introComplete ? 0.85 : m.material.opacity;
+            m.scale.setScalar(m.userData.__origScale);
+          }
+        });
+        // Restore active link variant opacity
+        const aLV = LINK_VARIANTS[currentLinkVariant];
+        if (aLV !== 'particles' && linkObjects[aLV]) {
+          linkObjects[aLV].mat.opacity = introComplete ? 0.7 : linkObjects[aLV].mat.opacity;
+        }
+        return;
+      }
+
+      const neighbors = new Set();
+
+      // If folder node, include all descendants as neighbors
+      if (node.__isFolder) {
+        const folderKey = node.__folderKey;
+        function collectDescendants(key) {
+          const folder = folders[key]; if (!folder) return;
+          folder.nodes.forEach(n => neighbors.add(n.id));
+          if (folder.__folderNode && folder.__folderNode.id !== node.id) {
+            neighbors.add(folder.__folderNode.id);
+          }
+          folder.children.forEach(c => collectDescendants(c));
+        }
+        collectDescendants(folderKey);
+      }
+
+      const links = nodeLinks[node.id] || [];
+
+      // Create highlighted edge lines
+      links.forEach(({ other, edge }) => {
+        neighbors.add(other);
+        const s = simNodeById[edge.source], t = simNodeById[edge.target];
+        if (!s || !t) return;
+        const pts = [new THREE.Vector3(s.x, s.y, s.z), new THREE.Vector3(t.x, t.y, t.z)];
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const mat = new THREE.LineBasicMaterial({ color: new THREE.Color(node.__color), transparent: true, opacity: 0.7, linewidth: 2 });
+        highlightGroup.add(new THREE.LineSegments(geo, mat));
+      });
+
+      // Dim non-neighbors, brighten connected
+      nodeMeshes.forEach(m => {
+        const n = m.userData;
+        if (hiddenNodes.has(n.id)) return;
+        if (n === node) {
+          m.material.opacity = 1;
+          m.scale.setScalar(n.__origScale * 1.4);
+        } else if (neighbors.has(n.id)) {
+          m.material.opacity = 0.9;
+          m.scale.setScalar(n.__origScale * 1.1);
+        } else {
+          m.material.opacity = 0.06;
+          m.scale.setScalar(n.__origScale);
+        }
+      });
+
+      // Show labels for selected + neighbors, hide others
+      labelSprites.forEach(sprite => {
+        const nid = sprite.userData.nodeId;
+        if (nid === node.id) {
+          sprite.material.opacity = 1;
+          sprite.visible = true;
+        } else if (neighbors.has(nid)) {
+          sprite.material.opacity = 0.8;
+          sprite.visible = true;
+        } else {
+          sprite.material.opacity = 0;
+        }
+      });
+
+      // Dim active link variant during selection highlight
+      const aLV2 = LINK_VARIANTS[currentLinkVariant];
+      if (aLV2 !== 'particles' && linkObjects[aLV2]) {
+        linkObjects[aLV2].mat.opacity = 0.08;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  Visibility & View Modes
+    // ═══════════════════════════════════════════════════════
+    const times = simNodes.map(n => n.last_modified || 0).filter(t => t > 0);
+    const tMin = Math.min(...times), tMax = Math.max(...times);
+
+    const searchMatchSet = new Set();
+
+    function updateVisibility() {
+      hiddenNodes.clear();
+      searchMatchSet.clear();
+
+      simNodes.forEach(n => {
+        const spaceVisible = activeSpaces.has(n.space);
+        const typeVisible = (typeMode === 'filter' && n.__isFolder) || activeTypes.has(n.extension || 'md');
+        const searchMatch = !searchQuery || n.id.toLowerCase().includes(searchQuery);
+
+        if (!spaceVisible || !typeVisible) {
+          // Space or type filter hides completely
+          hiddenNodes.add(n.id);
+          n.__mesh.visible = false;
+        } else {
+          n.__mesh.visible = true;
+          if (searchQuery && searchMatch) {
+            searchMatchSet.add(n.id);
+            // Glow matching nodes
+            n.__mesh.material.opacity = 1;
+            n.__mesh.scale.setScalar(n.__origScale * 1.3);
+          } else if (searchQuery && !searchMatch) {
+            // Dim non-matching nodes (but keep visible)
+            n.__mesh.material.opacity = 0.08;
+            n.__mesh.scale.setScalar(n.__origScale * 0.7);
+          } else {
+            // No search — normal
+            n.__mesh.material.opacity = 0.85;
+            n.__mesh.scale.setScalar(n.__origScale);
+          }
+        }
+      });
+
+      // Update ALL link variant geometries
+      LINK_VARIANTS.forEach(v => {
+        if (v === 'particles' || !linkObjects[v]) return;
+        const obj = linkObjects[v];
+        const arr = obj.geo.attributes.position.array;
+        const stride = obj.stride;
+        simEdges.forEach((e, i) => {
+          const hidden = hiddenNodes.has(e.source.id) || hiddenNodes.has(e.target.id);
+          const base = i * stride * 3;
+          if (hidden) {
+            for (let k = 0; k < stride * 3; k++) {
+              arr[base + k] = (k % 3 === 1) ? -999 : 0;
+            }
+          } else if (v === 'straight') {
+            arr[base] = e.source.x; arr[base+1] = e.source.y; arr[base+2] = e.source.z;
+            arr[base+3] = e.target.x; arr[base+4] = e.target.y; arr[base+5] = e.target.z;
+          }
+          // arcs, glow, chain: positions are static from init — just hide via y=-999
+        });
+        obj.geo.attributes.position.needsUpdate = true;
+      });
+
+      // Update ALL hierarchy variant geometries
+      HIER_VARIANTS.forEach(v => {
+        const obj = hierObjects[v];
+        if (!obj || !obj.geo.attributes.position) return;
+        const arr = obj.geo.attributes.position.array;
+        validHierEdges.forEach((e, i) => {
+          const hidden = hiddenNodes.has(e.source.id) || hiddenNodes.has(e.target.id);
+          if (hidden) {
+            arr[i*6] = 0; arr[i*6+1] = -999; arr[i*6+2] = 0;
+            arr[i*6+3] = 0; arr[i*6+4] = -999; arr[i*6+5] = 0;
+          } else {
+            arr[i*6] = e.source.x; arr[i*6+1] = e.source.y; arr[i*6+2] = e.source.z;
+            arr[i*6+3] = e.target.x; arr[i*6+4] = e.target.y; arr[i*6+5] = e.target.z;
+          }
+        });
+        obj.geo.attributes.position.needsUpdate = true;
+        // Dotted material needs recomputed line distances after position update
+        if (v === 'dotted') obj.lines.computeLineDistances();
+      });
+
+      // Dim active link variant when searching
+      const activeLinkName = LINK_VARIANTS[currentLinkVariant];
+      if (activeLinkName !== 'particles' && linkObjects[activeLinkName]) {
+        if (searchQuery) {
+          linkObjects[activeLinkName].mat.opacity = 0.1;
+        } else {
+          linkObjects[activeLinkName].mat.opacity = introComplete ? 0.7 : linkObjects[activeLinkName].mat.opacity;
+        }
+      }
+    }
+
+    function updateViewColors() {
+      simNodes.forEach(n => {
+        let color = n.__color;
+        if (activeView === 'temporal') {
+          const t = n.last_modified || 0;
+          const ratio = (tMax === tMin) ? 0.5 : (t - tMin) / (tMax - tMin);
+          const h = (1 - ratio) * 0.72; // blue(0.72) → red(0)
+          color = new THREE.Color().setHSL(h, 0.7, 0.3 + ratio * 0.35);
+          n.__mesh.material.color = color;
+        } else if (activeView === 'orphans') {
+          const isOrphan = n.in_links === 0 && n.out_links === 0;
+          color = isOrphan ? new THREE.Color(0xef4444) : new THREE.Color(n.__color).multiplyScalar(0.25);
+          n.__mesh.material.color = color;
+        } else {
+          n.__mesh.material.color = new THREE.Color(n.__color);
+        }
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  Detail Panel
+    // ═══════════════════════════════════════════════════════
+    function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    function openDetail(node) {
+      const links = nodeLinks[node.id] || [];
+      const outgoing = links.filter(l => l.dir === 'out');
+      const incoming = links.filter(l => l.dir === 'in');
+
+      document.getElementById('d-path').innerHTML = `<span style="color:${node.__color}">${esc(node.id)}</span>`;
+
+      const folderColor = folders[node.__folderKey] ? folders[node.__folderKey].color : node.__color;
+      let meta = `<span style="color:${folderColor}">${node.__folderKey || node.space}</span>`;
+      if (node.canonical) meta += ` <span class="badge badge-c">★ canonical</span>`;
+      if (node.tier) meta += ` <span class="badge badge-t">tier ${node.tier}</span>`;
+      if (node.in_links === 0 && node.out_links === 0) meta += ` <span class="badge badge-o">orphan</span>`;
+      document.getElementById('d-meta').innerHTML = meta;
+      document.getElementById('d-out').textContent = outgoing.length;
+      document.getElementById('d-in').textContent = incoming.length;
+
+      let previewHtml = '';
+      if (node.title) previewHtml = `<div class="section-label">preview</div><div class="preview">${esc(node.title.substring(0, 300))}</div>`;
+      document.getElementById('d-preview').innerHTML = previewHtml;
+
+      let connHtml = '';
+      if (outgoing.length) {
+        connHtml += '<div class="section-label">links to</div>';
+        outgoing.slice(0, 15).forEach(({ other }) => {
+          const on = nodeMap[other]; if (!on) return;
+          const oc = SPACE_COLORS[on.space] || '#888';
+          connHtml += `<div class="conn" data-id="${other}"><span class="cd" style="background:${oc}"></span><span style="color:${oc}">${esc(on.label)}</span></div>`;
+        });
+      }
+      if (incoming.length) {
+        connHtml += '<div class="section-label">linked from</div>';
+        incoming.slice(0, 15).forEach(({ other }) => {
+          const on = nodeMap[other]; if (!on) return;
+          const oc = SPACE_COLORS[on.space] || '#888';
+          connHtml += `<div class="conn" data-id="${other}"><span class="cd" style="background:${oc}"></span><span style="color:${oc}">${esc(on.label)}</span></div>`;
+        });
+      }
+      document.getElementById('d-conns').innerHTML = connHtml;
+
+      document.querySelectorAll('.conn[data-id]').forEach(el => {
+        el.addEventListener('click', () => focusNode(el.dataset.id));
+      });
+
+      document.getElementById('detail').classList.add('open');
+    }
+
+    function closeDetail() {
+      document.getElementById('detail').classList.remove('open');
+      selectedNode = null;
+    }
+
+    function focusNode(id) {
+      const n = simNodeById[id];
+      if (n) {
+        selectedNode = n;
+        cameraTarget = new THREE.Vector3(n.x, n.y, n.z);
+        setTimeout(() => openDetail(n), 200);
+      }
+    }
+
+    document.getElementById('close-detail').addEventListener('click', closeDetail);
+    document.addEventListener('keydown', (e) => {
+      if (document.activeElement.tagName === 'INPUT') {
+        if (e.key === 'Escape') { document.activeElement.blur(); closeDetail(); }
+        return;
+      }
+      switch (e.key) {
+        case 'Escape': closeDetail(); break;
+        case '/': e.preventDefault(); document.getElementById('search').focus(); break;
+        case 'r': case 'R':
+          // Reset camera
+          cameraTarget = new THREE.Vector3(0, 2, 0);
+          camera.position.set(0, 80, 150);
+          controls.autoRotate = true;
+          break;
+        case 'f': case 'F':
+          // Focus all — fit graph in view
+          controls.autoRotate = false;
+          camera.position.set(0, 80, 150);
+          cameraTarget = new THREE.Vector3(0, 2, 0);
+          break;
+        case '1':
+          toggleSpace('Harbor'); break;
+        case '2':
+          toggleSpace('Lab'); break;
+        case '3':
+          toggleSpace('Workshop'); break;
+        case '0':
+          // Toggle all on
+          ['Bridge','Lab','Workshop'].forEach(s => activeSpaces.add(s));
+          syncSpaceButtons(); updateVisibility(); break;
+        case ' ':
+          // Toggle auto-rotate
+          e.preventDefault();
+          controls.autoRotate = !controls.autoRotate;
+          break;
+        case 'e': case 'E':
+          // Cycle hierarchy edge variants (Shift+E toggles off)
+          if (e.shiftKey) {
+            hierarchyVisible = !hierarchyVisible;
+          } else {
+            if (!hierarchyVisible) { hierarchyVisible = true; }
+            else { currentHierVariant = (currentHierVariant + 1) % HIER_VARIANTS.length; }
+          }
+          syncHierVariant();
+          document.querySelectorAll('#view-filters .fbtn[data-view="edges"]').forEach(b => {
+            b.classList.toggle('active', hierarchyVisible);
+            if (hierarchyVisible) b.textContent = HIER_VARIANTS[currentHierVariant];
+          });
+          break;
+        case 'l': case 'L':
+          // Cycle link variants (Shift+L toggles off)
+          if (e.shiftKey) {
+            linksVisible = !linksVisible;
+          } else {
+            if (!linksVisible) { linksVisible = true; }
+            else { currentLinkVariant = (currentLinkVariant + 1) % LINK_VARIANTS.length; }
+          }
+          syncLinkVariant();
+          document.querySelectorAll('#view-filters .fbtn[data-view="links"]').forEach(b => {
+            b.classList.toggle('active', linksVisible);
+            if (linksVisible) b.textContent = LINK_VARIANTS[currentLinkVariant];
+          });
+          break;
+        case 'p': case 'P':
+          // Screenshot
+          e.preventDefault();
+          composer.render(); // force fresh frame
+          renderer.domElement.toBlob(blob => {
+            if (!blob) return;
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `knowledge-graph-${new Date().toISOString().slice(0,10)}.png`;
+            a.click();
+            URL.revokeObjectURL(url);
+            // Flash effect
+            const flash = document.getElementById('screenshot-flash');
+            flash.classList.add('flash');
+            setTimeout(() => flash.classList.remove('flash'), 150);
+            const notify = document.getElementById('screenshot-notify');
+            notify.classList.add('visible');
+            setTimeout(() => notify.classList.remove('visible'), 2000);
+          }, 'image/png');
+          break;
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════
+    //  UI Setup
+    // ═══════════════════════════════════════════════════════
+    const stats = RAW.stats;
+    document.getElementById('stats').innerHTML = `
+      <div class="stat-row"><span class="stat-label">nodes</span><span class="stat-value">${stats.total_nodes}</span></div>
+      <div class="stat-row"><span class="stat-label">links</span><span class="stat-value">${validEdges.length}</span></div>
+      <div class="stat-row"><span class="stat-label">bridge</span><span class="stat-value" style="color:var(--bridge)">${stats.by_space.Bridge||0}</span></div>
+      <div class="stat-row"><span class="stat-label">lab</span><span class="stat-value" style="color:var(--lab)">${stats.by_space.Lab||0}</span></div>
+      <div class="stat-row"><span class="stat-label">workshop</span><span class="stat-value" style="color:var(--workshop)">${stats.by_space.Workshop||0}</span></div>
+      <div class="stat-row"><span class="stat-label">orphans</span><span class="stat-value" style="color:var(--orphan)">${stats.orphans}</span></div>
+    `;
+
+    // Space filters — multi-toggle
+    function syncSpaceButtons() {
+      document.querySelectorAll('#space-filters .fbtn[data-space]').forEach(b => {
+        b.classList.toggle('active', activeSpaces.has(b.dataset.space));
+      });
+    }
+    function toggleSpace(space) {
+      if (activeSpaces.has(space)) {
+        // Don't allow deselecting all — at least one must remain
+        if (activeSpaces.size > 1) activeSpaces.delete(space);
+      } else {
+        activeSpaces.add(space);
+      }
+      syncSpaceButtons();
+      updateVisibility();
+    }
+
+    ['Bridge','Lab','Workshop'].forEach(s => {
+      const btn = document.createElement('button');
+      btn.className = 'fbtn active'; // all on by default
+      btn.textContent = s.toLowerCase();
+      btn.dataset.space = s;
+      btn.style.borderLeftColor = SPACE_COLORS[s];
+      btn.style.borderLeftWidth = '2px';
+      btn.addEventListener('click', () => toggleSpace(s));
+      document.getElementById('space-filters').appendChild(btn);
+    });
+
+    // File type filters — toggle mode (on/off) or filter mode (solo)
+    const activeTypes = new Set();
+    const typeCounts = {};
+    simNodes.forEach(n => {
+      const ext = n.extension || 'md';
+      activeTypes.add(ext);
+      typeCounts[ext] = (typeCounts[ext] || 0) + 1;
+    });
+    const allTypes = [...new Set(activeTypes)].sort((a, b) => (typeCounts[b] || 0) - (typeCounts[a] || 0));
+    let typeMode = 'filter'; // 'toggle' or 'filter'
+
+    const typeModeBtn = document.getElementById('type-mode-btn');
+    typeModeBtn.textContent = 'filter';
+    typeModeBtn.addEventListener('click', () => {
+      typeMode = typeMode === 'toggle' ? 'filter' : 'toggle';
+      typeModeBtn.textContent = typeMode;
+      // When switching to toggle, re-enable all
+      if (typeMode === 'toggle') {
+        allTypes.forEach(t => activeTypes.add(t));
+        syncTypeButtons();
+        updateVisibility();
+      }
+    });
+
+    function syncTypeButtons() {
+      document.querySelectorAll('#type-filters .fbtn[data-type]').forEach(b => {
+        b.classList.toggle('active', activeTypes.has(b.dataset.type));
+      });
+    }
+    function handleTypeClick(type) {
+      if (typeMode === 'filter') {
+        // Solo: show only this type (or re-enable all if already solo'd)
+        if (activeTypes.size === 1 && activeTypes.has(type)) {
+          allTypes.forEach(t => activeTypes.add(t));
+        } else {
+          activeTypes.clear();
+          activeTypes.add(type);
+        }
+      } else {
+        // Toggle: flip this type on/off
+        if (activeTypes.has(type)) {
+          if (activeTypes.size > 1) activeTypes.delete(type);
+        } else {
+          activeTypes.add(type);
+        }
+      }
+      syncTypeButtons();
+      updateVisibility();
+    }
+
+    allTypes.forEach(ext => {
+      const btn = document.createElement('button');
+      btn.className = 'fbtn active';
+      btn.textContent = '.' + ext;
+      btn.dataset.type = ext;
+      const tintColor = TYPE_TINTS[ext];
+      if (tintColor) {
+        btn.style.borderLeftColor = tintColor;
+        btn.style.borderLeftWidth = '2px';
+      }
+      btn.title = `${typeCounts[ext]} files`;
+      btn.addEventListener('click', () => handleTypeClick(ext));
+      document.getElementById('type-filters').appendChild(btn);
+    });
+
+    // View filters
+    ['default','temporal','orphans'].forEach(v => {
+      const btn = document.createElement('button');
+      btn.className = 'fbtn' + (v === 'default' ? ' active' : '');
+      btn.textContent = v;
+      btn.dataset.view = v;
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#view-filters .fbtn:not([data-view="edges"]):not([data-view="links"])').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeView = v;
+        updateViewColors();
+      });
+      document.getElementById('view-filters').appendChild(btn);
+    });
+    // Links cycle button (file-to-file connections — cycles variants on click, shift+click toggles off)
+    const linkBtn = document.createElement('button');
+    linkBtn.className = 'fbtn active';
+    linkBtn.textContent = LINK_VARIANTS[currentLinkVariant];
+    linkBtn.dataset.view = 'links';
+    linkBtn.addEventListener('click', (ev) => {
+      if (ev.shiftKey) {
+        linksVisible = !linksVisible;
+      } else {
+        if (!linksVisible) { linksVisible = true; }
+        else { currentLinkVariant = (currentLinkVariant + 1) % LINK_VARIANTS.length; }
+      }
+      syncLinkVariant();
+      linkBtn.classList.toggle('active', linksVisible);
+      if (linksVisible) linkBtn.textContent = LINK_VARIANTS[currentLinkVariant];
+    });
+    document.getElementById('view-filters').appendChild(linkBtn);
+
+    // Edges cycle button (hierarchy — cycles variants on click, shift+click toggles off)
+    const hierBtn = document.createElement('button');
+    hierBtn.className = 'fbtn active';
+    hierBtn.textContent = HIER_VARIANTS[currentHierVariant];
+    hierBtn.dataset.view = 'edges';
+    hierBtn.addEventListener('click', (ev) => {
+      if (ev.shiftKey) {
+        hierarchyVisible = !hierarchyVisible;
+      } else {
+        if (!hierarchyVisible) { hierarchyVisible = true; }
+        else { currentHierVariant = (currentHierVariant + 1) % HIER_VARIANTS.length; }
+      }
+      syncHierVariant();
+      hierBtn.classList.toggle('active', hierarchyVisible);
+      if (hierarchyVisible) hierBtn.textContent = HIER_VARIANTS[currentHierVariant];
+    });
+    document.getElementById('view-filters').appendChild(hierBtn);
+
+    // Legend
+    document.getElementById('legend').innerHTML = `
+      <div class="legend-item"><div class="ldot" style="background:var(--bridge)"></div><span style="color:var(--text-dim)">Bridge</span></div>
+      <div class="legend-item"><div class="ldot" style="background:var(--lab)"></div><span style="color:var(--text-dim)">Lab</span></div>
+      <div class="legend-item"><div class="ldot" style="background:var(--workshop)"></div><span style="color:var(--text-dim)">Workshop</span></div>
+      <div class="legend-item"><div class="ldot glow" style="background:var(--canonical)"></div><span style="color:var(--canonical)">Canonical</span></div>
+      <div class="legend-item"><div class="ldot" style="background:var(--text-dim);box-shadow:0 0 4px var(--text-dim)"></div><span style="color:var(--text-dim)">Hub (8+ links)</span></div>
+      <div style="font-size:9px;color:var(--text-dim);margin-top:6px;line-height:1.5">
+        △4 &lt;50 · ◇8 &lt;150 · ⬡12 &lt;400<br>
+        ⬠20 &lt;1k · ● 1k+ lines
+      </div>
+    `;
+
+    // Search with result count
+    const searchInput = document.getElementById('search');
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = e.target.value.toLowerCase();
+      updateVisibility();
+      // Update placeholder to show count
+      if (searchQuery) {
+        searchInput.placeholder = `${searchMatchSet.size} match${searchMatchSet.size !== 1 ? 'es' : ''}`;
+      } else {
+        searchInput.placeholder = 'filename or path...';
+      }
+    });
+
+    // Cluster list — hierarchical, showing level-1 and level-2 folders
+    let clusterHtml = '';
+    const sortedFolders = Object.values(folders)
+      .filter(f => f.level >= 1 && f.nodes.length > 0 || f.children.size > 0)
+      .sort((a, b) => {
+        // Sort by level then by key
+        if (a.level !== b.level) return a.level - b.level;
+        return a.key.localeCompare(b.key);
+      });
+    sortedFolders.forEach(f => {
+      // Count all descendant nodes
+      let totalNodes = f.nodes.length;
+      function countDesc(key) {
+        const folder = folders[key];
+        if (!folder) return;
+        totalNodes += folder.nodes.length;
+        folder.children.forEach(c => countDesc(c));
+      }
+      f.children.forEach(c => countDesc(c));
+      if (totalNodes === 0) return;
+
+      const allNodes = [];
+      function collectN(key) {
+        const folder = folders[key]; if (!folder) return;
+        allNodes.push(...folder.nodes);
+        folder.children.forEach(c => collectN(c));
+      }
+      allNodes.push(...f.nodes);
+      f.children.forEach(c => collectN(c));
+
+      const cx = allNodes.reduce((s,n) => s+n.x, 0) / allNodes.length;
+      const cy = allNodes.reduce((s,n) => s+n.y, 0) / allNodes.length;
+      const cz = allNodes.reduce((s,n) => s+n.z, 0) / allNodes.length;
+      const indent = (f.level - 1) * 10;
+      const color = f.color || '#444';
+      clusterHtml += `<div class="cluster-card" data-cx="${cx}" data-cy="${cy}" data-cz="${cz}" style="border-left-color:${color};padding-left:${8+indent}px"><span class="cc-name" style="color:${color}">${esc(f.key.split('/').pop())}</span><span class="cc-count">${totalNodes}</span></div>`;
+    });
+    document.getElementById('cluster-list').innerHTML = clusterHtml;
+    document.querySelectorAll('.cluster-card').forEach(card => {
+      card.addEventListener('click', () => {
+        cameraTarget = new THREE.Vector3(parseFloat(card.dataset.cx), parseFloat(card.dataset.cy), parseFloat(card.dataset.cz));
+      });
+    });
+
+    // ═══════════════════════════════════════════════════════
+    //  Animation Loop
+    // ═══════════════════════════════════════════════════════
+    setStatus('rendering...');
+    setProgress(95);
+
+    const startTime = Date.now();
+    let introComplete = false;
+    const INTRO_MS = 2500;
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const t = clock.getElapsedTime();
+      const dt = clock.getDelta();
+
+      // ─── Entry animation ───
+      if (!introComplete) {
+        const elapsed = Date.now() - startTime;
+        const p = Math.min(1, elapsed / INTRO_MS);
+        const ease = 1 - Math.pow(1 - p, 3);
+
+        nodeMeshes.forEach((m, i) => {
+          if (hiddenNodes.has(m.userData.id)) return;
+          const delay = (i / simNodes.length) * 0.4;
+          const np = Math.max(0, Math.min(1, (ease - delay) / 0.6));
+          m.material.opacity = np * 0.85;
+          m.scale.setScalar(m.userData.__origScale * np);
+        });
+
+        // Fade in ALL link variant materials (only active one is visible)
+        LINK_VARIANTS.forEach(v => {
+          if (v !== 'particles' && linkObjects[v]) {
+            linkObjects[v].mat.opacity = ease * (v === 'glow' ? 0.9 : 0.7);
+          }
+        });
+        // Fade in ALL hierarchy variant materials
+        HIER_VARIANTS.forEach(v => {
+          if (hierObjects[v]) {
+            hierObjects[v].mat.opacity = ease * (v === 'thin' ? 0.35 : v === 'dotted' ? 0.45 : 0.6);
+          }
+        });
+        pollenParticles.forEach(pp => { pp.sprite.material.opacity = ease * 0.35; });
+        nebulaGroup.children.forEach(nb => {
+          const vis = activeSpaces.has(nb.userData.space);
+          nb.material.opacity = vis ? ease * 0.6 : 0;
+          nb.visible = vis;
+        });
+        starMat.opacity = ease * 0.5;
+        // Labels fade in after nodes
+        labelSprites.forEach((sprite, i) => {
+          const tier = sprite.userData.tier;
+          if (tier === 1) sprite.material.opacity = Math.max(0, ease - 0.4) * 1.2;
+        });
+
+        if (p >= 1) {
+          introComplete = true;
+          document.getElementById('loading').classList.add('hidden');
+          document.getElementById('panel').classList.add('visible');
+        }
+      }
+
+      // ─── Raycaster + Tooltip ───
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(nodeMeshes);
+      const newHover = hits.length > 0 ? hits[0].object.userData : null;
+      if (newHover !== hoveredNode) {
+        hoveredNode = newHover;
+        renderer.domElement.style.cursor = hoveredNode ? 'pointer' : 'grab';
+        if (!selectedNode) setHighlight(hoveredNode);
+
+        const tooltip = document.getElementById('tooltip');
+        if (hoveredNode) {
+          const n = hoveredNode;
+          document.getElementById('tt-name').textContent = n.__isFolder ? n.label : n.label;
+          document.getElementById('tt-name').style.color = n.__color;
+          document.getElementById('tt-path').textContent = n.id;
+          const ext = n.extension || (n.__isFolder ? 'folder' : 'md');
+          const extColor = TYPE_TINTS[ext] || 'var(--text-dim)';
+          const extBadge = `<span style="color:${extColor};font-weight:600">.${ext}</span>`;
+          const lineInfo = n.line_count ? ` · <span>${n.line_count}</span> lines` : '';
+          const wordInfo = n.word_count ? ` · <span>${(n.word_count/1000).toFixed(1)}k</span> words` : '';
+          const byteInfo = !n.line_count && n.byte_count ? ` · <span>${(n.byte_count/1024).toFixed(0)}KB</span>` : '';
+          document.getElementById('tt-stats').innerHTML =
+            extBadge +
+            ` · ↗ <span>${n.out_links}</span> out · ↙ <span>${n.in_links}</span> in` +
+            lineInfo + wordInfo + byteInfo +
+            (n.canonical ? ' · <span style="color:var(--canonical)">★ canonical</span>' : '') +
+            (n.tier ? ` · tier <span>${n.tier}</span>` : '');
+          tooltip.classList.add('visible');
+        } else {
+          tooltip.classList.remove('visible');
+        }
+      }
+      // Position tooltip near cursor
+      if (hoveredNode) {
+        const tooltip = document.getElementById('tooltip');
+        tooltip.style.left = (mouseClientX + 16) + 'px';
+        tooltip.style.top = (mouseClientY - 10) + 'px';
+      }
+
+      // ─── Canonical + search pulse ───
+      const pulse = Math.sin(t * 1.5) * 0.15 + 1;
+      const searchPulse = Math.sin(t * 3) * 0.1 + 1.3;
+      simNodes.forEach(n => {
+        if (hiddenNodes.has(n.id)) return;
+        if (searchQuery && searchMatchSet.has(n.id)) {
+          // Search match glow
+          n.__mesh.scale.setScalar(n.__origScale * searchPulse);
+          n.__mesh.material.opacity = 0.9 + Math.sin(t * 3) * 0.1;
+        } else if (n.canonical && introComplete) {
+          n.__mesh.scale.setScalar(n.__origScale * pulse);
+        }
+      });
+
+      // ─── Label visibility (zoom-responsive) ───
+      if (introComplete) {
+        const camDist = camera.position.length();
+        labelSprites.forEach(sprite => {
+          const tier = sprite.userData.tier;
+          const nodeId = sprite.userData.nodeId;
+          const isHidden = hiddenNodes.has(nodeId);
+          const isSelected = selectedNode && selectedNode.id === nodeId;
+          const isHovered = hoveredNode && hoveredNode.id === nodeId;
+
+          if (isHidden) {
+            sprite.visible = false;
+            return;
+          }
+
+          // Show based on zoom level + tier
+          let targetOpacity = 0;
+          if (isSelected || isHovered) {
+            targetOpacity = 1;
+          } else if (tier === 1) {
+            targetOpacity = camDist < 150 ? 0.85 : camDist < 200 ? 0.4 : 0.15;
+          } else if (tier === 2) {
+            targetOpacity = camDist < 80 ? 0.7 : camDist < 120 ? 0.25 : 0;
+          } else {
+            targetOpacity = camDist < 40 ? 0.6 : camDist < 60 ? 0.15 : 0;
+          }
+
+          sprite.visible = targetOpacity > 0.01;
+          sprite.material.opacity += (targetOpacity - sprite.material.opacity) * 0.08;
+        });
+      }
+
+      // ─── Pollen drift (curl-lite) ───
+      pollenParticles.forEach(pp => {
+        const p = pp.sprite.position;
+        const s = pp.seed;
+        p.x += Math.sin(t * 0.25 + s) * 0.025 * pp.speed;
+        p.y += Math.cos(t * 0.18 + s * 1.3) * 0.012 * pp.speed;
+        p.z += Math.sin(t * 0.22 + s * 0.7) * 0.025 * pp.speed;
+        // Wrap
+        if (Math.abs(p.x) > 80) p.x *= -0.7;
+        if (Math.abs(p.z) > 80) p.z *= -0.7;
+        if (p.y < 0) p.y = 14;
+        if (p.y > 16) p.y = 0;
+      });
+
+      // ─── Starfield twinkle ───
+      if (introComplete) {
+        starMat.opacity = 0.5;
+        const sizes = starGeo.attributes.size.array;
+        for (let i = 0; i < starCount; i++) {
+          sizes[i] = starSizes[i] * (0.7 + 0.3 * Math.sin(t * 0.8 + starSeeds[i] * 6.28));
+        }
+        starGeo.attributes.size.needsUpdate = true;
+      }
+
+      // ─── Hub ring animation ───
+      hubRings.forEach(ring => {
+        ring.lookAt(camera.position);
+        const nodeHidden = hiddenNodes.has(ring.userData.nodeId);
+        const targetOp = introComplete && !nodeHidden ? 0.25 + 0.1 * Math.sin(t * 2) : 0;
+        ring.material.opacity += (targetOp - ring.material.opacity) * 0.08;
+        ring.visible = !nodeHidden;
+        ring.rotation.z = t * 0.3;
+      });
+
+      // ─── Nebula space-toggle ───
+      if (introComplete) {
+        nebulaGroup.children.forEach(nb => {
+          const vis = activeSpaces.has(nb.userData.space);
+          const targetOp = vis ? 0.6 : 0;
+          nb.material.opacity += (targetOp - nb.material.opacity) * 0.08;
+          nb.visible = vis;
+        });
+      }
+
+      // ─── Chain variant animation — standing waves ───
+      // Standing wave: sin(n·π·t) × cos(ω·time) — zero at endpoints, oscillates in place
+      // Harmonic n varies per edge from metadata (weight + bidirectional)
+      // Two strands use perpendicular displacement planes for the double-helix look
+      if (LINK_VARIANTS[currentLinkVariant] === 'chain' && linkObjects.chain && introComplete) {
+        const chainPos = linkObjects.chain.geo.attributes.position.array;
+        const omega = 2.0; // temporal frequency
+        const cosT = Math.cos(omega * t);
+        const sinT = Math.sin(omega * t); // for strand 2 (90° phase in time)
+        chainEdgeData.forEach((ed, ei) => {
+          const { sx, sy, sz, tx, ty, tz, px, py, pz, p2x, p2y, p2z, amplitude, harmonic, startIdx } = ed;
+          const dx = tx - sx, dy = ty - sy, dz = tz - sz;
+          const hidden = hiddenNodes.has(simEdges[ei].source.id) || hiddenNodes.has(simEdges[ei].target.id);
+          if (hidden) return;
+
+          const n = harmonic; // harmonic number (2-5)
+          let vi = startIdx * 3;
+
+          // Strand 1: displaced along perp, standing wave in time via cos
+          for (let i = 0; i < CHAIN_SEGS; i++) {
+            const t0 = i / CHAIN_SEGS, t1 = (i + 1) / CHAIN_SEGS;
+            for (const tt of [t0, t1]) {
+              const bx = sx + dx * tt, by = sy + dy * tt, bz = sz + dz * tt;
+              const spatial = Math.sin(n * Math.PI * tt); // zero at endpoints
+              const wave = spatial * cosT * amplitude;
+              chainPos[vi++] = bx + px * wave;
+              chainPos[vi++] = by + py * wave;
+              chainPos[vi++] = bz + pz * wave;
+            }
+          }
+          // Strand 2: displaced along second perp, 90° time phase
+          for (let i = 0; i < CHAIN_SEGS; i++) {
+            const t0 = i / CHAIN_SEGS, t1 = (i + 1) / CHAIN_SEGS;
+            for (const tt of [t0, t1]) {
+              const bx = sx + dx * tt, by = sy + dy * tt, bz = sz + dz * tt;
+              const spatial = Math.sin(n * Math.PI * tt);
+              const wave = spatial * sinT * amplitude;
+              chainPos[vi++] = bx + p2x * wave;
+              chainPos[vi++] = by + p2y * wave;
+              chainPos[vi++] = bz + p2z * wave;
+            }
+          }
+          // Rungs connecting the two strands at antinodes
+          for (let r = 0; r < CHAIN_RUNGS; r++) {
+            const tt = (r + 0.5) / CHAIN_RUNGS;
+            const bx = sx + dx * tt, by = sy + dy * tt, bz = sz + dz * tt;
+            const spatial = Math.sin(n * Math.PI * tt);
+            const w1 = spatial * cosT * amplitude;
+            const w2 = spatial * sinT * amplitude;
+            chainPos[vi++] = bx + px * w1;
+            chainPos[vi++] = by + py * w1;
+            chainPos[vi++] = bz + pz * w1;
+            chainPos[vi++] = bx + p2x * w2;
+            chainPos[vi++] = by + p2y * w2;
+            chainPos[vi++] = bz + p2z * w2;
+          }
+        });
+        linkObjects.chain.geo.attributes.position.needsUpdate = true;
+      }
+
+      // ─── Edge flow particles (brighter in 'particles' mode) ───
+      const isParticlesMode = LINK_VARIANTS[currentLinkVariant] === 'particles';
+      flowParticles.forEach(fp => {
+        fp.progress += fp.speed * (isParticlesMode ? 1.5 : 1);
+        if (fp.progress > 1) fp.progress -= 1;
+        fp.sprite.position.lerpVectors(fp.srcVec, fp.tgtVec, fp.progress);
+        const fade = Math.sin(fp.progress * Math.PI);
+        const hidden = hiddenNodes.has(fp.edge.source.id) || hiddenNodes.has(fp.edge.target.id);
+        const baseOp = isParticlesMode ? 0.95 : 0.45;
+        fp.sprite.material.opacity = hidden ? 0 : (introComplete ? fade * baseOp : 0);
+        fp.sprite.scale.setScalar(isParticlesMode ? 0.4 : 0.12);
+        fp.sprite.visible = !hidden;
+      });
+
+      // ─── Camera target lerp ───
+      if (cameraTarget) {
+        controls.target.lerp(cameraTarget, 0.04);
+        if (controls.target.distanceTo(cameraTarget) < 0.3) cameraTarget = null;
+      }
+
+      controls.update();
+      composer.render();
+    }
+
+    // ─── Window resize ───
+    window.addEventListener('resize', () => {
+      const w = window.innerWidth, h = window.innerHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+      composer.setSize(w, h);
+      bloomPass.resolution.set(w, h);
+    });
+
+    animate();
+  </script>
+</body>
+</html>

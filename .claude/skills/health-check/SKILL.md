@@ -1,5 +1,5 @@
 ---
-description: Verify workspace integrity — submodules, symlinks, hooks, settings, and key files
+description: Verify workspace integrity — symlinks, submodules, hooks, settings, and key files
 user_invocable: true
 ---
 
@@ -13,7 +13,12 @@ Run a comprehensive workspace integrity check. Verify everything is pointing in 
 ```bash
 git submodule status
 ```
-All submodules should show a commit hash (not a `-` prefix, which means uninitialized).
+All submodules should show a commit hash (not a `-` prefix, which means uninitialized). Expected submodules:
+- `gstack/`
+- `claude-scientific-skills/`
+- `academic-research-skills/`
+- `trailofbits-config/`
+- `Crossroads/forethought-starter/`
 
 ### 2. Skill Symlinks
 Verify all symlinks in `.claude/skills/` resolve to real targets:
@@ -30,15 +35,28 @@ for link in .claude/skills/*/; do
 done
 ```
 
+Expected prefixes and counts:
+- `gstack-*`: 8 skills
+- `sci-*`: 22 skills
+- `acad-*`: 4 skills
+- Native + Forethought: ~7 skills (debugging-mode, draft-it, forethought-post, forethought-publish, forethought-style, forethought-diagrams, proofread, research-sprint, tweet-queue)
+
 ### 3. Hooks
 Check that hook scripts exist and are executable:
 ```bash
-ls -la ~/.claude/scripts/security-gate.py 2>/dev/null && echo "✅ security-gate.py" || echo "⚠️ security-gate.py not found"
-ls -la ~/.claude/scripts/notify.py 2>/dev/null && echo "✅ notify.py" || echo "⚠️ notify.py not found"
+ls -la ~/.claude/scripts/security-gate.py
+ls -la ~/.claude/scripts/notify.py
 ```
+Verify hooks are configured in `~/.claude/settings.json` — should have entries for Notification, Stop, and PreToolUse (Bash matcher).
 
 ### 4. Security Layer
-Verify deny rules exist in project settings:
+Verify deny rules exist in settings:
+```bash
+python3 -c "import json; d=json.load(open('$HOME/.claude/settings.json')); print(f'{len(d[\"permissions\"][\"deny\"])} deny rules')"
+```
+Should be 30+ deny rules covering credential paths and destructive commands.
+
+Check project-level settings exist:
 ```bash
 cat .claude/settings.json 2>/dev/null || echo "⚠️ No project-level settings.json"
 ```
@@ -46,7 +64,7 @@ cat .claude/settings.json 2>/dev/null || echo "⚠️ No project-level settings.
 ### 5. Key Files
 Verify core orientation files exist and aren't empty:
 ```bash
-for f in CLAUDE.md user.md MASTER_TODO.md Logbooks/user-log.md Logbooks/claude-log.md easter-eggs.md README.md; do
+for f in CLAUDE.md Avi.md MASTER_TODO.md Logbooks/avi-log.md Logbooks/claude-log.md easter-eggs.md README.md; do
   if [ -s "$f" ]; then
     echo "✅ $f ($(wc -l < "$f") lines)"
   else
@@ -59,8 +77,10 @@ done
 ```bash
 ls -la .claude/rules/*.md
 ```
+Expected: writing-voice.md, commit-style.md, space-research.md (at minimum).
 
 ### 7. Dependencies
+Check key external tools:
 ```bash
 which terminal-notifier 2>/dev/null && echo "✅ terminal-notifier" || echo "⚠️ terminal-notifier not installed (brew install terminal-notifier)"
 which gitleaks 2>/dev/null && echo "✅ gitleaks" || echo "⚠️ gitleaks not installed"
@@ -82,12 +102,12 @@ Present results as a summary table:
 ┌─────────────────────┬────────┬───────────────────────────┐
 │ Component           │ Status │ Notes                     │
 ├─────────────────────┼────────┼───────────────────────────┤
-│ Submodules          │ 🟢/🔴  │                           │
-│ Symlinks            │ 🟢/🔴  │ X broken                  │
-│ Hooks               │ 🟢/🔴  │                           │
+│ Submodules (5)      │ 🟢/🔴  │                           │
+│ Symlinks (35+)      │ 🟢/🔴  │ X broken                  │
+│ Hooks (3)           │ 🟢/🔴  │                           │
 │ Security deny rules │ 🟢/🔴  │ N rules                   │
-│ Key files           │ 🟢/🔴  │                           │
-│ Rules files         │ 🟢/🔴  │                           │
+│ Key files (7)       │ 🟢/🔴  │                           │
+│ Rules files (3+)    │ 🟢/🔴  │                           │
 │ Dependencies        │ 🟢/🟡  │ missing: X                │
 │ .gitignore          │ 🟢/🟡  │                           │
 └─────────────────────┴────────┴───────────────────────────┘

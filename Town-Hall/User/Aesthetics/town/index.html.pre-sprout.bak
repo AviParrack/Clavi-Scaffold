@@ -1,0 +1,2159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Claude Town · Top-Down</title>
+<style>
+  :root {
+    --bg: #16140f;
+    --ink: #f0e8d8;
+    --dim: rgba(240,232,216,0.55);
+    --accent: #E87040;
+    --accent-soft: #F5A47D;
+    --panel: rgba(18,14,10,0.92);
+    --border: rgba(232,112,64,0.4);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  html, body { width: 100%; height: 100%; background: var(--bg); color: var(--ink); font-family: 'Space Grotesk', system-ui, sans-serif; overflow: hidden; cursor: default; }
+  #stage { position: fixed; inset: 0; }
+  canvas { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; image-rendering: crisp-edges; cursor: default; }
+  canvas.drag { cursor: grabbing; }
+
+  #hud { position: fixed; top: 16px; left: 16px; pointer-events: none; display: flex; flex-direction: column; gap: 4px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+  #hud .title { font-size: 16px; color: var(--accent); font-weight: 600; letter-spacing: 0.1em; }
+  #hud .dim { color: var(--dim); }
+  #hud kbd { font-family: 'Fira Code', monospace; background: rgba(232,112,64,0.15); border: 1px solid var(--border); padding: 1px 5px; border-radius: 3px; font-size: 10px; color: var(--accent-soft); }
+  #hud .ln { display: flex; gap: 8px; align-items: center; }
+
+  #corner { position: fixed; top: 16px; right: 16px; font-size: 11px; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; text-align: right; }
+  #corner .asset { color: var(--accent); }
+  #corner .cred { color: rgba(240,232,216,0.35); font-size: 9px; margin-top: 6px; letter-spacing: 0.04em; }
+
+  #toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--border); padding: 10px 18px; font-size: 14px; letter-spacing: 0.06em; opacity: 0; transition: opacity 160ms ease; pointer-events: none; color: var(--ink); }
+  #toast.show { opacity: 1; }
+  #toast b { color: var(--accent); }
+
+  #sel { position: fixed; bottom: 18px; left: 18px; background: var(--panel); border: 1px solid var(--border); padding: 10px 14px; font-size: 12px; display: none; min-width: 220px; }
+  #sel.show { display: block; }
+  #sel .name { color: var(--accent); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 13px; margin-bottom: 2px; }
+  #sel .role { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+  #sel .hint { color: var(--accent-soft); font-size: 11px; margin-top: 6px; font-style: italic; }
+
+  #tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--border); padding: 6px 10px; font-size: 11px; letter-spacing: 0.04em; color: var(--ink); opacity: 0; transition: opacity 100ms; }
+  #tip.show { opacity: 1; }
+  #tip b { color: var(--accent); }
+
+  #library { position: fixed; inset: 32px; background: var(--panel); border: 1px solid var(--border); display: none; grid-template-columns: 340px 1fr; overflow: hidden; backdrop-filter: blur(8px); }
+  #library.open { display: grid; }
+  #library .pane { overflow: auto; padding: 16px 18px; position: relative; }
+  #library .left { border-right: 1px solid var(--border); font-family: 'Fira Code', monospace; font-size: 13px; }
+  #library .right { font-family: 'Fira Code', monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+  #library h2 { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-bottom: 10px; font-weight: 600; }
+  #library .crumbs { font-size: 11px; color: var(--dim); margin-bottom: 12px; word-break: break-all; line-height: 1.5; }
+  #library .crumbs a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  #library .crumbs a:hover { text-decoration: underline; }
+  #library .entry { display: flex; gap: 8px; padding: 3px 4px; cursor: pointer; border-radius: 2px; align-items: baseline; }
+  #library .entry:hover { background: rgba(232,112,64,0.12); }
+  #library .entry.selected { background: rgba(232,112,64,0.22); }
+  #library .entry .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #library .entry .meta { font-size: 10px; color: var(--dim); }
+  #library .entry.dir .name::before { content: "▸ "; color: var(--accent); }
+  #library .entry.file .name::before { content: "  "; }
+  #library .close { position: absolute; top: 12px; right: 16px; color: var(--dim); cursor: pointer; font-family: 'Fira Code', monospace; font-size: 14px; padding: 4px 8px; }
+  #library .close:hover { color: var(--accent); }
+  #library .right .head { color: var(--accent); margin-bottom: 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+  #library .right .empty { color: var(--dim); font-style: italic; }
+
+  /* Chat panel — right-side drawer for talking to Claudes */
+  #chat { position: fixed; top: 16px; right: 16px; width: 400px; max-height: calc(100vh - 32px); background: var(--panel); border: 1px solid var(--border); display: none; flex-direction: column; backdrop-filter: blur(10px); overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(232,112,64,0.15); }
+  #chat.open { display: flex; }
+  #chat .head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); background: rgba(232,112,64,0.08); }
+  #chat .avatar { width: 40px; height: 40px; border-radius: 6px; background: rgba(232,112,64,0.14); border: 1px solid var(--border); display: grid; place-items: center; overflow: hidden; }
+  #chat .avatar canvas { width: 100%; height: 100%; image-rendering: pixelated; }
+  #chat .who { flex: 1; }
+  #chat .who .n { font-size: 13px; color: var(--accent); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+  #chat .who .r { font-size: 10px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 2px; }
+  #chat .close { color: var(--dim); cursor: pointer; font-family: 'Fira Code', monospace; font-size: 13px; padding: 4px 8px; }
+  #chat .close:hover { color: var(--accent); }
+  #chat .iconBtn { background: rgba(232,112,64,0.08); border: 1px solid var(--border); color: var(--dim); cursor: pointer; font-family: 'Fira Code', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding: 5px 8px; border-radius: 4px; transition: all 120ms ease; }
+  #chat .iconBtn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: rgba(232,112,64,0.18); }
+  #chat .iconBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+  #chat .log { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; line-height: 1.55; min-height: 180px; max-height: calc(100vh - 220px); }
+  #chat .msg { padding: 9px 12px; border-radius: 8px; max-width: 88%; word-wrap: break-word; white-space: pre-wrap; animation: fadeIn 200ms ease; }
+  #chat .msg.user { align-self: flex-end; background: rgba(232,112,64,0.18); border: 1px solid var(--border); color: var(--ink); }
+  #chat .msg.npc  { align-self: flex-start; background: rgba(240,232,216,0.05); border: 1px solid rgba(240,232,216,0.12); color: var(--ink); }
+  #chat .msg.sys  { align-self: center; color: var(--dim); font-size: 11px; font-style: italic; border: none; background: transparent; padding: 2px; }
+  #chat .msg .who { font-size: 9px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 3px; }
+  #chat .msg.thinking { color: var(--accent-soft); font-style: italic; }
+  #chat .msg.thinking::after { content: '…'; display: inline-block; animation: blink 1s infinite; }
+  #chat form { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.25); }
+  #chat input[type=text] { flex: 1; background: rgba(0,0,0,0.4); border: 1px solid var(--border); color: var(--ink); font-family: inherit; font-size: 13px; padding: 8px 10px; outline: none; border-radius: 4px; }
+  #chat input[type=text]:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(232,112,64,0.15); }
+  #chat button { background: var(--accent); color: #1a0e08; border: none; font-family: inherit; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; padding: 0 14px; cursor: pointer; border-radius: 4px; }
+  #chat button:hover { background: var(--accent-soft); }
+  #chat button:disabled { background: rgba(232,112,64,0.3); cursor: not-allowed; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes blink { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas></div>
+
+<div id="hud">
+  <div class="title">Claude Town</div>
+  <div class="ln dim">click ground to move · drag claudes to stations · click terminal to browse</div>
+  <div class="ln dim"><kbd>Shift</kbd> run · <kbd>Esc</kbd> deselect · <kbd>+/-</kbd> zoom</div>
+  <div class="dim" id="locHint"></div>
+</div>
+
+<div id="corner">
+  <div>top-down · rct · v7</div>
+  <div class="asset" id="assetStatus">loading…</div>
+  <div class="cred">kenney tiny town · rpg urban (cc0)</div>
+</div>
+
+<div id="toast"></div>
+<div id="tip"></div>
+
+<div id="sel">
+  <div class="name" id="selName">—</div>
+  <div class="role" id="selRole"></div>
+  <div id="selBody"></div>
+  <div class="hint" id="selHint">drag to reassign · click elsewhere to deselect</div>
+</div>
+
+<div id="chat">
+  <div class="head">
+    <div class="avatar" id="chatAvatar"></div>
+    <div class="who">
+      <div class="n" id="chatName">—</div>
+      <div class="r" id="chatRole"></div>
+    </div>
+    <button class="iconBtn" id="chatTerm" title="Continue this conversation in a real Claude Code terminal (forks the session so this chat keeps its thread)">⌨ terminal</button>
+    <span class="close" id="chatClose">✕ ESC</span>
+  </div>
+  <div class="log" id="chatLog"></div>
+  <form id="chatForm">
+    <input type="text" id="chatInput" placeholder="Say something…" autocomplete="off">
+    <button type="submit" id="chatSend">Send</button>
+  </form>
+</div>
+
+<div id="library">
+  <div class="pane left">
+    <span class="close" id="libClose">✕ ESC</span>
+    <h2>Library · Workspace Index</h2>
+    <div class="crumbs" id="libCrumbs"></div>
+    <div id="libEntries"></div>
+  </div>
+  <div class="pane right">
+    <div class="head" id="libHead">Select a file</div>
+    <div id="libBody" class="empty">The archivist Claude awaits your curiosity.</div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ============================================================================
+// K: constants
+// ============================================================================
+const K = {
+  SRC_TILE: 16,        // Kenney source tile px
+  TILE: 32,            // rendered tile px (2× upscale)
+  MAP_W: 64,
+  MAP_H: 44,
+  VIEW_W: 1280,        // updated at runtime by resizeCanvas()
+  VIEW_H: 800,
+  PLAYER_SPEED: 4.2,   // tiles/sec
+  RUN_SPEED: 7.5,
+  NPC_SPEED: 2.2,
+  WORK_RADIUS: 0.8,    // distance NPC settles from their station
+};
+
+const PAL = {
+  orange:      '#E87040',
+  orangeHi:    '#F8A470',
+  orangeLo:    '#B24818',
+  orangeDark:  '#6A2408',
+  cream:       '#F0E8D8',
+  ink:         '#1c1510',
+  shadow:      'rgba(0,0,0,0.32)',
+  waterA:      '#3a7bb8',
+  waterB:      '#2a5c92',
+  waterHi:     '#7dc0e8',
+  pathA:       '#c0a878',
+  pathB:       '#a88c5c',
+  pathC:       '#806a40',
+  stoneA:      '#9a958a',
+  stoneB:      '#6a6660',
+};
+
+// ============================================================================
+// Utility
+// ============================================================================
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = a;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp  = (a, b, t) => a + (b - a) * t;
+function makeCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  return { c, g, w, h };
+}
+
+// ============================================================================
+// Tilesheet: loads a Kenney packed PNG and blits sub-regions.
+// ============================================================================
+class TileSheet {
+  constructor(url, cols, rows, tile = 16) {
+    this.url = url; this.cols = cols; this.rows = rows;
+    this.tile = tile; this.img = null; this.ready = false;
+  }
+  load() {
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => { this.img = img; this.ready = true; res(this); };
+      img.onerror = () => { this.ready = false; rej(new Error('tileset load failed: ' + this.url)); };
+      img.src = this.url;
+    });
+  }
+  // extract a sub-rectangle of (cols × rows) tiles into a new canvas
+  extract(col, row, w, h, scale = 2) {
+    const t = this.tile;
+    const { c, g } = makeCanvas(w * t * scale, h * t * scale);
+    g.imageSmoothingEnabled = false;
+    g.drawImage(this.img, col * t, row * t, w * t, h * t,
+                           0, 0, w * t * scale, h * t * scale);
+    return c;
+  }
+  // draw a single tile to a context
+  drawTile(ctx, idx, dx, dy, scale = 2) {
+    const col = idx % this.cols;
+    const row = (idx / this.cols) | 0;
+    const t = this.tile;
+    ctx.drawImage(this.img, col * t, row * t, t, t,
+                            dx, dy, t * scale, t * scale);
+  }
+}
+
+const SHEETS = {
+  tt:  new TileSheet('assets/kenney/tiny-town/Tilemap/tilemap_packed.png', 12, 11, 16),
+  urb: new TileSheet('assets/kenney/rpg-urban/Tilemap/tilemap_packed.png', 27, 18, 16),
+};
+
+// ============================================================================
+// Tiny Town tile-index map (hand-identified from the packed tilesheet).
+// Row/col layout of tiny-town/Tilemap/tilemap_packed.png (12 cols × 11 rows).
+// ============================================================================
+const TT = {
+  // Row 0 (indices 0-11) — grass & foliage
+  grass:         0,
+  grassFlowers:  1,
+  sapling:       2,
+  treeA:         3,
+  treeB:         4,
+  treeC:         5,
+  bush:          6,
+  bushFlower:    7,
+  pumpkin:       9,
+  treeOrange:    10,
+  // Row 3 (indices 36-47) — dirt path bottom + items
+  pathNW:        12, pathN: 13, pathNE: 14,
+  pathW:         24, pathMid: 25, pathE: 26,
+  pathSW:        36, pathS: 37, pathSE: 38,
+  // House composites (cols × rows), 3×3 tiles front view (roof / windowed / door)
+  houseBlue:      { col: 0, row: 4, w: 3, h: 3 },  // 48-50/60-62/72-74
+  houseBlueChim:  { col: 3, row: 4, w: 3, h: 3 },  // 51-53/63-65/75-77
+  houseRed:       { col: 0, row: 7, w: 3, h: 3 },  // 84-86/96-98/108-110
+  houseRedChim:   { col: 3, row: 7, w: 3, h: 3 },  // 87-89/99-101/111-113
+  // Stone castle (big 4×3)
+  castle:         { col: 6, row: 4, w: 5, h: 3 },
+  // Common decor tiles
+  fencePost:      44,    // col 8, row 3
+  lantern:        116,   // col 8, row 9 (approx)
+  signPost:       128,   // col 8, row 10
+};
+
+// ============================================================================
+// Map data
+// ============================================================================
+const T_GRASS = 0, T_PATH = 1, T_WATER = 2, T_STONE = 3,
+      T_SAND = 4, T_PLANK = 5, T_FLOWER = 6;
+const map       = new Uint8Array(K.MAP_W * K.MAP_H);
+const tileSeed  = new Uint8Array(K.MAP_W * K.MAP_H);
+
+function tAt(x, y) {
+  if (x < 0 || y < 0 || x >= K.MAP_W || y >= K.MAP_H) return T_GRASS;
+  return map[y * K.MAP_W + x];
+}
+function setT(x, y, t) {
+  if (x < 0 || y < 0 || x >= K.MAP_W || y >= K.MAP_H) return;
+  map[y * K.MAP_W + x] = t;
+}
+
+function buildMap() {
+  const rnd = mulberry32(13);
+  for (let y = 0; y < K.MAP_H; y++) {
+    for (let x = 0; x < K.MAP_W; x++) {
+      setT(x, y, T_GRASS);
+      tileSeed[y * K.MAP_W + x] = (rnd() * 255) | 0;
+    }
+  }
+  // harbor water along north
+  for (let y = 0; y < 4; y++) {
+    for (let x = 0; x < K.MAP_W; x++) {
+      const edge = Math.sin((x / K.MAP_W) * Math.PI) * 1.3;
+      if (y <= 1 + edge) setT(x, y, T_WATER);
+    }
+  }
+  // sandy shore strip
+  for (let x = 0; x < K.MAP_W; x++) {
+    for (let y = 2; y < 5; y++) {
+      if (tAt(x, y) === T_GRASS && tAt(x, y - 1) === T_WATER) setT(x, y, T_SAND);
+      else if (tAt(x, y) === T_GRASS && rnd() < 0.08 && y < 4) setT(x, y, T_SAND);
+    }
+  }
+  // central plaza — stone
+  const cx = K.MAP_W / 2, cy = K.MAP_H / 2;
+  for (let y = 0; y < K.MAP_H; y++) {
+    for (let x = 0; x < K.MAP_W; x++) {
+      const dx = x - cx, dy = y - cy;
+      if (dx * dx + dy * dy < 18) setT(x, y, T_STONE);
+    }
+  }
+  // cardinal paths
+  for (let d = 0; d < 18; d++) {
+    for (const [dx, dy] of [[-d, 0], [-d, 1], [d, 0], [d, 1],
+                             [0, -d], [1, -d], [0, d], [1, d]]) {
+      const x = Math.floor(cx) + dx;
+      const y = Math.floor(cy) + dy;
+      if (tAt(x, y) === T_GRASS || tAt(x, y) === T_SAND) setT(x, y, T_PATH);
+    }
+  }
+  // flower beds scattered around plaza
+  for (let i = 0; i < 16; i++) {
+    const x = Math.floor(cx + (rnd() - 0.5) * 12);
+    const y = Math.floor(cy + (rnd() - 0.5) * 10);
+    if (tAt(x, y) === T_GRASS) setT(x, y, T_FLOWER);
+  }
+}
+
+// ============================================================================
+// Buildings (top-down footprints).  Each building has a composite image,
+// a footprint (for collision), workstations (draggable targets), and
+// interactive points (clickable).
+// ============================================================================
+const buildings = [];
+const workstations = [];   // flattened across buildings for hit tests
+
+function placeBuildings() {
+  const cx = K.MAP_W / 2, cy = K.MAP_H / 2;
+
+  // -- Town Hall (WEST): big building, mayor's podium --
+  buildings.push({
+    id: 'townhall',
+    name: 'Town Hall',
+    x: 4, y: cy - 3, w: 8, h: 7,
+    theme: 'green',
+    house: 'castle',          // visual landmark asset key into K_SHEET
+    housePos: { dx: 2.5, dy: 0 }, // relative position of house within building (tile coords)
+    floor: T_PLANK,
+    stations: [
+      { id: 'tn-podium',  kind: 'podium', label: 'Podium',   wx: 5.5,  wy: cy + 1.0, job: 'mayor' },
+      { id: 'tn-chair1',  kind: 'chair',  label: 'Chair',    wx: 8.5,  wy: cy - 0.5, job: 'citizen' },
+      { id: 'tn-chair2',  kind: 'chair',  label: 'Chair',    wx: 9.5,  wy: cy - 0.5, job: 'citizen' },
+      { id: 'tn-chair3',  kind: 'chair',  label: 'Chair',    wx: 8.5,  wy: cy + 2.0, job: 'citizen' },
+      { id: 'tn-chair4',  kind: 'chair',  label: 'Chair',    wx: 9.5,  wy: cy + 2.0, job: 'citizen' },
+    ],
+    tables: [{ wx: 9.0, wy: cy + 0.75, w: 2, h: 1 }],
+  });
+
+  // -- Harbor (NORTH): crates, net, boat --
+  buildings.push({
+    id: 'harbor',
+    name: 'Harbor & Docks',
+    x: cx - 5, y: 5, w: 10, h: 5,
+    theme: 'wood',
+    house: 'houseBlue',
+    housePos: { dx: 3.5, dy: 0 },
+    floor: T_PLANK,
+    stations: [
+      { id: 'hb-crate1', kind: 'crate',  label: 'Crate stack', wx: cx - 3.5, wy: 7.0, job: 'dockhand' },
+      { id: 'hb-net',    kind: 'net',    label: 'Net mending', wx: cx + 3.0, wy: 7.0, job: 'fisher' },
+      { id: 'hb-boat',   kind: 'boat',   label: 'Boat',        wx: cx - 0.5, wy: 3.5, job: 'captain', outside: true },
+    ],
+    tables: [],
+  });
+
+  // -- Workshop (EAST): forge + anvil + bench --
+  buildings.push({
+    id: 'workshop',
+    name: 'Workshop',
+    x: K.MAP_W - 12, y: cy - 3, w: 8, h: 7,
+    theme: 'red',
+    house: 'houseRedChim',
+    housePos: { dx: 2.5, dy: 0 },
+    floor: T_STONE,
+    stations: [
+      { id: 'ws-forge',  kind: 'forge',     label: 'Forge',      wx: K.MAP_W - 10, wy: cy - 1.5, job: 'smith' },
+      { id: 'ws-anvil',  kind: 'anvil',     label: 'Anvil',      wx: K.MAP_W - 8,  wy: cy - 0.5, job: 'smith' },
+      { id: 'ws-bench',  kind: 'workbench', label: 'Workbench',  wx: K.MAP_W - 6,  wy: cy + 1.5, job: 'tinker' },
+    ],
+    tables: [],
+  });
+
+  // -- Library (SOUTH): bookshelves + central terminal --
+  buildings.push({
+    id: 'library',
+    name: 'Library',
+    x: cx - 5, y: K.MAP_H - 8, w: 10, h: 6,
+    theme: 'purple',
+    house: 'houseBlueChim',
+    housePos: { dx: 3.5, dy: 0 },
+    floor: T_PLANK,
+    interactive: true,
+    stations: [
+      { id: 'lb-terminal', kind: 'computer',  label: 'Terminal',    wx: cx + 0.5, wy: K.MAP_H - 6.5, job: 'archivist', interact: 'library' },
+      { id: 'lb-shelf1',   kind: 'bookshelf', label: 'Shelf A',     wx: cx - 3.5, wy: K.MAP_H - 7.5, job: 'reader' },
+      { id: 'lb-shelf2',   kind: 'bookshelf', label: 'Shelf B',     wx: cx + 3.5, wy: K.MAP_H - 7.5, job: 'reader' },
+      { id: 'lb-chair',    kind: 'chair',     label: 'Reading chair', wx: cx - 2.5, wy: K.MAP_H - 5, job: 'reader' },
+    ],
+    tables: [{ wx: cx - 2.0, wy: K.MAP_H - 4.25, w: 1, h: 1 }],
+  });
+
+  // lay floor tiles inside
+  buildings.forEach(b => {
+    for (let yy = 0; yy < b.h; yy++) {
+      for (let xx = 0; xx < b.w; xx++) {
+        setT(b.x + xx, b.y + yy, b.floor);
+      }
+    }
+  });
+
+  // flatten stations
+  buildings.forEach(b => b.stations.forEach(s => {
+    s.bldId = b.id;
+    workstations.push(s);
+  }));
+}
+
+function buildingAt(wx, wy) {
+  for (const b of buildings) {
+    if (wx >= b.x && wx < b.x + b.w && wy >= b.y && wy < b.y + b.h) return b;
+  }
+  return null;
+}
+
+// ============================================================================
+// Procedural art (top-down).  Generated once at boot; overlaid on top of the
+// Kenney tilesheet for everything we want precise control over (characters,
+// buildings-at-our-scale, the central terminal / forge look).
+// ============================================================================
+const A = {};
+function rect(g, x, y, w, h, c) { g.fillStyle = c; g.fillRect(x|0, y|0, w|0, h|0); }
+function px(g, x, y, c) { g.fillStyle = c; g.fillRect(x|0, y|0, 1, 1); }
+
+// Animated water tile (32×32).
+function makeWater(phase) {
+  const { c, g } = makeCanvas(32, 32);
+  rect(g, 0, 0, 32, 32, PAL.waterB);
+  const rnd = mulberry32(1 + phase);
+  for (let i = 0; i < 6; i++) {
+    const y = (phase * 3 + i * 5) % 32;
+    const x = ((rnd() * 32) | 0);
+    g.fillStyle = PAL.waterA;
+    g.fillRect(x, y, 6, 1);
+  }
+  for (let i = 0; i < 4; i++) {
+    const y = ((phase * 2 + i * 7) % 30) + 1;
+    const x = ((rnd() * 30) | 0);
+    px(g, x, y, PAL.waterHi);
+    px(g, x + 1, y, PAL.waterHi);
+  }
+  return c;
+}
+
+// Simple path-variation tile when Kenney path indices are off — fallback.
+function makePathTile(seed) {
+  const { c, g } = makeCanvas(32, 32);
+  rect(g, 0, 0, 32, 32, PAL.pathB);
+  const rnd = mulberry32(seed + 500);
+  for (let i = 0; i < 24; i++) {
+    px(g, (rnd() * 32) | 0, (rnd() * 32) | 0, rnd() < 0.5 ? PAL.pathA : PAL.pathC);
+  }
+  return c;
+}
+
+// Terminal (library computer) — sits on a desk at 2×2 tile footprint.
+function makeTerminal(phase) {
+  const { c, g } = makeCanvas(64, 64);
+  // desk
+  rect(g, 4, 30, 56, 24, '#7a5228');
+  rect(g, 4, 30, 56, 3, '#5a3a1a');
+  rect(g, 4, 52, 56, 3, '#3a2010');
+  // monitor stand
+  rect(g, 26, 20, 12, 10, '#2a2420');
+  // monitor
+  rect(g, 10, 4, 44, 22, '#1a1814');
+  rect(g, 13, 7, 38, 16, '#3a3830');
+  // screen glow
+  const pulse = 0.5 + 0.5 * Math.sin(phase * 2);
+  g.fillStyle = `rgba(232,112,64,${0.55 + pulse * 0.25})`;
+  g.fillRect(15, 9, 34, 12);
+  // fake text lines
+  g.fillStyle = '#fff0d0';
+  g.fillRect(17, 11, 20, 1);
+  g.fillRect(17, 13, 14, 1);
+  g.fillRect(17, 15, 22, 1);
+  g.fillRect(17, 17, 10, 1);
+  g.fillRect(17, 19, 18, 1);
+  // claude asterisk decorative
+  g.fillStyle = PAL.orangeHi;
+  g.fillRect(42, 14, 1, 5);
+  g.fillRect(40, 16, 5, 1);
+  px(g, 41, 15, PAL.orangeHi);
+  px(g, 43, 15, PAL.orangeHi);
+  return c;
+}
+
+// Forge — 2×2 tiles, animated flame
+function makeForge(phase) {
+  const { c, g } = makeCanvas(64, 64);
+  // body
+  rect(g, 8, 18, 48, 42, '#3a3230');
+  rect(g, 8, 18, 48, 4, '#2a2220');
+  rect(g, 8, 56, 48, 4, '#1a1410');
+  // brick pattern
+  for (let y = 0; y < 6; y++) {
+    for (let x = 0; x < 10; x++) {
+      const i = (y * 3 + x) % 3;
+      const col = ['#5a3a2a', '#4a3020', '#6a4a38'][i];
+      rect(g, 10 + x * 4, 23 + y * 5, 3, 4, col);
+    }
+  }
+  // mouth
+  const f = 0.6 + 0.4 * Math.sin(phase * 4);
+  rect(g, 18, 26, 28, 18, '#1a0a04');
+  g.fillStyle = `rgba(255,180,64,${0.5 + f * 0.3})`;
+  g.fillRect(20, 28, 24, 14);
+  g.fillStyle = `rgba(248,164,112,${0.85 * f})`;
+  g.fillRect(24, 30, 16, 10);
+  g.fillStyle = '#fff0b0';
+  g.fillRect(28, 33, 8, 5);
+  // chimney (short)
+  rect(g, 26, 4, 12, 14, '#2a2220');
+  rect(g, 26, 2, 12, 2, '#1a1410');
+  return c;
+}
+
+// Anvil — 1×1 tile
+function makeAnvil() {
+  const { c, g } = makeCanvas(32, 32);
+  // shadow
+  g.fillStyle = PAL.shadow;
+  g.beginPath(); g.ellipse(16, 28, 10, 3, 0, 0, Math.PI * 2); g.fill();
+  // base
+  rect(g, 10, 18, 12, 8, '#2a2420');
+  rect(g, 12, 14, 8, 4, '#3a3430');
+  rect(g, 6, 8, 20, 6, '#2a2420');
+  // horn
+  g.beginPath();
+  g.moveTo(6, 10); g.lineTo(3, 11); g.lineTo(6, 12); g.closePath();
+  g.fill();
+  rect(g, 8, 9, 16, 1, '#4a4440');
+  return c;
+}
+
+// Workbench — 2×1 tile
+function makeWorkbench() {
+  const { c, g } = makeCanvas(64, 32);
+  rect(g, 4, 8, 56, 14, '#9c7546');
+  rect(g, 4, 8, 56, 2, '#b08856');
+  rect(g, 4, 20, 56, 2, '#6e4d2c');
+  rect(g, 8, 22, 3, 8, '#3e2a18');
+  rect(g, 53, 22, 3, 8, '#3e2a18');
+  rect(g, 12, 10, 6, 5, '#5a4030');
+  rect(g, 22, 11, 3, 5, '#3a3830');
+  rect(g, 40, 12, 10, 3, '#7a7066');
+  px(g, 48, 13, PAL.orange);
+  return c;
+}
+
+// Bookshelf — 1×2 tile
+function makeBookshelf() {
+  const { c, g } = makeCanvas(32, 64);
+  rect(g, 2, 2, 28, 60, '#5a3a20');
+  rect(g, 2, 2, 28, 2, '#3a2010');
+  rect(g, 2, 60, 28, 2, '#3a2010');
+  rect(g, 2, 2, 2, 60, '#3a2010');
+  rect(g, 28, 2, 2, 60, '#3a2010');
+  // shelves
+  rect(g, 4, 16, 24, 1, '#3a2010');
+  rect(g, 4, 30, 24, 1, '#3a2010');
+  rect(g, 4, 44, 24, 1, '#3a2010');
+  // books per shelf
+  const spines = ['#a03030', '#3060a0', '#30a060', '#a08030', PAL.orange, '#a03080', '#606060'];
+  for (let row = 0; row < 4; row++) {
+    let x = 4;
+    const rnd = mulberry32(row + 20);
+    while (x < 28) {
+      const w = 2 + (rnd() * 3) | 0;
+      const h = 10 + (rnd() * 2) | 0;
+      const y = 4 + row * 14 + (12 - h);
+      if (y + h > 60) break;
+      rect(g, x, y, w, h, spines[(rnd() * spines.length) | 0]);
+      rect(g, x, y, w, 1, '#e8d8a8');
+      x += w + 1;
+    }
+  }
+  return c;
+}
+
+// Podium — 1×1 tile
+function makePodium() {
+  const { c, g } = makeCanvas(32, 32);
+  g.fillStyle = PAL.shadow;
+  g.beginPath(); g.ellipse(16, 29, 9, 2, 0, 0, Math.PI * 2); g.fill();
+  rect(g, 8, 10, 16, 20, '#5a3a20');
+  rect(g, 8, 10, 16, 2, '#7a5228');
+  rect(g, 6, 4, 20, 6, '#9c7546');
+  rect(g, 6, 4, 20, 1, '#5a3a20');
+  rect(g, 12, 10, 8, 5, PAL.orange);
+  return c;
+}
+
+// Crate — 1×1 tile
+function makeCrate() {
+  const { c, g } = makeCanvas(32, 32);
+  g.fillStyle = PAL.shadow;
+  g.beginPath(); g.ellipse(16, 30, 12, 2, 0, 0, Math.PI * 2); g.fill();
+  rect(g, 3, 6, 26, 22, '#9c7546');
+  rect(g, 3, 6, 26, 2, '#7a5228');
+  rect(g, 3, 26, 26, 2, '#5a3a1a');
+  rect(g, 15, 6, 2, 22, '#7a5228');
+  rect(g, 3, 15, 26, 2, '#7a5228');
+  // nails
+  px(g, 5, 9, '#2a1a10'); px(g, 27, 9, '#2a1a10');
+  px(g, 5, 25, '#2a1a10'); px(g, 27, 25, '#2a1a10');
+  return c;
+}
+function makeBarrel() {
+  const { c, g } = makeCanvas(32, 32);
+  g.fillStyle = PAL.shadow;
+  g.beginPath(); g.ellipse(16, 30, 11, 2, 0, 0, Math.PI * 2); g.fill();
+  rect(g, 6, 4, 20, 26, '#9c7546');
+  rect(g, 6, 4, 20, 3, '#3a2010');
+  rect(g, 6, 12, 20, 1, '#3a2010');
+  rect(g, 6, 22, 20, 1, '#3a2010');
+  rect(g, 6, 27, 20, 3, '#3a2010');
+  rect(g, 5, 5, 1, 24, '#7a5228');
+  rect(g, 26, 5, 1, 24, '#7a5228');
+  return c;
+}
+// Net — 2×1
+function makeNet() {
+  const { c, g } = makeCanvas(64, 32);
+  g.fillStyle = PAL.shadow;
+  g.beginPath(); g.ellipse(32, 30, 24, 2, 0, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = '#a08050'; g.lineWidth = 1;
+  for (let i = 0; i < 8; i++) { g.beginPath(); g.moveTo(2, 4 + i * 3); g.lineTo(62, 4 + i * 3); g.stroke(); }
+  for (let i = 0; i < 20; i++) { g.beginPath(); g.moveTo(4 + i * 3, 3); g.lineTo(4 + i * 3, 27); g.stroke(); }
+  return c;
+}
+// Boat — 3×2
+function makeBoat() {
+  const { c, g } = makeCanvas(96, 64);
+  g.fillStyle = PAL.shadow;
+  g.beginPath(); g.ellipse(48, 60, 40, 3, 0, 0, Math.PI * 2); g.fill();
+  // hull
+  g.fillStyle = '#5a3a1a';
+  g.beginPath();
+  g.moveTo(4, 34); g.lineTo(16, 54); g.lineTo(80, 54); g.lineTo(92, 34);
+  g.lineTo(84, 30); g.lineTo(12, 30);
+  g.closePath(); g.fill();
+  rect(g, 14, 32, 68, 2, '#7a5228');
+  rect(g, 16, 50, 64, 2, '#3a2010');
+  // mast + sail
+  rect(g, 46, 2, 3, 30, '#3a2010');
+  g.fillStyle = PAL.cream;
+  g.beginPath();
+  g.moveTo(50, 4); g.lineTo(76, 22); g.lineTo(50, 28);
+  g.closePath(); g.fill();
+  g.fillStyle = PAL.orange;
+  px(g, 58, 12); px(g, 59, 14); px(g, 60, 12); px(g, 60, 16); px(g, 62, 14);
+  return c;
+}
+// Table — 1×1 for now
+function makeTable() {
+  const { c, g } = makeCanvas(32, 32);
+  g.fillStyle = PAL.shadow;
+  g.beginPath(); g.ellipse(16, 30, 12, 2, 0, 0, Math.PI * 2); g.fill();
+  rect(g, 2, 6, 28, 20, '#9c7546');
+  rect(g, 2, 6, 28, 3, '#b08856');
+  rect(g, 2, 23, 28, 3, '#6e4d2c');
+  rect(g, 4, 26, 3, 4, '#3e2a18');
+  rect(g, 25, 26, 3, 4, '#3e2a18');
+  return c;
+}
+function makeChair() {
+  const { c, g } = makeCanvas(32, 32);
+  g.fillStyle = PAL.shadow;
+  g.beginPath(); g.ellipse(16, 30, 9, 2, 0, 0, Math.PI * 2); g.fill();
+  // seat
+  rect(g, 8, 14, 16, 6, '#9c7546');
+  rect(g, 8, 14, 16, 2, '#b08856');
+  // back
+  rect(g, 8, 4, 3, 14, '#5a3a20');
+  rect(g, 21, 4, 3, 14, '#5a3a20');
+  rect(g, 8, 4, 16, 3, '#5a3a20');
+  // legs
+  rect(g, 9, 20, 2, 8, '#3a2010');
+  rect(g, 21, 20, 2, 8, '#3a2010');
+  return c;
+}
+// Flower pot
+function makePot() {
+  const { c, g } = makeCanvas(16, 24);
+  g.fillStyle = PAL.shadow;
+  g.beginPath(); g.ellipse(8, 22, 6, 2, 0, 0, Math.PI * 2); g.fill();
+  rect(g, 3, 12, 10, 10, '#7a3a1a');
+  rect(g, 3, 12, 10, 2, '#a05a2a');
+  rect(g, 3, 20, 10, 2, '#4a2010');
+  // petals
+  px(g, 6, 6, PAL.orange); px(g, 9, 7, PAL.orangeHi);
+  px(g, 8, 4, '#f0c040'); px(g, 6, 9, '#56852f'); px(g, 10, 10, '#56852f');
+  return c;
+}
+
+// ============================================================================
+// Character sprite — top-down, 4 directions × 4 frames. Procedural.
+// dir: 0=down, 1=left, 2=up, 3=right
+// ============================================================================
+const CHAR_W = 20, CHAR_H = 28;
+function makeCharacter(spec) {
+  const frames = [[], [], [], []];
+  for (let d = 0; d < 4; d++) {
+    for (let f = 0; f < 4; f++) {
+      frames[d][f] = drawCharFrame(spec, d, f);
+    }
+  }
+  return frames;
+}
+function drawCharFrame(spec, dir, frame) {
+  const W = CHAR_W, H = CHAR_H;
+  const { c, g } = makeCanvas(W, H);
+  const cx = W / 2;
+  const feetY = H - 3;
+  const bob = (frame === 1 || frame === 3) ? -1 : 0;
+  const stepA = frame === 1 ? 1 : frame === 3 ? -1 : 0;
+
+  // shadow
+  g.fillStyle = PAL.shadow;
+  g.beginPath(); g.ellipse(cx, feetY + 1, 7, 2, 0, 0, Math.PI * 2); g.fill();
+
+  // legs (two small rectangles, step shifts)
+  const legY = feetY - 6 + bob;
+  rect(g, cx - 4, legY, 3, 6, spec.legs);
+  rect(g, cx + 1, legY, 3, 6, spec.legs);
+  // feet (darker tips)
+  rect(g, cx - 4 + stepA, feetY - 1, 3, 2, spec.boots);
+  rect(g, cx + 1 - stepA, feetY - 1, 3, 2, spec.boots);
+
+  // robe/torso
+  const bodyY = feetY - 16 + bob;
+  rect(g, cx - 6, bodyY, 12, 12, spec.robe);
+  rect(g, cx - 6, bodyY, 12, 2, spec.robeHi);
+  rect(g, cx - 6, bodyY + 10, 12, 2, spec.robeLo);
+  // belt
+  rect(g, cx - 7, bodyY + 7, 14, 2, spec.belt);
+  px(g, cx, bodyY + 7, spec.accent);
+  px(g, cx, bodyY + 8, spec.accent);
+
+  // arms (swing on walk)
+  const armSwing = frame === 1 ? 1 : frame === 3 ? -1 : 0;
+  if (dir !== 1) { // right arm visible unless facing left (dir 1)
+    rect(g, cx + 6, bodyY + 2 + armSwing, 2, 8, spec.robe);
+    rect(g, cx + 6, bodyY + 9 + armSwing, 2, 2, spec.skin);
+  }
+  if (dir !== 3) { // left arm visible unless facing right (dir 3)
+    rect(g, cx - 8, bodyY + 2 - armSwing, 2, 8, spec.robe);
+    rect(g, cx - 8, bodyY + 9 - armSwing, 2, 2, spec.skin);
+  }
+
+  // hood + head (at top of body)
+  const headY = bodyY - 10;
+  // hood silhouette
+  g.fillStyle = spec.robe;
+  g.beginPath();
+  g.moveTo(cx - 6, headY + 10);
+  g.lineTo(cx - 7, headY + 3);
+  g.lineTo(cx - 3, headY);
+  g.lineTo(cx + 3, headY);
+  g.lineTo(cx + 7, headY + 3);
+  g.lineTo(cx + 6, headY + 10);
+  g.closePath();
+  g.fill();
+  // face area depending on direction
+  if (dir === 0) {
+    // facing down — full face visible
+    rect(g, cx - 4, headY + 3, 8, 7, spec.skin);
+    rect(g, cx - 4, headY + 8, 8, 2, spec.skinShade);
+    // eyes
+    px(g, cx - 2, headY + 6, spec.eye);
+    px(g, cx + 1, headY + 6, spec.eye);
+    if (spec.eyeGlow) {
+      px(g, cx - 2, headY + 5, spec.eyeGlow);
+      px(g, cx + 1, headY + 5, spec.eyeGlow);
+    }
+    // mouth
+    if (!spec.noMouth) rect(g, cx, headY + 8, 1, 1, spec.mouth || spec.skinShade);
+  } else if (dir === 2) {
+    // facing up — back of head
+    rect(g, cx - 3, headY + 3, 6, 6, spec.robeLo);
+    px(g, cx - 2, headY + 4, spec.robeHi);
+    px(g, cx + 1, headY + 4, spec.robeHi);
+  } else {
+    // side view
+    const leftSide = dir === 1;
+    rect(g, cx - 3, headY + 3, 6, 7, spec.skin);
+    rect(g, cx - 3, headY + 8, 6, 2, spec.skinShade);
+    // one eye visible
+    const ex = leftSide ? cx - 2 : cx + 1;
+    px(g, ex, headY + 6, spec.eye);
+    if (spec.eyeGlow) px(g, ex, headY + 5, spec.eyeGlow);
+  }
+
+  // chest sparkle (Claude Code asterisk mark)
+  if (spec.chestMark && dir !== 2) {
+    const mx = cx, my = bodyY + 4;
+    g.fillStyle = spec.chestMark;
+    g.fillRect(mx, my - 2, 1, 5);
+    g.fillRect(mx - 2, my, 5, 1);
+    px(g, mx - 1, my - 1, spec.chestMark);
+    px(g, mx + 1, my + 1, spec.chestMark);
+    px(g, mx + 1, my - 1, spec.chestMark);
+    px(g, mx - 1, my + 1, spec.chestMark);
+    px(g, mx, my, '#fff0d0');
+  }
+
+  return c;
+}
+
+const SPEC_CLAUDE = {
+  robe: PAL.orange, robeHi: PAL.orangeHi, robeLo: PAL.orangeLo,
+  belt: PAL.orangeDark, accent: '#f0c040',
+  legs: '#5a2a10', boots: '#2a1008',
+  skin: '#2a1208', skinShade: '#180804',
+  eye: PAL.orangeHi, eyeGlow: '#fff0d0',
+  chestMark: PAL.orangeHi,
+  noMouth: true,
+};
+const SPEC_PLAYER = {
+  robe: '#3c6a8a', robeHi: '#76a6c8', robeLo: '#1c3a54',
+  belt: '#2a1a10', accent: PAL.orange,
+  legs: '#2a1a10', boots: '#1a1008',
+  skin: '#e8b888', skinShade: '#a87248',
+  eye: '#1a1008', eyeGlow: null,
+  chestMark: null, noMouth: false,
+};
+const SPEC_CLAUDE_MAYOR = { ...SPEC_CLAUDE, robe: '#f07850', robeHi: '#ffb488', robeLo: '#c04820', accent: '#fff0c0' };
+const SPEC_CLAUDE_HARBOR = { ...SPEC_CLAUDE, robe: '#d86040', robeHi: '#f89068', robeLo: '#a03818' };
+const SPEC_CLAUDE_SMITH = { ...SPEC_CLAUDE, robe: '#b24818', robeHi: '#e07848', robeLo: '#6a2408', accent: '#f0a040' };
+const SPEC_CLAUDE_ARCH = { ...SPEC_CLAUDE, robe: '#c85828', robeHi: PAL.orange, robeLo: '#8a3010' };
+
+// ============================================================================
+// Build all procedural assets
+// ============================================================================
+function buildAssets() {
+  A.water    = [0, 1, 2, 3].map(makeWater);
+  A.pathProc = [makePathTile(1), makePathTile(2), makePathTile(3)];
+  A.terminal = [0, 1, 2, 3].map(makeTerminal);
+  A.forge    = [0, 1, 2, 3].map(makeForge);
+  A.anvil    = makeAnvil();
+  A.workbench = makeWorkbench();
+  A.bookshelf = makeBookshelf();
+  A.podium = makePodium();
+  A.crate = makeCrate();
+  A.barrel = makeBarrel();
+  A.net = makeNet();
+  A.boat = makeBoat();
+  A.table = makeTable();
+  A.chair = makeChair();
+  A.pot = makePot();
+
+  A.player = makeCharacter(SPEC_PLAYER);
+  A.claudeMayor = makeCharacter(SPEC_CLAUDE_MAYOR);
+  A.claudeHarbor = makeCharacter(SPEC_CLAUDE_HARBOR);
+  A.claudeSmith = makeCharacter(SPEC_CLAUDE_SMITH);
+  A.claudeArch = makeCharacter(SPEC_CLAUDE_ARCH);
+  A.claude = makeCharacter(SPEC_CLAUDE);
+}
+
+// ============================================================================
+// Kenney-sheet-derived composite images (built after sheets load).
+// ============================================================================
+const K_SHEET = {};
+function tileExtract(tt, idx) {
+  return tt.extract(idx % 12, (idx / 12) | 0, 1, 1);
+}
+function buildSheetComposites() {
+  const tt = SHEETS.tt;
+  // 3×3 house composites
+  K_SHEET.houseBlue     = tt.extract(TT.houseBlue.col, TT.houseBlue.row, TT.houseBlue.w, TT.houseBlue.h);
+  K_SHEET.houseBlueChim = tt.extract(TT.houseBlueChim.col, TT.houseBlueChim.row, TT.houseBlueChim.w, TT.houseBlueChim.h);
+  K_SHEET.houseRed      = tt.extract(TT.houseRed.col, TT.houseRed.row, TT.houseRed.w, TT.houseRed.h);
+  K_SHEET.houseRedChim  = tt.extract(TT.houseRedChim.col, TT.houseRedChim.row, TT.houseRedChim.w, TT.houseRedChim.h);
+  K_SHEET.castle        = tt.extract(TT.castle.col, TT.castle.row, TT.castle.w, TT.castle.h);
+  // single-tile deco
+  K_SHEET.grass        = tileExtract(tt, TT.grass);
+  K_SHEET.grassFlowers = tileExtract(tt, TT.grassFlowers);
+  K_SHEET.treeA        = tileExtract(tt, TT.treeA);
+  K_SHEET.treeB        = tileExtract(tt, TT.treeB);
+  K_SHEET.treeC        = tileExtract(tt, TT.treeC);
+  K_SHEET.treeOrange   = tileExtract(tt, TT.treeOrange);
+  K_SHEET.bush         = tileExtract(tt, TT.bush);
+  K_SHEET.bushFlower   = tileExtract(tt, TT.bushFlower);
+  K_SHEET.pumpkin      = tileExtract(tt, TT.pumpkin);
+  K_SHEET.sapling      = tileExtract(tt, TT.sapling);
+  K_SHEET.pathMid      = tileExtract(tt, TT.pathMid);
+  K_SHEET.pathN        = tileExtract(tt, TT.pathN);
+  K_SHEET.pathS        = tileExtract(tt, TT.pathS);
+  K_SHEET.pathW        = tileExtract(tt, TT.pathW);
+  K_SHEET.pathE        = tileExtract(tt, TT.pathE);
+  K_SHEET.pathNW       = tileExtract(tt, TT.pathNW);
+  K_SHEET.pathNE       = tileExtract(tt, TT.pathNE);
+  K_SHEET.pathSW       = tileExtract(tt, TT.pathSW);
+  K_SHEET.pathSE       = tileExtract(tt, TT.pathSE);
+}
+
+// ============================================================================
+// Entities
+// ============================================================================
+const trees = [];
+const npcs = [];
+const fountains = [];   // decorative central fountain (procedural)
+
+function scatterDecor() {
+  const rnd = mulberry32(42);
+  const cx = K.MAP_W / 2, cy = K.MAP_H / 2;
+  // heavier tree scatter at the map fringes
+  for (let i = 0; i < 200; i++) {
+    const wx = 1 + Math.floor(rnd() * (K.MAP_W - 2));
+    const wy = 4 + Math.floor(rnd() * (K.MAP_H - 6));
+    if (tAt(wx, wy) !== T_GRASS) continue;
+    if (buildingAt(wx, wy)) continue;
+    // skip immediate plaza
+    if (Math.hypot(wx - cx, wy - cy) < 7) continue;
+    // density fall-off away from buildings but denser at edges
+    const edgeDist = Math.min(wx, K.MAP_W - 1 - wx, wy, K.MAP_H - 1 - wy);
+    const p = edgeDist < 3 ? 0.85 : 0.38;
+    if (rnd() > p) continue;
+    // biased variant: edges more likely dark trees, inside more bushes/flowers
+    const v = edgeDist < 4 ? (rnd() * 3) | 0 : 2 + (rnd() * 4) | 0;
+    trees.push({
+      wx: wx + 0.5 + (rnd() - 0.5) * 0.4,
+      wy: wy + 0.5 + (rnd() - 0.5) * 0.4,
+      variant: v,
+    });
+  }
+  // Near-building flower beds & pumpkins (Stardew ambience)
+  buildings.forEach(b => {
+    for (let i = 0; i < 6; i++) {
+      const side = i % 4;
+      let wx, wy;
+      if (side === 0)      { wx = b.x + 0.2 + (rnd() * 0.6); wy = b.y + b.h + 0.6 + rnd() * 0.8; }
+      else if (side === 1) { wx = b.x + b.w - 0.8 + (rnd() * 0.6); wy = b.y + b.h + 0.6 + rnd() * 0.8; }
+      else if (side === 2) { wx = b.x - 1.0 - rnd() * 0.6; wy = b.y + rnd() * b.h; }
+      else                 { wx = b.x + b.w + 0.4 + rnd() * 0.6; wy = b.y + rnd() * b.h; }
+      if (wx < 1 || wy < 1 || wx > K.MAP_W - 1 || wy > K.MAP_H - 1) continue;
+      const tileT = tAt(Math.floor(wx), Math.floor(wy));
+      if (tileT === T_WATER || tileT === T_PATH) continue;
+      trees.push({ wx, wy, variant: 3 + ((rnd() * 5) | 0) });
+    }
+  });
+  fountains.push({ wx: K.MAP_W / 2, wy: K.MAP_H / 2, frame: 0 });
+}
+
+function spawnNpcs() {
+  const cx = K.MAP_W / 2, cy = K.MAP_H / 2;
+  const defs = [
+    { name: 'Mayor Claude',     role: 'mayor',     sprite: 'claudeMayor',  station: 'tn-podium',  greet: 'The council hears you, traveler. What brings you to Claude Town?' },
+    { name: 'Harbor Claude',    role: 'dockhand',  sprite: 'claudeHarbor', station: 'hb-crate1',  greet: 'The tide brings strange crates these days. Careful with them.' },
+    { name: 'Smith Claude',     role: 'smith',     sprite: 'claudeSmith',  station: 'ws-forge',   greet: 'Sparks and iron. Every blade protects a future.' },
+    { name: 'Archivist Claude', role: 'archivist', sprite: 'claudeArch',   station: 'lb-terminal', greet: 'Every file has a story. Click the terminal to browse.' },
+    { name: 'Wanderer Claude',  role: 'wanderer',  sprite: 'claude',       station: null,          greet: 'Paths converge here. Where are you from?' },
+  ];
+  defs.forEach((d, i) => {
+    const s = workstations.find(w => w.id === d.station);
+    const wx = s ? s.wx : cx + 3 + i, wy = s ? s.wy : cy + 3;
+    npcs.push({
+      id: 'npc-' + i,
+      name: d.name, role: d.role, sprite: d.sprite, greet: d.greet,
+      wx, wy, dir: 0, frame: 0, phase: Math.random() * 10,
+      walkPhase: 0, moving: false,
+      target: null,          // {wx, wy}
+      stationId: d.station,  // current workstation id or null
+      workPhase: 0,
+    });
+    if (s) s.occupant = npcs[npcs.length - 1].id;
+  });
+}
+
+// ============================================================================
+// Player state
+// ============================================================================
+const player = {
+  wx: K.MAP_W / 2 + 0.5,
+  wy: K.MAP_H / 2 + 3.5,
+  dir: 2, frame: 0, phase: 0, walkPhase: 0,
+  target: null,   // click-to-move destination
+};
+
+// ============================================================================
+// Mouse + drag-and-drop state
+// ============================================================================
+const mouse = {
+  x: 0, y: 0,                // canvas pixel
+  wx: 0, wy: 0,              // world tile coords (float)
+  downX: 0, downY: 0,
+  down: false,
+  dragging: null,            // NPC object being dragged
+  dragStart: null,           // {x, y, npc}
+  hoverNpc: null,
+  hoverStation: null,
+};
+let selectedNpc = null;
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+function resizeCanvas() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cssW = window.innerWidth, cssH = window.innerHeight;
+  canvas.width  = Math.floor(cssW * dpr);
+  canvas.height = Math.floor(cssH * dpr);
+  canvas.style.width  = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  K.VIEW_W = cssW;  // logical CSS pixels — all game math stays here
+  K.VIEW_H = cssH;
+  K.DPR = dpr;
+  ctx.imageSmoothingEnabled = false;
+}
+K.DPR = 1;
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// Screen ↔ world mapping
+const cam = { x: 0, y: 0, zoom: 1, targetZoom: 1, min: 0.6, max: 2.2 };
+function screenToWorld(sx, sy) {
+  const wxpx = (sx - K.VIEW_W / 2) / cam.zoom + cam.x;
+  const wypx = (sy - K.VIEW_H / 2) / cam.zoom + cam.y;
+  return { wx: wxpx / K.TILE, wy: wypx / K.TILE };
+}
+function worldToScreen(wx, wy) {
+  return {
+    sx: (wx * K.TILE - cam.x) * cam.zoom + K.VIEW_W / 2,
+    sy: (wy * K.TILE - cam.y) * cam.zoom + K.VIEW_H / 2,
+  };
+}
+
+function adjustZoom(d) { cam.targetZoom = clamp(cam.targetZoom + d, cam.min, cam.max); }
+
+// ============================================================================
+// Hit tests
+// ============================================================================
+function npcAt(wx, wy) {
+  for (const n of npcs) {
+    if (Math.hypot(n.wx - wx, n.wy - wy) < 0.6) return n;
+  }
+  return null;
+}
+function stationAt(wx, wy) {
+  for (const s of workstations) {
+    if (Math.hypot(s.wx - wx, s.wy - wy) < 0.9) return s;
+  }
+  return null;
+}
+function playerNearStation(s, d = 1.5) {
+  return Math.hypot(player.wx - s.wx, player.wy - s.wy) < d;
+}
+
+// ============================================================================
+// Collision
+// ============================================================================
+function solidTile(wx, wy) {
+  const t = tAt(Math.floor(wx), Math.floor(wy));
+  return t === T_WATER;
+}
+function canMove(wx, wy, pad = 0.28) {
+  if (wx < 0.2 || wy < 0.2 || wx > K.MAP_W - 0.2 || wy > K.MAP_H - 0.2) return false;
+  return !solidTile(wx - pad, wy - pad) &&
+         !solidTile(wx + pad, wy - pad) &&
+         !solidTile(wx - pad, wy + pad) &&
+         !solidTile(wx + pad, wy + pad);
+}
+
+// ============================================================================
+// Character motion toward target
+// ============================================================================
+function moveToward(ent, tx, ty, speed, dt) {
+  const dx = tx - ent.wx, dy = ty - ent.wy;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.05) return false;   // arrived
+  const step = Math.min(dist, speed * dt);
+  const vx = (dx / dist) * step, vy = (dy / dist) * step;
+  const nx = ent.wx + vx, ny = ent.wy + vy;
+  // axis-by-axis slide
+  if (canMove(nx, ent.wy)) ent.wx = nx;
+  if (canMove(ent.wx, ny)) ent.wy = ny;
+  // dir
+  if (Math.abs(dx) > Math.abs(dy)) ent.dir = dx > 0 ? 3 : 1;
+  else                              ent.dir = dy > 0 ? 0 : 2;
+  return true;
+}
+
+// ============================================================================
+// Update
+// ============================================================================
+let lastT = performance.now();
+let waterFrame = 0, forgeFrame = 0, screenFrame = 0;
+let smokeTimer = 0;
+function update(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now;
+
+  // player movement — click-to-move
+  if (player.target) {
+    const speed = keys['shift'] ? K.RUN_SPEED : K.PLAYER_SPEED;
+    const moving = moveToward(player, player.target.wx, player.target.wy, speed, dt);
+    if (moving) {
+      player.walkPhase += dt * (keys['shift'] ? 12 : 8);
+      player.frame = Math.floor(player.walkPhase) % 4;
+    } else {
+      player.target = null;
+      player.frame = 0;
+      player.walkPhase = 0;
+    }
+  } else {
+    player.frame = 0;
+  }
+
+  // NPC behavior
+  npcs.forEach(n => {
+    n.phase += dt;
+    if (n === mouse.dragging) {
+      // held by cursor — warp toward cursor
+      n.wx = lerp(n.wx, mouse.wx, Math.min(1, dt * 16));
+      n.wy = lerp(n.wy, mouse.wy, Math.min(1, dt * 16));
+      n.frame = 0;
+      return;
+    }
+    if (n.target) {
+      const moving = moveToward(n, n.target.wx, n.target.wy, K.NPC_SPEED, dt);
+      if (moving) {
+        n.walkPhase += dt * 6;
+        n.frame = Math.floor(n.walkPhase) % 4;
+      } else {
+        n.target = null;
+        n.frame = 0;
+      }
+    } else if (n.stationId) {
+      const s = workstations.find(w => w.id === n.stationId);
+      const d = Math.hypot(n.wx - s.wx, n.wy - s.wy);
+      if (d > K.WORK_RADIUS) {
+        n.target = { wx: s.wx, wy: s.wy };
+      } else {
+        // at station — face appropriate direction, small idle bob
+        n.workPhase += dt;
+        // look toward the building center
+        const b = buildings.find(bb => bb.id === s.bldId);
+        if (b) {
+          const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+          const dxc = cx - n.wx, dyc = cy - n.wy;
+          if (Math.abs(dxc) > Math.abs(dyc)) n.dir = dxc > 0 ? 3 : 1;
+          else                                n.dir = dyc > 0 ? 0 : 2;
+        }
+        n.frame = Math.sin(n.workPhase * 3) > 0 ? 0 : 1;
+      }
+    } else {
+      // free-wander
+      if (!n.idleUntil || n.phase > n.idleUntil) {
+        const cxm = K.MAP_W / 2, cym = K.MAP_H / 2;
+        n.target = { wx: cxm + (Math.random() - 0.5) * 8, wy: cym + (Math.random() - 0.5) * 6 };
+        n.idleUntil = n.phase + 3 + Math.random() * 3;
+      }
+    }
+  });
+
+  // camera
+  const tx = player.wx * K.TILE, ty = player.wy * K.TILE;
+  cam.x += (tx - cam.x) * Math.min(1, dt * 5);
+  cam.y += (ty - cam.y) * Math.min(1, dt * 5);
+  cam.zoom += (cam.targetZoom - cam.zoom) * Math.min(1, dt * 5);
+
+  waterFrame = Math.floor(now / 250) % 4;
+  forgeFrame = Math.floor(now / 130) % 4;
+  screenFrame = Math.floor(now / 300) % 4;
+
+  // forge smoke — emit from each forge station's chimney
+  smokeTimer -= dt;
+  if (smokeTimer <= 0) {
+    smokeTimer = 0.11 + Math.random() * 0.09;
+    for (const b of buildings) {
+      for (const s of b.stations) {
+        if (s.kind !== 'forge') continue;
+        spawnSmoke(s.wx + 0.5, s.wy + 0.08);
+      }
+    }
+  }
+  updateSmoke(dt);
+
+  // update location hint
+  const bld = buildingAt(Math.floor(player.wx), Math.floor(player.wy));
+  const hint = document.getElementById('locHint');
+  hint.innerHTML = bld ? `<span style="color:var(--accent)">▸ ${bld.name}</span>` : '';
+
+  // hover state
+  mouse.hoverNpc = npcAt(mouse.wx, mouse.wy);
+  mouse.hoverStation = stationAt(mouse.wx, mouse.wy);
+  updateTooltip();
+  updateCursor();
+}
+
+// ============================================================================
+// Rendering
+// ============================================================================
+function drawMap() {
+  // viewport-culled tile draw
+  const w2 = K.VIEW_W / 2, h2 = K.VIEW_H / 2;
+  const minX = Math.max(0, Math.floor((cam.x - w2 / cam.zoom) / K.TILE) - 1);
+  const maxX = Math.min(K.MAP_W, Math.ceil((cam.x + w2 / cam.zoom) / K.TILE) + 1);
+  const minY = Math.max(0, Math.floor((cam.y - h2 / cam.zoom) / K.TILE) - 1);
+  const maxY = Math.min(K.MAP_H, Math.ceil((cam.y + h2 / cam.zoom) / K.TILE) + 1);
+
+  for (let y = minY; y < maxY; y++) {
+    for (let x = minX; x < maxX; x++) {
+      const t = map[y * K.MAP_W + x];
+      const s = tileSeed[y * K.MAP_W + x];
+      const dx = x * K.TILE, dy = y * K.TILE;
+      switch (t) {
+        case T_GRASS: {
+          // alternate grass variants
+          const img = (s & 3) === 0 ? K_SHEET.grassFlowers.c || K_SHEET.grassFlowers : K_SHEET.grass.c || K_SHEET.grass;
+          ctx.drawImage(img, dx, dy, K.TILE, K.TILE);
+          break;
+        }
+        case T_PATH: {
+          // use either Kenney path-mid or procedural fallback (depending on how pathMid index reads)
+          const img = K_SHEET.pathMid.c || K_SHEET.pathMid;
+          ctx.drawImage(img, dx, dy, K.TILE, K.TILE);
+          break;
+        }
+        case T_WATER: ctx.drawImage(A.water[waterFrame], dx, dy); break;
+        case T_STONE: {
+          ctx.fillStyle = PAL.stoneA;
+          ctx.fillRect(dx, dy, K.TILE, K.TILE);
+          // subtle stone speckle
+          ctx.fillStyle = PAL.stoneB;
+          ctx.fillRect(dx + ((s * 7) % K.TILE), dy + ((s * 11) % K.TILE), 2, 2);
+          ctx.fillRect(dx + ((s * 13) % K.TILE), dy + ((s * 17) % K.TILE), 1, 1);
+          break;
+        }
+        case T_SAND: {
+          ctx.fillStyle = '#d6bb81';
+          ctx.fillRect(dx, dy, K.TILE, K.TILE);
+          ctx.fillStyle = '#b09965';
+          ctx.fillRect(dx + (s & 31), dy + ((s * 3) & 31), 1, 1);
+          break;
+        }
+        case T_PLANK: {
+          ctx.fillStyle = '#9c7546';
+          ctx.fillRect(dx, dy, K.TILE, K.TILE);
+          ctx.fillStyle = '#6e4d2c';
+          ctx.fillRect(dx, dy + 10, K.TILE, 1);
+          ctx.fillRect(dx, dy + 22, K.TILE, 1);
+          break;
+        }
+        case T_FLOWER: {
+          // grass base + flower dots
+          ctx.drawImage(K_SHEET.grass, dx, dy, K.TILE, K.TILE);
+          ctx.fillStyle = '#e04d6c';
+          ctx.fillRect(dx + 8, dy + 10, 2, 2);
+          ctx.fillStyle = '#f0c040';
+          ctx.fillRect(dx + 20, dy + 6, 2, 2);
+          ctx.fillStyle = PAL.orangeHi;
+          ctx.fillRect(dx + 14, dy + 20, 2, 2);
+          break;
+        }
+      }
+    }
+  }
+}
+
+// Fence corner + sides around the "yard" so buildings read as plazas
+// with a landmark structure. Rendered as a ground decoration (pre-sort).
+function drawBuildingYard(b) {
+  const { x, y, w, h } = b;
+  const px0 = x * K.TILE, py0 = y * K.TILE;
+  const pw = w * K.TILE, ph = h * K.TILE;
+
+  // soft "plot" shadow inside the footprint
+  ctx.fillStyle = 'rgba(0,0,0,0.10)';
+  ctx.fillRect(px0 + 2, py0 + 2, pw - 4, ph - 4);
+
+  // themed trim stripe along the ground edge
+  const trim = b.theme === 'red'    ? '#b24818'
+             : b.theme === 'wood'   ? '#7a5228'
+             : b.theme === 'purple' ? '#6a3a8a'
+             :                        '#4a7a2a';
+  ctx.fillStyle = trim;
+  ctx.fillRect(px0, py0 + ph - 2, pw, 2);
+
+  // low fence around the yard — leave a center-front gap for the entrance
+  const gap = 2; // tiles of gap in front
+  const gapStart = (w / 2 - gap / 2) | 0;
+  const gapEnd   = gapStart + gap;
+  ctx.fillStyle = '#7a5228';
+  // top side (behind the house) — solid
+  for (let i = 0; i < w; i++) {
+    drawFenceTile(px0 + i * K.TILE, py0 - 2, 'h');
+  }
+  // bottom side with gap
+  for (let i = 0; i < w; i++) {
+    if (i >= gapStart && i < gapEnd) continue;
+    drawFenceTile(px0 + i * K.TILE, py0 + ph - 2, 'h');
+  }
+  // left / right sides
+  for (let j = 0; j < h; j++) {
+    drawFenceTile(px0 - 2, py0 + j * K.TILE, 'v');
+    drawFenceTile(px0 + pw - 2, py0 + j * K.TILE, 'v');
+  }
+  // stone posts at corners
+  ctx.fillStyle = '#4a3020';
+  ctx.fillRect(px0 - 4, py0 - 4, 6, 6);
+  ctx.fillRect(px0 + pw - 2, py0 - 4, 6, 6);
+  ctx.fillRect(px0 - 4, py0 + ph - 2, 6, 6);
+  ctx.fillRect(px0 + pw - 2, py0 + ph - 2, 6, 6);
+  ctx.fillStyle = PAL.orange;
+  ctx.fillRect(px0 - 3, py0 - 3, 2, 2);
+  ctx.fillRect(px0 + pw - 1, py0 - 3, 2, 2);
+  ctx.fillRect(px0 - 3, py0 + ph - 1, 2, 2);
+  ctx.fillRect(px0 + pw - 1, py0 + ph - 1, 2, 2);
+}
+
+function drawFenceTile(x, y, orient) {
+  // small picket fence tile: 32px wide (or tall)
+  if (orient === 'h') {
+    ctx.fillStyle = '#6e4d2c';
+    ctx.fillRect(x, y, K.TILE, 4);
+    ctx.fillStyle = '#9c7546';
+    ctx.fillRect(x, y, K.TILE, 1);
+    ctx.fillStyle = '#3a2010';
+    for (let i = 0; i < 6; i++) ctx.fillRect(x + i * 5 + 2, y - 3, 2, 6);
+  } else {
+    ctx.fillStyle = '#6e4d2c';
+    ctx.fillRect(x, y, 4, K.TILE);
+    ctx.fillStyle = '#9c7546';
+    ctx.fillRect(x, y, 1, K.TILE);
+    ctx.fillStyle = '#3a2010';
+    for (let i = 0; i < 6; i++) ctx.fillRect(x - 3, y + i * 5 + 2, 6, 2);
+  }
+}
+
+// Draw the landmark 3×3 (or bigger) Kenney house at the back of the building.
+// Used as a depth-sorted drawable so NPCs in front draw over the house.
+function drawBuildingHouse(b) {
+  const key = b.house;
+  const img = K_SHEET[key];
+  if (!img) return;
+  // scale to tile size: the extracted composite is already 2× (w*32 × h*32)
+  const defW = TT[key] ? TT[key].w : 3;
+  const defH = TT[key] ? TT[key].h : 3;
+  const wx = b.x + (b.housePos ? b.housePos.dx : (b.w - defW) / 2);
+  const wy = b.y + (b.housePos ? b.housePos.dy : 0);
+  const dx = wx * K.TILE;
+  const dy = wy * K.TILE;
+  // soft ground shadow under the house
+  ctx.fillStyle = 'rgba(0,0,0,0.20)';
+  ctx.fillRect(dx + 4, dy + defH * K.TILE - 4, defW * K.TILE - 8, 4);
+  ctx.drawImage(img, dx, dy, defW * K.TILE, defH * K.TILE);
+  // orange awning under roof peak
+  if (b.theme === 'red') {
+    ctx.fillStyle = 'rgba(232,112,64,0.35)';
+    ctx.fillRect(dx + 6, dy + 30, defW * K.TILE - 12, 2);
+  }
+}
+
+// Place a flag / banner on top of the landmark house.
+function drawBuildingBanner(b) {
+  const defW = TT[b.house] ? TT[b.house].w : 3;
+  const defH = TT[b.house] ? TT[b.house].h : 3;
+  const wx = b.x + (b.housePos ? b.housePos.dx : (b.w - defW) / 2) + defW / 2;
+  const wy = b.y + (b.housePos ? b.housePos.dy : 0) - 0.2;
+  const fx = wx * K.TILE, fy = wy * K.TILE;
+  const color = b.theme === 'red' ? PAL.orange
+             : b.theme === 'wood' ? '#c0a878'
+             : b.theme === 'purple' ? '#a464d0'
+             : '#6aa84a';
+  // pole
+  ctx.fillStyle = '#3a2010';
+  ctx.fillRect(fx - 1, fy - 14, 2, 16);
+  // banner (wavy)
+  const wave = Math.sin(performance.now() / 300) * 2;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(fx + 1, fy - 14);
+  ctx.lineTo(fx + 12 + wave, fy - 12);
+  ctx.lineTo(fx + 10 + wave, fy - 8);
+  ctx.lineTo(fx + 12 + wave, fy - 4);
+  ctx.lineTo(fx + 1, fy - 6);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawBuildingName(b) {
+  const d = Math.hypot(player.wx - (b.x + b.w / 2), player.wy - (b.y + b.h / 2));
+  if (d > 6) return;
+  ctx.save();
+  ctx.font = '12px "Space Grotesk", system-ui';
+  ctx.textAlign = 'center';
+  const { sx, sy } = worldToScreen(b.x + b.w / 2, b.y);
+  const m = ctx.measureText(b.name).width + 14;
+  const sw = m, sh = 18;
+  // this label is drawn in SCREEN space (CSS pixels × DPR)
+  ctx.setTransform(K.DPR, 0, 0, K.DPR, 0, 0);
+  ctx.fillStyle = 'rgba(18,14,10,0.85)';
+  ctx.fillRect(sx - sw / 2, sy - 24, sw, sh);
+  ctx.strokeStyle = 'rgba(232,112,64,0.6)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(sx - sw / 2 + 0.5, sy - 24 + 0.5, sw - 1, sh - 1);
+  ctx.fillStyle = PAL.orange;
+  ctx.fillText(b.name, sx, sy - 11);
+  ctx.restore();
+}
+
+function drawProp(img, wx, wy, w = 1, h = 1) {
+  const dx = (wx - w / 2) * K.TILE, dy = (wy - h) * K.TILE;
+  ctx.drawImage(img, dx, dy, K.TILE * w, K.TILE * h);
+}
+
+function drawStation(s) {
+  let img = null, ww = 1, hh = 1;
+  switch (s.kind) {
+    case 'podium':    img = A.podium; break;
+    case 'chair':     img = A.chair; break;
+    case 'crate':     img = A.crate; break;
+    case 'net':       img = A.net; ww = 2; break;
+    case 'boat':      img = A.boat; ww = 3; hh = 2; break;
+    case 'forge':     img = A.forge[forgeFrame]; ww = 2; hh = 2; break;
+    case 'anvil':     img = A.anvil; break;
+    case 'workbench': img = A.workbench; ww = 2; break;
+    case 'computer':  img = A.terminal[screenFrame]; ww = 2; hh = 2; break;
+    case 'bookshelf': img = A.bookshelf; hh = 2; break;
+  }
+  if (!img) return;
+  drawProp(img, s.wx + 0.5, s.wy + 0.5, ww, hh);
+}
+
+function drawTable(t) {
+  const img = A.table;
+  drawProp(img, t.wx + 0.5, t.wy + 0.5, t.w, t.h);
+}
+
+function drawTree(tr) {
+  const v = tr.variant;
+  const pool = [
+    K_SHEET.treeA, K_SHEET.treeB, K_SHEET.treeC,
+    K_SHEET.bush, K_SHEET.bushFlower, K_SHEET.treeOrange,
+    K_SHEET.pumpkin, K_SHEET.sapling,
+  ];
+  const img = pool[v % pool.length] || K_SHEET.treeA;
+  // soft drop shadow beneath trees
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath();
+  ctx.ellipse(tr.wx * K.TILE, tr.wy * K.TILE + 10, 8, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // trees extend upward from their anchor tile
+  const dx = (tr.wx - 0.5) * K.TILE, dy = (tr.wy - 0.9) * K.TILE;
+  ctx.drawImage(img, dx, dy, K.TILE, K.TILE);
+}
+
+function drawCharacter(name, wx, wy, dir, frame, opts) {
+  const frames = A[name] || A.claude;
+  const img = frames[dir][frame] || frames[0][0];
+  const dx = wx * K.TILE - CHAR_W / 2;
+  const dy = wy * K.TILE - CHAR_H + K.TILE / 2;
+  if (opts && opts.selected) {
+    ctx.strokeStyle = PAL.orangeHi;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(wx * K.TILE, wy * K.TILE + 2, 12, 5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  if (opts && opts.dragging) {
+    ctx.globalAlpha = 0.55;
+  }
+  ctx.drawImage(img, dx, dy);
+  ctx.globalAlpha = 1;
+}
+
+function drawFountain(f) {
+  // small circular fountain: stone base + water + spray
+  const cx = f.wx * K.TILE, cy = f.wy * K.TILE;
+  // shadow
+  ctx.fillStyle = PAL.shadow;
+  ctx.beginPath(); ctx.ellipse(cx, cy + 4, 24, 6, 0, 0, Math.PI * 2); ctx.fill();
+  // stone ring
+  ctx.fillStyle = PAL.stoneB;
+  ctx.beginPath(); ctx.ellipse(cx, cy, 22, 12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.stoneA;
+  ctx.beginPath(); ctx.ellipse(cx, cy, 20, 10, 0, 0, Math.PI * 2); ctx.fill();
+  // water
+  ctx.fillStyle = PAL.waterB;
+  ctx.beginPath(); ctx.ellipse(cx, cy, 16, 7, 0, 0, Math.PI * 2); ctx.fill();
+  // shimmer
+  ctx.fillStyle = PAL.waterHi;
+  for (let i = 0; i < 4; i++) {
+    const a = i / 4 * Math.PI * 2 + f.frame * 0.2;
+    const px1 = cx + Math.cos(a) * 14, py1 = cy + Math.sin(a) * 5;
+    ctx.fillRect(px1 | 0, py1 | 0, 2, 1);
+  }
+  // column
+  ctx.fillStyle = PAL.stoneA;
+  ctx.fillRect(cx - 2, cy - 14, 4, 12);
+  ctx.fillStyle = PAL.stoneB;
+  ctx.fillRect(cx - 3, cy - 15, 6, 2);
+  // ember spray (orange tint)
+  ctx.fillStyle = 'rgba(248,164,112,0.6)';
+  ctx.fillRect(cx - 1, cy - 20 - (f.frame % 2) * 2, 2, 6);
+  ctx.fillStyle = PAL.waterHi;
+  ctx.fillRect(cx - 1, cy - 20, 2, 1);
+}
+
+// ============================================================================
+// Smoke particle system (from forge chimney)
+// ============================================================================
+const smokeParticles = [];
+function spawnSmoke(wx, wy) {
+  smokeParticles.push({
+    wx: wx + (Math.random() - 0.5) * 0.2,
+    wy,
+    vy: -0.6 - Math.random() * 0.4,
+    vx: (Math.random() - 0.5) * 0.4,
+    age: 0,
+    life: 1.4 + Math.random() * 0.8,
+    size: 3 + Math.random() * 3,
+  });
+}
+function updateSmoke(dt) {
+  for (let i = smokeParticles.length - 1; i >= 0; i--) {
+    const p = smokeParticles[i];
+    p.age += dt;
+    p.wx += p.vx * dt;
+    p.wy += p.vy * dt;
+    if (p.age > p.life) smokeParticles.splice(i, 1);
+  }
+}
+function drawSmokeParticle(p) {
+  const t = p.age / p.life;
+  const a = (1 - t) * 0.55;
+  const r = p.size * (1 + t * 1.2);
+  ctx.fillStyle = `rgba(220,210,200,${a * 0.8})`;
+  ctx.beginPath();
+  ctx.arc(p.wx * K.TILE, p.wy * K.TILE, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ============================================================================
+// Terminal glow — soft pulsing halo on the library terminal
+// ============================================================================
+function drawTerminalGlow() {
+  const lib = buildings.find(b => b.id === 'library');
+  if (!lib) return;
+  const t = lib.stations.find(s => s.kind === 'computer');
+  if (!t) return;
+  const cx = (t.wx + 0.5) * K.TILE, cy = (t.wy + 0.5) * K.TILE;
+  const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 600);
+  const r = 52 + pulse * 10;
+  const grd = ctx.createRadialGradient(cx, cy, 4, cx, cy, r);
+  grd.addColorStop(0, `rgba(232,112,64,${0.30 * pulse})`);
+  grd.addColorStop(0.6, 'rgba(232,112,64,0.05)');
+  grd.addColorStop(1, 'rgba(232,112,64,0)');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ============================================================================
+// Vignette — draws a soft dark radial overlay, in SCREEN space
+// ============================================================================
+function drawVignette() {
+  const w = K.VIEW_W, h = K.VIEW_H;
+  const grd = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35,
+                                        w / 2, h / 2, Math.hypot(w, h) * 0.55);
+  grd.addColorStop(0, 'rgba(0,0,0,0)');
+  grd.addColorStop(1, 'rgba(0,0,0,0.42)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, w, h);
+}
+
+function drawStationHighlight(s) {
+  // draw a soft ring on the ground for workstations when hovered or selected
+  const cx = s.wx * K.TILE + K.TILE / 2, cy = s.wy * K.TILE + K.TILE / 2;
+  ctx.strokeStyle = mouse.dragging ? 'rgba(248,164,112,0.85)' : 'rgba(232,112,64,0.55)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.arc(cx, cy, 18, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// Main render
+function render() {
+  // reset to CSS-pixel space at every frame (DPR-aware)
+  ctx.setTransform(K.DPR, 0, 0, K.DPR, 0, 0);
+  ctx.fillStyle = '#141a10';
+  ctx.fillRect(0, 0, K.VIEW_W, K.VIEW_H);
+
+  ctx.save();
+  ctx.translate(K.VIEW_W / 2, K.VIEW_H / 2);
+  ctx.scale(cam.zoom, cam.zoom);
+  ctx.translate(-cam.x, -cam.y);
+
+  // ground tiles
+  drawMap();
+
+  // building yards (fence + trim) — drawn flat on the ground
+  buildings.forEach(drawBuildingYard);
+
+  // terminal glow halo (library) — drawn on the ground before characters
+  drawTerminalGlow();
+
+  // move target marker
+  if (player.target) {
+    const mx = player.target.wx * K.TILE, my = player.target.wy * K.TILE;
+    ctx.strokeStyle = 'rgba(248,164,112,0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.arc(mx, my, 10, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // highlight hovered workstation when dragging or NPC selected
+  if (mouse.dragging && mouse.hoverStation) drawStationHighlight(mouse.hoverStation);
+  if (selectedNpc && mouse.hoverStation) drawStationHighlight(mouse.hoverStation);
+
+  // collect depth-sorted drawables
+  const drawables = [];
+
+  // landmark houses — anchor depth at their bottom edge
+  buildings.forEach(b => {
+    if (!b.house) return;
+    const defH = TT[b.house] ? TT[b.house].h : 3;
+    const depth = b.y + defH - 0.1;
+    drawables.push({ depth, draw: () => drawBuildingHouse(b) });
+    drawables.push({ depth: depth + 0.01, draw: () => drawBuildingBanner(b) });
+  });
+
+  buildings.forEach(b => {
+    b.stations.forEach(s => {
+      const h = s.kind === 'forge' ? 2 : s.kind === 'computer' ? 2 : s.kind === 'boat' ? 2 : s.kind === 'bookshelf' ? 2 : 1;
+      drawables.push({ depth: s.wy + 0.5 + h * 0.3, draw: () => drawStation(s) });
+    });
+    (b.tables || []).forEach(t => drawables.push({ depth: t.wy, draw: () => drawTable(t) }));
+  });
+
+  // smoke particles — always drawn on top of stations they emit from
+  smokeParticles.forEach(p => {
+    drawables.push({ depth: p.wy + 9000, draw: () => drawSmokeParticle(p) });
+  });
+
+  trees.forEach(tr => drawables.push({ depth: tr.wy, draw: () => drawTree(tr) }));
+  fountains.forEach(f => {
+    f.frame = Math.floor(performance.now() / 180);
+    drawables.push({ depth: f.wy, draw: () => drawFountain(f) });
+  });
+
+  drawables.push({ depth: player.wy + 0.5, draw: () => drawCharacter('player', player.wx, player.wy, player.dir, player.frame) });
+
+  npcs.forEach(n => {
+    const sel = n === selectedNpc;
+    const drag = n === mouse.dragging;
+    const depth = drag ? 9999 : n.wy + 0.5;
+    drawables.push({ depth, draw: () => drawCharacter(n.sprite, n.wx, n.wy, n.dir, n.frame, { selected: sel, dragging: drag }) });
+  });
+
+  drawables.sort((a, b) => a.depth - b.depth);
+  drawables.forEach(d => d.draw());
+
+  ctx.restore();
+
+  // vignette overlay in screen space (CSS pixels via DPR transform)
+  drawVignette();
+
+  // labels (screen space)
+  buildings.forEach(drawBuildingName);
+  npcs.forEach(n => {
+    if (n === mouse.dragging) return;
+    const d = Math.hypot(n.wx - player.wx, n.wy - player.wy);
+    const dHover = Math.hypot(n.wx - mouse.wx, n.wy - mouse.wy);
+    if (d > 4 && dHover > 1.2 && n !== selectedNpc) return;
+    const { sx, sy } = worldToScreen(n.wx, n.wy - 0.95);
+    ctx.save();
+    ctx.setTransform(K.DPR, 0, 0, K.DPR, 0, 0);
+    ctx.font = '11px "Space Grotesk", system-ui';
+    ctx.textAlign = 'center';
+    const m = ctx.measureText(n.name).width + 10;
+    ctx.fillStyle = 'rgba(18,14,10,0.85)';
+    ctx.fillRect(sx - m / 2, sy - 14, m, 14);
+    ctx.fillStyle = PAL.orangeHi;
+    ctx.fillText(n.name, sx, sy - 4);
+    ctx.restore();
+  });
+}
+
+// ============================================================================
+// Input: keyboard, mouse
+// ============================================================================
+const keys = {};
+window.addEventListener('keydown', e => {
+  // don't capture keys while typing into an input
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+    if (e.key === 'Escape') { e.target.blur(); closeChat(); closeLibrary(); deselectNpc(); }
+    return;
+  }
+  keys[e.key.toLowerCase()] = true;
+  if (e.key === 'Escape') { closeLibrary(); closeChat(); deselectNpc(); }
+  if (e.key === '+' || e.key === '=') adjustZoom(+0.15);
+  if (e.key === '-' || e.key === '_') adjustZoom(-0.15);
+});
+window.addEventListener('keyup', e => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+  keys[e.key.toLowerCase()] = false;
+});
+window.addEventListener('wheel', e => {
+  adjustZoom(e.deltaY > 0 ? -0.08 : 0.08);
+}, { passive: true });
+
+function setMousePos(e) {
+  const r = canvas.getBoundingClientRect();
+  mouse.x = e.clientX - r.left;   // CSS pixels
+  mouse.y = e.clientY - r.top;
+  const w = screenToWorld(mouse.x, mouse.y);
+  mouse.wx = w.wx; mouse.wy = w.wy;
+}
+canvas.addEventListener('mousemove', e => {
+  setMousePos(e);
+});
+canvas.addEventListener('mousedown', e => {
+  setMousePos(e);
+  mouse.down = true;
+  mouse.downX = mouse.x; mouse.downY = mouse.y;
+  const n = npcAt(mouse.wx, mouse.wy);
+  if (n) {
+    mouse.dragStart = { x: mouse.x, y: mouse.y, npc: n };
+  }
+});
+canvas.addEventListener('mouseup', e => {
+  setMousePos(e);
+  const moved = Math.hypot(mouse.x - mouse.downX, mouse.y - mouse.downY) > 6;
+
+  if (mouse.dragging) {
+    dropDrag();
+  } else if (mouse.dragStart && !moved) {
+    // click on NPC
+    selectNpc(mouse.dragStart.npc);
+  } else {
+    // click elsewhere
+    const n = npcAt(mouse.wx, mouse.wy);
+    const s = stationAt(mouse.wx, mouse.wy);
+    if (n) selectNpc(n);
+    else if (s) clickStation(s);
+    else {
+      // ground click — player moves there, deselect NPC
+      player.target = { wx: mouse.wx, wy: mouse.wy };
+      deselectNpc();
+    }
+  }
+  mouse.down = false;
+  mouse.dragStart = null;
+  canvas.classList.remove('drag');
+});
+canvas.addEventListener('mousemove', e => {
+  setMousePos(e);
+  if (mouse.down && mouse.dragStart && !mouse.dragging) {
+    const moved = Math.hypot(mouse.x - mouse.downX, mouse.y - mouse.downY);
+    if (moved > 6) {
+      mouse.dragging = mouse.dragStart.npc;
+      canvas.classList.add('drag');
+      // free the station they were in
+      if (mouse.dragging.stationId) {
+        const s = workstations.find(w => w.id === mouse.dragging.stationId);
+        if (s) s.occupant = null;
+        mouse.dragging.stationId = null;
+      }
+    }
+  }
+});
+
+function dropDrag() {
+  const n = mouse.dragging;
+  if (!n) return;
+  const s = stationAt(mouse.wx, mouse.wy);
+  if (s && !s.occupant) {
+    n.stationId = s.id;
+    s.occupant = n.id;
+    toast(`<b>${n.name}</b> → ${s.label}`);
+  } else {
+    // drop on ground — becomes free wanderer at that spot
+    n.target = { wx: mouse.wx, wy: mouse.wy };
+    n.stationId = null;
+    toast(`<b>${n.name}</b> wanders off`);
+  }
+  mouse.dragging = null;
+}
+
+function clickStation(s) {
+  if (s.interact === 'library') {
+    if (playerNearStation(s, 2.5)) openLibrary();
+    else {
+      player.target = { wx: s.wx, wy: s.wy - 0.8 };
+      toast('Walking to terminal…', 1400);
+    }
+  }
+}
+
+function selectNpc(n) {
+  selectedNpc = n;
+  const el = document.getElementById('sel');
+  el.classList.add('show');
+  document.getElementById('selName').textContent = n.name;
+  document.getElementById('selRole').textContent = n.role;
+  document.getElementById('selBody').innerHTML = `<div style="color:var(--ink);font-style:italic">"${n.greet}"</div>`;
+  openChat(n);
+}
+function deselectNpc() {
+  selectedNpc = null;
+  document.getElementById('sel').classList.remove('show');
+}
+
+// ============================================================================
+// Chat — talk to Claudes
+// ============================================================================
+const chat = { npc: null, history: new Map(), sessions: new Map(), turns: new Map(), sending: false };
+
+function ensureHistory(n) {
+  if (!chat.history.has(n.id)) {
+    chat.history.set(n.id, [{ role: 'npc', content: n.greet }]);
+  }
+  return chat.history.get(n.id);
+}
+
+function ensureSession(n) {
+  if (!chat.sessions.has(n.id)) {
+    chat.sessions.set(n.id, crypto.randomUUID());
+    chat.turns.set(n.id, 0);
+  }
+  return chat.sessions.get(n.id);
+}
+
+function openChat(n) {
+  chat.npc = n;
+  ensureSession(n);
+  document.getElementById('chat').classList.add('open');
+  document.getElementById('chatName').textContent = n.name;
+  document.getElementById('chatRole').textContent = n.role;
+  // Terminal button is only useful after at least one turn (session must exist on disk).
+  const termBtn = document.getElementById('chatTerm');
+  termBtn.disabled = (chat.turns.get(n.id) || 0) === 0;
+  termBtn.title = termBtn.disabled
+    ? 'Send at least one message first — the terminal needs a real session to resume'
+    : 'Continue this conversation in a real Claude Code terminal (forks the session so this chat keeps its thread)';
+  // avatar: render NPC sprite at 40px into a canvas
+  const av = document.getElementById('chatAvatar');
+  av.innerHTML = '';
+  const frames = A[n.sprite] || A.claude;
+  const sheet = frames[0][0];
+  const ac = document.createElement('canvas');
+  ac.width = CHAR_W; ac.height = CHAR_H;
+  const ag = ac.getContext('2d');
+  ag.imageSmoothingEnabled = false;
+  ag.drawImage(sheet, 0, 0);
+  av.appendChild(ac);
+  renderChatLog();
+  const input = document.getElementById('chatInput');
+  input.value = '';
+  setTimeout(() => input.focus(), 50);
+}
+
+function closeChat() {
+  document.getElementById('chat').classList.remove('open');
+  chat.npc = null;
+}
+
+function renderChatLog() {
+  const log = document.getElementById('chatLog');
+  log.innerHTML = '';
+  const hist = ensureHistory(chat.npc);
+  for (const m of hist) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + (m.role === 'user' ? 'user' : m.role === 'sys' ? 'sys' : 'npc');
+    if (m.role === 'npc') {
+      const w = document.createElement('div');
+      w.className = 'who'; w.textContent = chat.npc.name;
+      div.appendChild(w);
+    }
+    const t = document.createElement('div');
+    t.textContent = m.content;
+    div.appendChild(t);
+    log.appendChild(div);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendChat(message) {
+  if (chat.sending || !chat.npc) return;
+  const n = chat.npc;
+  const hist = ensureHistory(n);
+  hist.push({ role: 'user', content: message });
+  renderChatLog();
+  chat.sending = true;
+  // show thinking bubble
+  const log = document.getElementById('chatLog');
+  const thinking = document.createElement('div');
+  thinking.className = 'msg npc thinking';
+  thinking.textContent = n.name + ' is thinking';
+  log.appendChild(thinking);
+  log.scrollTop = log.scrollHeight;
+  const sendBtn = document.getElementById('chatSend');
+  sendBtn.disabled = true;
+  try {
+    const session_id = ensureSession(n);
+    const r = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: n.role, message, session_id }),
+    });
+    const j = await r.json();
+    hist.push({ role: 'npc', content: j.reply || j.error || '…' });
+    chat.turns.set(n.id, (chat.turns.get(n.id) || 0) + 1);
+  } catch (e) {
+    hist.push({ role: 'sys', content: 'connection lost: ' + e.message });
+  } finally {
+    thinking.remove();
+    chat.sending = false;
+    sendBtn.disabled = false;
+    renderChatLog();
+    // Terminal button unlocks after first successful turn
+    const termBtn = document.getElementById('chatTerm');
+    if ((chat.turns.get(n.id) || 0) > 0) {
+      termBtn.disabled = false;
+      termBtn.title = 'Continue this conversation in a real Claude Code terminal (forks the session so this chat keeps its thread)';
+    }
+    document.getElementById('chatInput').focus();
+  }
+}
+
+async function continueInTerminal() {
+  if (!chat.npc) return;
+  const sid = chat.sessions.get(chat.npc.id);
+  if (!sid) return;
+  const btn = document.getElementById('chatTerm');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ opening';
+  try {
+    const r = await fetch('/api/open-terminal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sid }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      btn.textContent = '✓ opened';
+      const hist = ensureHistory(chat.npc);
+      hist.push({ role: 'sys', content: '→ forked to terminal (this chat keeps its thread)' });
+      renderChatLog();
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+    } else {
+      btn.textContent = '✗ failed';
+      const hist = ensureHistory(chat.npc);
+      hist.push({ role: 'sys', content: 'terminal launch failed: ' + (j.error || 'unknown') });
+      renderChatLog();
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+    }
+  } catch (e) {
+    btn.textContent = '✗ failed';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+  }
+}
+
+document.getElementById('chatClose').onclick = closeChat;
+document.getElementById('chatTerm').onclick = continueInTerminal;
+document.getElementById('chatForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const input = document.getElementById('chatInput');
+  const v = input.value.trim();
+  if (!v || chat.sending) return;
+  input.value = '';
+  sendChat(v);
+});
+
+function updateTooltip() {
+  const tip = document.getElementById('tip');
+  let text = '';
+  if (mouse.hoverNpc) {
+    text = `<b>${mouse.hoverNpc.name}</b> · click to select · drag to reassign`;
+  } else if (mouse.hoverStation) {
+    const occ = mouse.hoverStation.occupant;
+    const who = occ ? npcs.find(n => n.id === occ)?.name || 'occupied' : 'vacant';
+    const extra = mouse.hoverStation.interact === 'library' ? ' · click to browse' : '';
+    text = `<b>${mouse.hoverStation.label}</b> · ${who}${extra}`;
+  }
+  if (text) {
+    const r = canvas.getBoundingClientRect();
+    tip.innerHTML = text;
+    tip.style.left = (r.left + mouse.x + 14) + 'px';
+    tip.style.top  = (r.top  + mouse.y + 14) + 'px';
+    tip.classList.add('show');
+  } else {
+    tip.classList.remove('show');
+  }
+}
+function updateCursor() {
+  if (mouse.dragging) return;
+  if (mouse.hoverNpc)      canvas.style.cursor = 'grab';
+  else if (mouse.hoverStation) canvas.style.cursor = 'pointer';
+  else                      canvas.style.cursor = 'default';
+}
+
+function toast(msg, ms = 2000) {
+  const el = document.getElementById('toast');
+  el.innerHTML = msg;
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), ms);
+}
+
+// ============================================================================
+// Library
+// ============================================================================
+const lib = { cwd: '', open: false };
+async function openLibrary(path = '') {
+  document.getElementById('library').classList.add('open');
+  lib.open = true;
+  await lsInto(path);
+}
+function closeLibrary() {
+  document.getElementById('library').classList.remove('open');
+  lib.open = false;
+}
+async function lsInto(path) {
+  lib.cwd = path;
+  renderCrumbs();
+  const entriesEl = document.getElementById('libEntries');
+  entriesEl.innerHTML = '<div style="color:var(--dim)">loading…</div>';
+  try {
+    const r = await fetch(`/api/ls?path=${encodeURIComponent(path)}`);
+    const j = await r.json();
+    if (j.error) { entriesEl.innerHTML = `<div style="color:#f08080">${j.error}</div>`; return; }
+    renderEntries(j.entries);
+  } catch (e) {
+    entriesEl.innerHTML = `<div style="color:#f08080">${e.message}</div>`;
+  }
+}
+function renderCrumbs() {
+  const el = document.getElementById('libCrumbs');
+  const parts = lib.cwd.split('/').filter(Boolean);
+  let acc = '';
+  const links = [`<a data-p="">~/Avi-Claude</a>`];
+  parts.forEach(p => { acc = acc ? acc + '/' + p : p; links.push(`<a data-p="${acc}">${p}</a>`); });
+  el.innerHTML = links.join(' / ');
+  el.querySelectorAll('a').forEach(a => a.onclick = () => lsInto(a.dataset.p));
+}
+function renderEntries(entries) {
+  const el = document.getElementById('libEntries');
+  const parts = lib.cwd.split('/').filter(Boolean);
+  const up = parts.slice(0, -1).join('/');
+  const list = [];
+  if (lib.cwd) list.push(`<div class="entry dir" data-kind="up"><span class="name">..</span></div>`);
+  entries.forEach(e => {
+    const cls = 'entry ' + (e.dir ? 'dir' : 'file');
+    const meta = e.dir ? '' : fmtSize(e.size);
+    list.push(`<div class="${cls}" data-name="${e.name}" data-dir="${e.dir}"><span class="name">${e.name}</span><span class="meta">${meta}</span></div>`);
+  });
+  el.innerHTML = list.join('');
+  el.querySelectorAll('.entry').forEach(ent => {
+    ent.onclick = () => {
+      if (ent.dataset.kind === 'up') return lsInto(up);
+      const name = ent.dataset.name;
+      const isDir = ent.dataset.dir === 'true';
+      const p = lib.cwd ? lib.cwd + '/' + name : name;
+      if (isDir) lsInto(p);
+      else readFile(p);
+    };
+  });
+}
+function fmtSize(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' K';
+  return (n / 1024 / 1024).toFixed(1) + ' M';
+}
+async function readFile(p) {
+  document.getElementById('libHead').textContent = p;
+  const body = document.getElementById('libBody');
+  body.classList.remove('empty');
+  body.textContent = 'loading…';
+  try {
+    const r = await fetch(`/api/read?path=${encodeURIComponent(p)}`);
+    const j = await r.json();
+    if (j.error) { body.textContent = j.error; return; }
+    body.textContent = j.content + (j.truncated ? '\n\n… (truncated)' : '');
+  } catch (e) { body.textContent = e.message; }
+}
+document.getElementById('libClose').onclick = closeLibrary;
+
+// ============================================================================
+// Main loop + boot
+// ============================================================================
+function loop(now) {
+  update(now);
+  render();
+  requestAnimationFrame(loop);
+}
+
+(async function boot() {
+  buildAssets();
+  const status = document.getElementById('assetStatus');
+  status.textContent = 'loading tilesheets…';
+  try {
+    await Promise.all([SHEETS.tt.load(), SHEETS.urb.load()]);
+    status.textContent = 'kenney loaded ✓';
+  } catch (e) {
+    status.textContent = 'tilesheets missing — procedural only';
+    console.warn(e);
+  }
+  if (SHEETS.tt.ready) buildSheetComposites();
+  buildMap();
+  placeBuildings();
+  scatterDecor();
+  spawnNpcs();
+  lastT = performance.now();
+  requestAnimationFrame(loop);
+  toast('Welcome to <b>Claude Town</b>. Click to walk · drag Claudes to assign.', 3400);
+})();
+</script>
+</body>
+</html>

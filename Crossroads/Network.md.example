@@ -1,0 +1,68 @@
+# Network — Personal Contacts
+
+*Your collaborators, mentors, contacts. Different from `repos.yaml` (which tracks code/skill repos) — this is the human side of Crossroads.*
+
+*Rename this file to `Network.md` when you start populating it. The `.example` suffix is to keep the template visible after you've filled in your version.*
+
+---
+
+## Format
+
+For each contact, what's worth recording is what *Claude needs to know* to help you with them — not exhaustive CRM data. Tight, useful entries.
+
+```markdown
+## [Name]
+
+**Role:** [their role / org]
+**Connection strength:** strong | medium | weak | aspirational
+**How we met:** [one line]
+**What they care about:** [their interests, especially intersections with yours]
+**Last interaction:** [YYYY-MM-DD, what happened]
+**Open threads:** [things you said you'd do, things they said they'd do]
+**Where to find them:** [email, X, LinkedIn — only what's needed]
+**Notes for Claude:** [tone preferences, what to bring up, what to avoid]
+```
+
+---
+
+## Example entry (replace with your own)
+
+## Dr. Example Mentor
+
+**Role:** Professor of [field] at [university]
+**Connection strength:** medium
+**How we met:** Office hours during a conference, 2024
+**What they care about:** [topic 1], [topic 2], the intersection of [X] and [Y]
+**Last interaction:** 2026-03-15 — coffee at the Spring Symposium, talked about [paper]
+**Open threads:** They mentioned wanting to read your [draft]; you said you'd send it by April. (✅ done 2026-04-08)
+**Where to find them:** example@university.edu
+**Notes for Claude:** Prefers email over text. Substantive over chatty. Likes a draft + 2 specific questions, not open-ended "thoughts?"
+
+---
+
+## Strong ties
+
+*People who actively shape your work — collaborators, advisors, frequent correspondents.*
+
+## Medium ties
+
+*People you're in periodic contact with, want to stay in touch with.*
+
+## Weak ties
+
+*People you've met once or briefly, where there's a thread worth keeping warm.*
+
+## Aspirational
+
+*People you'd like to know but don't yet. Useful for the `/network-scout` to consider warm-intro paths.*
+
+---
+
+## How this gets used
+
+- `/network-scout` reads this file to know who's already in your network when proposing new targets
+- `/email-triage` cross-references senders against this list to spot known contacts
+- `/meeting` "get me a meeting" mode checks here before proposing cold outreach
+- `/morning-briefing` can flag if a strong-tie contact has a notable update from the watchlist scout
+
+The file is yours. Edit it freely. Keep entries concise — Claude can re-read them often if they stay short.

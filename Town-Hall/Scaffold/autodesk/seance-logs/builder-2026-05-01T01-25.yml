@@ -1,0 +1,42 @@
+session_id: "builder-tech-tree-2026-05-01"
+role: "builder"
+started: "2026-05-01T01:05:00"
+ended: "2026-05-01T01:30:00"
+project: "tech-tree"
+
+accomplished:
+  - "v5.2 — interactive Time Scrubber strip added to v2.html"
+  - "Fire-gradient density histogram (240 log-scaled bins, 5-tap smoothing) so modern node-explosion doesn't crush prehistory bars to invisibility"
+  - "Click/drag/touch scrubbing with year tooltip; triangle handle tracks camera year; secondary playhead shows S.playYear during active play"
+  - "T keybind toggles visibility; default on. Help text in #sel-nav updated"
+  - "Repositioned #legend, #legend-toggle, #selection-info from bottom:72px to bottom:calc(var(--footer-h) + 50px) to sit above the new strip"
+  - "buildScrubDensity() precompute at init; renderScrubber() called inside main render loop (cheap — just a 240-bar canvas paint)"
+  - "Heartbeat updated to v5.2 with version history and feedback log entry"
+  - "HANDOFF.md updated with v5.2 changelog and revised What's Next list"
+
+pending:
+  - "Visual verification — open v2.html in a browser and confirm the strip renders as designed at multiple window widths and in light/dark modes"
+  - "Reveal mode (hide nodes with year > scrub year) — designed but not implemented; would be a 1-flag addition to the render path"
+  - "Avi review of cumulative v5.0/v5.1/v5.2 work — has not been pinged for the v5 series yet"
+
+tried_but_failed:
+  - "Initially considered putting the scrubber inside the existing footer by raising --footer-h; abandoned because that variable is referenced in many CSS rules (#canvas-wrap bottom, #col-headers bottom, #legend, #selection-info, etc.) and changing it would cascade in ways I couldn't fully audit in one session. Pinning the strip as its own fixed-position element above the footer was the safer move."
+
+gotchas:
+  - "v2.html is a single 4,333-line file. State lives in a global S object. Future builders should grep for `S\\.` to see how new state should be added (push into the const S = {...} initialiser, near line ~1117)"
+  - "Time math primitives: yearToX, xToYear, DEEP_MIN, TIMELINE_END (TIMELINE_END is mutated after data load to extend past 2100 if any speculative nodes exceed it). Always use yearToX/xToYear, never the YEAR_SCALE constant directly"
+  - "The keydown handler guards against typing in the search input via document.activeElement === document.getElementById('search'). Any new key binding should rely on that guard"
+  - "Density precompute must happen AFTER loadData() — `buildScrubDensity()` is called inside `initScrubber()` which runs after loadData in init(). Don't move it earlier"
+  - "scrubJumpToYear() calls stopPlay() if play is active. This is intentional — manual scrubbing should preempt automated playback. Don't 'fix' that"
+
+decisions_and_reasoning:
+  - "Picked time scrubber as the chunk because (a) it was explicitly listed as #2 in HANDOFF's What's Next, (b) it leverages existing infrastructure (playMode, playYear, yearToX, xToYear) so it's mostly wiring not invention, (c) it's a single bounded UI element with no risk of touching the layout engine, and (d) one chunk + commit + exit is the headless contract"
+  - "Used log1p for density normalisation rather than linear because the Industrial era has ~50× the node count of any prehistoric millennium and a linear scale produced visually dead prehistory bars. Log keeps every era's relative shape readable while still showing modern density is dramatically higher"
+  - "Triangle handle on top edge points DOWN into the strip rather than up out of it — keeps the chrome contained and avoids overlap with hover tooltip which appears above the strip"
+  - "240 bins chosen as the bin count: fine enough that adjacent decades read as distinct on a 1080p screen at the modern end of the timeline, coarse enough that the smoothing kernel can hide noise in sparse stretches. Each bin = ~13,750 years across the full DEEP_MIN→TIMELINE_END range"
+  - "scrubVisible defaults to true rather than false because Avi will see the new feature on first load without having to discover the T key"
+
+files_touched:
+  - "Workshop/backburner/Tech-Tree/v2.html (+286 lines: CSS for #time-scrubber/#time-scrubber-tooltip, HTML elements, S state additions, T-key handler, render() hook, ~200-line scrubber function block, init wire-up)"
+  - "Workshop/backburner/Tech-Tree/HANDOFF.md (status v5.1 → v5.2, new changelog table, revised What's Next)"
+  - "Town-Hall/Scaffold/autodesk/heartbeat-tech-tree.md (full rewrite — was stale at v2/214-nodes; now reflects v5.2 with cumulative Done list, version history, feedback log)"

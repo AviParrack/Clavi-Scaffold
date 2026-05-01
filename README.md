@@ -543,13 +543,3 @@ Native Claude Code features adopted:
 This is a working scaffold being actively used. It is opinionated, partial, and continually evolving. PRs and issues welcome on patterns that would broaden the appeal beyond a single user; please don't expect a "general productivity tool" — the design assumes a knowledge worker doing long-horizon research.
 
 License: see [LICENSE](LICENSE).
-
----
-
-## Credits
-
-[Avi Parrack](https://aviparrack.com/) and Claude (Anthropic). Built collaboratively across many sessions in 2025-2026.
-
-Issues + PRs welcome on this GitHub repo.
-
-Architecture inspired by Karpathy's wiki pattern, and from the broader agentic coding community.

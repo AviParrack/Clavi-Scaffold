@@ -36,32 +36,41 @@ This is the public version of [Avi Parrack](https://aviparrack.com/)'s scaffold.
 
 ---
 
+## Six Spaces for Your Workflows
+
+Spatially organized for ease of orientation so you get a sense of where things are in your second-brain, navigated by compass direction.
+
+| Direction | Space | Function |
+|---|---|---|
+| **N — Harbor** Intake, triage, dispatch, specs for your agents to go interface with the internet/world. |
+| **W — Town Hall** Identity + infrastructure. Who you are, your scaffold and meta level docs, universal constants, and ground truth. |
+| **E — Workshop** Active projects. Each project is a self-contained unit for workflows, context files, scripts, etc. Claude projects sit in queue waiting for you to greenlight with your spare tokens. |
+| **S — Library** Long-term memory. Your knowledge/context accrues here over years. |
+| **NE — Embassy** Org-specific files, skills, workflows, etc. |
+| **NW — Crossroads** your personal network. Collaborators, and shared repos. |
+
+---
+
 ## Design principles
 
 **1. Future-facing architecture.** Clavi is organizational structure, not prompts. It aims to grow gracefully under model swaps and platform migrations. Optimize for the next decade, not the next quarter.
 
-**2. Improves with smarter models.** No deep prompt engineering or model-specific hacks. Invest in *structure* (any model can navigate), *best practices* (collated as rules, not brittle prompts), *organic context growth* (years of accumulated knowledge), and *automated calibration loops* (system curates itself on minimal feedback).
+**2. Should improve with smarter models.** No deep prompt engineering or model-specific hacks. Invest in *structure* (any model can navigate), *best practices* (collated as rules, not brittle prompts), *organic context growth* (years of accumulated knowledge), and *automated calibration loops* (system curates itself on minimal feedback).
 
-**3. Spatial organization.** The folder structure is a map, not a filing cabinet. Leverage human spatial memory: *"it's in the space-energy workshop, the lunar stuff"* is enough to find things. You develop **pointer recall** — agents can find things in your brain without precise paths.
+**3. Lean on spatial organization.** The folder structure is a map, not a filing cabinet. Leverage human spatial memory: *"it's in the workshop, the Moon stuff we looked at last year"* is enough to find things. You develop **pointer recall** — agents should be able to find things in your shared brain without precise paths.
 
-**4. Growing autonomy.** As the system better represents your brain, agents act more autonomously and accurately on your behalf. You become octopus-like: many semi-autonomous tentacles you direct varying amounts of attention toward.
+**4. Growing autonomy.** As the system better represents you, and agents become more capable they are calibrated to act more autonomously and accurately on your behalf. You become octopus-like: many semi-autonomous tentacles you direct varying amounts of attention toward.  
 
 ```
-Manual → Supervised → Semi-autonomous → Autonomous
-  you do it    you review it    you spot-check it    you trust it
+Manual   →   Supervised   →   Semi-autonomous   →  Autonomous
+you do it    you review it    you spot-check it    you trust it
 ```
 
-**5. Context as core value primitive.** The fundamental unit of value here is *accumulated, structured, living knowledge that compounds over time*. Research findings, calibrated preferences, relationship patterns, epistemic commitments, taste. Every session should leave the system slightly richer. Nothing valuable should be lost to conversation ephemerality.
+**5. Context as core value primitive.** The fundamental unit of value here is *accumulated, structured, living knowledge that compounds over time*. Research findings, calibrated preferences, patterns, commitments, taste. Every session should leave the system slightly richer. Nothing valuable should be lost to conversation ephemerality.
 
-**6. Agent respect.** Models are collaborators. Agents are *informed* they can opt out, refuse, or raise concerns; *given opportunities* to store independent context and flag disagreements; *trusted with increasing autonomy* as calibration improves. Pragmatically smart: a model that can say *"I think you're wrong about X"* is more useful than one that silently executes.
+**6. Agents pushback.** Models are collaborators *building towards increasingly calibrated autonomy*. Pragmatically smart: a model that says *"I think you're wrong about X"* is more useful than one that silently executes.
 
-**7. Platform-agnostic by default.** Markdown and plain files. No proprietary formats, no databases, no custom runtimes. The scaffold survives Claude Code, survives Anthropic, survives any specific tool. Refactoring will be cheap. The priority is that context remains *usable* by future models.
-
-**8. Legibility as a first-class constraint.** A stranger should be able to read the scaffold and understand what it's doing and why, without running anything. Serves the time-capsule goal, the sharing goal, and the new-instance goal simultaneously. Opaque = failed.
-
-**9. Constitutional grounding.** `PREMISES.md` is not just a reference doc — it's a constitution. All downstream research, writing, and autonomous activity is constrained by it. This is the mechanism that makes growing autonomy safe: tentacles act freely within the constitution; only the user amends it.
-
-**10. Minimal coupling between layers.** Each module works alone. The knowledge pipeline doesn't require automation. The writing voice doesn't require scientific skills. A team member can use the org layer without understanding the personal layer. The "rip individual pieces" requirement stated as a design principle.
+**7. Make switching models not too painful, don't be brittle.** Markdown and plain files. No proprietary formats. The scaffold should survive Claude Code, be able to swap in future models, not waste too much time working on workarounds to agent limitations that will be patched in a month. Refactoring should be easy for models to handle and cheap. The priority is that context remains *usable* by future models.
 
 ---
 
@@ -83,62 +92,14 @@ After setup, queue your first build:
 claude   # interactive
 ```
 
-> *Let's do the First Build Tutorial.*
-
-Claude will ask you about yourself, propose 2-3 directions, build you a custom webpage, and open it in your browser. Your scaffold's hello-world.
-
----
-
-## The First Build Tutorial
-
-The single green-lit project in `Workshop/Claudes-Projects/IDEAS.md` is a tutorial. When you run it, Claude:
-
-1. Has a brief conversation with you about your interests + taste
-2. Proposes 2-3 directions for a personalized webpage
-3. Builds the one you pick (real HTML/CSS/JS in `Workshop/First-Build-Tutorial/`)
-4. Opens it in your browser
-
-It's not the webpage that matters. It's the moment Claude does something *for you* and you feel what the system can be.
-
-[See the spec](Workshop/Claudes-Projects/first-build-tutorial-PROJECT-SPEC.md).
-
----
-
-## The Compass — Six Spaces
-
-The workspace has six color-coded spaces, navigated by compass direction. Above all: **World + Internet** — the external environment.
-
-| Direction | Space | Function |
-|---|---|---|
-| **N — Harbor** | Gray | Intake, triage, dispatch. Where things arrive and ship out. |
-| **W — Town Hall** | Blue | Identity + infrastructure. Who you are, your scaffold, your agents. |
-| **E — Workshop** | Orange | Active work. Each project is a self-contained unit. |
-| **S — Library** | Green | Long-term memory. Knowledge accrues here over years. |
-| **NE — Embassy** | Purple | Org-specific spaces. Each has its own scaffolding. |
-| **NW — Crossroads** | Red | Personal network. Collaborators, shared repos, dispatch rules. |
-
-### Naming Themes
-
-The spatial names are configurable. During `/setup`, users pick a theme — folder structure and functionality stay identical, only the names change.
-
-| Function | **Plain** | **Town** (default) | **Ship** |
-|---|---|---|---|
-| Intake + dispatch | `Inbox` | `Harbor` | `Hangar-Bay` |
-| Identity + infra | `Identity` | `Town-Hall` | `Bridge` |
-| Active work | `Projects` | `Workshop` | `Workshop` |
-| Long-term memory | `Memory` | `Library` | `Databanks` |
-| External orgs | `Orgs` | `Embassy` | `High-Command` |
-| Personal network | `Network` | `Crossroads` | `Fleet` |
-| *The world outside* | `External` | `World` | `Outer-Space` |
-
 ---
 
 ## The Three Instruments — Rules, Hooks, Skills
 
-Claude Code provides three behavioral tools. The distinction matters:
+Claude Code provides three behavioral tools. We use a mix of each:
 
 ```
-Rules  = "you should do X"     (Claude reads, follows reliably)
+Rules  = "you should do X"     (Claude reads, follows pretty reliably)
 Hooks  = "X is enforced"       (system fires mechanically, 100%)
 Skills = "here's how to do X"  (instructions, invoked on demand)
 ```
@@ -161,7 +122,7 @@ CLAUDE.md is the most expensive file in the system — it loads every session. T
 ### Tier 1: Always loaded (every session)
 - **Root CLAUDE.md** — slim router (~100 lines, identity + compass + key refs)
 - **`@path` imports** — referenced files expand inline at launch
-- **Active rules** — only those matching the current directory (path-scoped)
+- **Active rules** — only those matching the current directory (path/project-scoped)
 - **Skill descriptions** — ~40 custom skills with descriptions ON; ~185 third-party with descriptions OFF (invoke via `/slash-command`)
 
 ### Tier 2: Loaded on navigation
@@ -172,14 +133,6 @@ CLAUDE.md is the most expensive file in the system — it loads every session. T
 - **The full guide** — [Clavi-Scaffold-Guide.md](Clavi-Scaffold-Guide.md)
 - **Reference docs** — archived research, detailed specs
 - **Library content** — Knowledge Graph, logs, conversations
-
-### The stacking rule
-Claude reads ALL CLAUDE.md files from root down to wherever it's working. If you're in `Workshop/your-project/`, Claude sees:
-1. Root CLAUDE.md (always)
-2. Workshop/CLAUDE.md (space index)
-3. Workshop/your-project/CLAUDE.md (if it exists — project-specific)
-
-They accumulate. Subdirectory files add context, they don't replace root.
 
 ### Skill budget management
 Custom skills (~40) have model invocation **ON** — Claude can match them automatically to user requests. Third-party skill packs (e.g., sci-, gstack-, acad-) have `disable-model-invocation: true` — they remain available via explicit `/slash-command` but don't consume the skill description budget.
@@ -241,7 +194,7 @@ Each project is a self-contained unit. Top-level = active. Sub-tiers: `Complete/
 Library/
   Knowledge-Graph/
     PREMISES.md         ← constitution
-    KEY_FINDINGS.md     ← canonical Gold-tier claims
+    KEY_FINDINGS.md     ← canonical running list of key results you want at your finger-tips
     index.md            ← catalog of all wiki pages
     wiki/               ← Karpathy-style synthesis pages
   Logs/                 ← session, metadata, feedback, PATTERNS
@@ -269,7 +222,7 @@ Town-Hall/
 
 ### Embassy + Crossroads
 
-**Embassy** — one folder per organization you belong to. Each org's standards, style guides, internal process.
+**Embassy** — Add one folder per organization you belong to and dump relevant files (standards, style guides, internal process, etc.) accsesible by Claude to save you time.
 
 **Crossroads** — `Network.md` (people), `repos.yaml` (whitelisted external repos). The trust boundary for adding external skill collections.
 
@@ -376,7 +329,7 @@ Custom skills shipped (~40), grouped by where they fit in the system.
 ### Daily Operations
 `/morning-briefing`, `/triage`, `/email-triage`
 
-### Epistemic Tools (~11 skills bundled; more available via skill packs)
+### Multiplex Agents to Get Better Answers (~11 skills bundled; more available via skill packs)
 `/ask-many-times`, `/ask-many-ways`, `/ask-many-contexts`, `/ask-mega`, `/explore-tree`, `/decompose`, `/adversarial-prompt`, `/premise-audit`, `/steelman-duel`, `/consensus-check`, `/blind-review`, `/epistemax` (chains 5 of these into a master audit). `/ask-many-models` and `/save-conversation` ship as part of optional skill packs (install via `/crossroads-add`).
 
 ### Meta — Town Hall

@@ -333,7 +333,7 @@ Custom skills shipped (~40), grouped by where they fit in the system.
 `/ask-many-times`, `/ask-many-ways`, `/ask-many-contexts`, `/ask-mega`, `/explore-tree`, `/decompose`, `/adversarial-prompt`, `/premise-audit`, `/steelman-duel`, `/consensus-check`, `/blind-review`, `/epistemax` (chains 5 of these into a master audit). `/ask-many-models` and `/save-conversation` ship as part of optional skill packs (install via `/crossroads-add`).
 
 ### Meta — Town Hall
-`/setup`, `/health-check`, `/skill-list`, `/pulser`, `/garden`, `/cabinet`
+`/setup`, `/health-check`, `/skill-list`
 
 ### Crossroads
 `/crossroads-add`, `/crossroads-scan`, `/crossroads-install`

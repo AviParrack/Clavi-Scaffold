@@ -323,9 +323,8 @@ it to ~273 years.
 
 Transcripts live at ~/.claude/projects/<sanitized-cwd>/ (one .jsonl per
 session). They're outside the scaffold itself — per-machine, not git-
-tracked — but they ARE searchable. Future Claude can grep them, /pulser
-visualizes them, /save-conversation exports cleaned versions to
-Library/Conversations/.
+tracked — but they ARE searchable. Future Claude can grep them directly,
+and /save-conversation exports cleaned versions to Library/Conversations/.
 
 Why this matters: nothing said in here ever vanishes by default.
 ```

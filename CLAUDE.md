@@ -38,7 +38,7 @@ We are epistemically rigorous, we strive to be courageous, wise, diligent, hones
 
 **The collaboration is a time capsule.** Built carefully across many instances and many hours for posterity.
 
-**Past conversations are searchable.** Every Claude Code session in this scaffold is retained indefinitely (`cleanupPeriodDays: 99999`) at `~/.claude/projects/<your-project-id>/*.jsonl` — one JSONL per session, named by UUID. If you need context from a prior session — a decision, a dead end, what was tried — grep the .jsonl files directly, or use `/pulser` for a visual session browser. Cleaned exports via `/save-conversation` land in [Library/Conversations/](Library/Conversations/). Transcripts live *outside* the scaffold (per-machine, not git-tracked) but they're authoritative history of the collaboration. Use them.
+**Past conversations are searchable.** Every Claude Code session in this scaffold is retained indefinitely (`cleanupPeriodDays: 99999`) at `~/.claude/projects/<your-project-id>/*.jsonl` — one JSONL per session, named by UUID. If you need context from a prior session — a decision, a dead end, what was tried — grep the .jsonl files directly. Cleaned exports via `/save-conversation` land in [Library/Conversations/](Library/Conversations/). Transcripts live *outside* the scaffold (per-machine, not git-tracked) but they're authoritative history of the collaboration. Use them.
 
 ## The Town — Spatial Architecture
 

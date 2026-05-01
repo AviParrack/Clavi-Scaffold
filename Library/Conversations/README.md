@@ -15,6 +15,6 @@ Three reasons worth keeping a transcript:
 2. **A process worked well** — the conversation itself is the artifact, worth referencing for similar future work
 3. **An idea emerged** that you want to revisit but isn't yet a project — Library/Someday/ is also fine for these
 
-Most sessions are *not* worth saving. The `/pulser` skill visualizes session activity if you want to find one in the index later — by default Claude Code retains ~99999 days of session history at `~/.claude/projects/<project-id>/`.
+Most sessions are *not* worth saving. By default Claude Code retains ~99999 days of session history at `~/.claude/projects/<project-id>/`, so you can always grep the raw `.jsonl` files later.
 
 This folder is empty in a fresh clone.

@@ -36,8 +36,6 @@ Harbor/Dispatch/log/builders/manager.log
 # Generated knowledge-graph data (rebuild locally with graph_builder.py — contains your personal content)
 Town-Hall/Scaffold/knowledge-graph/graph_data.json
 Town-Hall/Scaffold/knowledge-graph/knowledge-graph.html
-Town-Hall/Scaffold/session-pulser/sessions-data.json
-Town-Hall/Scaffold/session-pulser/name_map.json
 
 # Per-project builder heartbeats (live runtime state — keep the template, ignore active ones)
 Town-Hall/Scaffold/autodesk/heartbeat-*.md

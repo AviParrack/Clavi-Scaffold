@@ -1,8 +1,0 @@
-node_modules/
-sessions-data.json
-name_map.json
-*.png
-*.jpg
-*.tmp*
-.playwright-mcp/
-.superpowers/

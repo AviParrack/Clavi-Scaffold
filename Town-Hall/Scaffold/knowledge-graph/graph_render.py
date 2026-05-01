@@ -2,7 +2,7 @@
 """
 Knowledge Graph Renderer v2 — Clavi Workspace
 Reads graph_data.json and injects it into graph_template.html to produce
-a self-contained interactive visualization with PoetEng aesthetics.
+a self-contained interactive visualization.
 """
 
 import json

@@ -134,4 +134,4 @@ License: see [LICENSE](LICENSE).
 
 Issues + PRs welcome on this GitHub repo.
 
-Architecture inspired by Karpathy's wiki pattern, lean CLAUDE.md philosophy from the broader Claude Code community, Chris Blattman's [public scaffold](https://github.com/chrisblattman/claudeblattman), and a lot of trial and error.
+Architecture inspired by Karpathy's wiki pattern, and from the broader agentic coding community.

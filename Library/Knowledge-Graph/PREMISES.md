@@ -8,7 +8,7 @@
 
 ## How premises work
 
-When Claude does research (via `/research-sprint`, `/triage`, `/audit`, etc.), it reads this file first and uses your premises as the lens through which findings are evaluated:
+When Claude does research (via `/research-sprint`, `/triage`, `/deep-review`, etc.), it reads this file first and uses your premises as the lens through which findings are evaluated:
 
 - Findings that **align** with your premises get integrated.
 - Findings that **diverge** are flagged explicitly: *"Note: this analysis assumes X, which diverges from PREMISES.md on Y."*

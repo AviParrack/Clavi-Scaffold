@@ -71,11 +71,32 @@ For BOTEC-style work specifically:
 
 ### Phase 4: Output
 
-Write to the location the user specifies. Default: a `BOTEC-{topic}.md` file in the relevant Workshop project, or in `Harbor/Inbox/` if no project context.
+Write to the location the user specifies. Default: a `BOTEC-{topic}.md` file alongside the document being analyzed (sibling to the source data), or `BOTEC-{topic}.md` in the current working directory if no project context.
 
 If the brief includes calculations, also save:
 - A working spreadsheet or `.csv` with the numbers (if data-rich)
 - Source URLs for every quantitative claim (verified per `citation-standards.md` rule if scoped)
+
+### Phase 5: Math Verification Loop (Mandatory)
+
+Numbers in a BOTEC carry the argument. Wrong numbers turn a sharp brief into a liability. After Phase 4, automatically run a math verification loop:
+
+1. **Extract every numerical claim.** Walk through the draft and list every number, derived value, ratio, table entry, plus the inputs each one depends on. Skip ranges and order-of-magnitude estimates that are explicitly flagged as such; verify everything else.
+
+2. **Spawn N=3 independent verification agents per calculation cluster.** Use the Agent tool (general-purpose). Each agent gets ONLY the inputs and is asked to re-derive the calculation from scratch — they do **not** see the draft's stated answer. Cluster related calculations (e.g., all entries of one table) into a single agent prompt for efficiency.
+
+   Sample agent prompt: *"Given these inputs [list inputs verbatim], independently derive [the calculation]. Show your work. Do not assume any answer — derive it. Report the final value with units."*
+
+3. **Compare results across the three agents and the draft:**
+   - All 3 agents agree with the draft → 🟢 **verified**
+   - 2+ agents agree with each other but disagree with the draft → 🔴 **likely error in draft**. Investigate; fix the draft.
+   - All 3 disagree with each other → 🟡 **calculation is poorly specified.** Either tighten the inputs, document the assumption, or replace the precise number with an explicit uncertainty range.
+
+4. **Fixing loop.** For each 🔴 finding, fix the draft and re-spawn 1 verification agent on the corrected calculation. Repeat. Hard limit: 3 iterations. After 3 rounds of unresolved disagreement, escalate to the user with the disagreeing derivations side-by-side.
+
+5. **Append a verification box** at the end of the methodology section: # claims checked, # 🟢 verified, # 🟡 flagged, # 🔴 fixed, # iterations needed, # remaining open. Audit trail.
+
+**Skip flag.** For fast iteration during early drafting, the user can pass `--skip-verify`. Default is verification ON. If skipped, the methodology box must explicitly note "math not independently verified."
 
 ---
 

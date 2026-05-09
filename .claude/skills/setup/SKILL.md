@@ -452,7 +452,7 @@ Walk through each core skill with a 1-sentence value prop. For each:
 | `/draft-it` | Turn raw notes into a polished first draft in your voice. |
 | `/morning-briefing` | Daily summary: calendar, todos, inbox, projects → delivered to your phone. |
 | `/email-triage` | Same shape as /triage but for email. Classifies, surfaces urgent, drafts replies on approval. |
-| `/audit` | Full paper review: editor, fact-checker, red team, all in parallel. |
+| `/deep-review` | Full paper review: editor, fact-checker, red team, simulated readers, all in parallel — single-file output. |
 | `/fact-check` | Every claim traced to primary sources. |
 | `/memory-synthesis` | Weekly memory cleanup. Your corrections become permanent automatically. |
 | `/voice-capture` | Voice memos → transcribe → extract todos → route to inbox. |

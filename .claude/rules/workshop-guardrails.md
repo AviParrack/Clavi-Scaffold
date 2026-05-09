@@ -19,4 +19,4 @@ You are working inside a Workshop project. Follow these rules:
 
 6. **Periodically take stock.** Before starting a work session in a project, scan the folder structure. What's here? What's the current state? Where did the last session leave off? Read the HANDOFF.md if one exists.
 
-7. **Reviews go in reviews/.** If running `/audit` or `/fact-check`, create a `reviews/` subfolder inside this project for the output.
+7. **Reviews are single-file outputs.** `/deep-review` writes one file (`deep-review-<doc-slug>.md`) sibling to the document; `/epistemax` writes `epistemax-<doc-slug>.md` in the same pattern. No `reviews/` subfolder.

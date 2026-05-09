@@ -321,7 +321,7 @@ Custom skills shipped (~40), grouped by where they fit in the system.
 `/draft-it`, `/email-triage`, `/meeting` (plus org-specific publish skills as needed)
 
 ### Workshop — active project work
-`/audit`, `/fact-check`, `/BOTEC-brief`
+`/deep-review`, `/fact-check`, `/BOTEC-brief`
 
 ### Library — memory + analysis
 `/memory-synthesis`, `/debugging-mode`

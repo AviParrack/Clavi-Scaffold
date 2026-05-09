@@ -5,7 +5,7 @@ paths: ["Workshop/**", "Library/**", "Harbor/Inbox/**"]
 
 # Citation Standards — All Research Output
 
-This rule applies to ALL skills that produce research, analysis, or synthesis: research-sprint, acad-deep-research, acad-academic-paper, acad-academic-pipeline, sci-* skills, fact-check, audit, and any freeform research or distillation work.
+This rule applies to ALL skills that produce research, analysis, or synthesis: research-sprint, acad-deep-research, acad-academic-paper, acad-academic-pipeline, sci-* skills, fact-check, deep-review, and any freeform research or distillation work.
 
 ## The Core Rule
 

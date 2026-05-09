@@ -1,6 +1,6 @@
 ---
 name: fact-check
-description: "Deep automated fact-checking for research documents. Use this skill when the user asks to 'fact-check', 'verify claims', 'check sources', 'verify this paper', or says '/fact-check'. Can run standalone or as a sub-skill of /audit. Spawns parallel agents for each section. Every verifiable claim is traced to primary sources, cross-referenced, and assessed for consensus vs. cherry-picking. Output is a structured report with severity ratings, source links, and Ctrl+F search snippets for every finding."
+description: "Deep automated fact-checking for research documents. Use this skill when the user asks to 'fact-check', 'verify claims', 'check sources', 'verify this paper', or says '/fact-check'. Can run standalone or as a sub-skill of /deep-review. Spawns parallel agents for each section. Every verifiable claim is traced to primary sources, cross-referenced, and assessed for consensus vs. cherry-picking. Output is a structured report with severity ratings, source links, and Ctrl+F search snippets for every finding."
 argument-hint: "[document path] [--section N] [--section-text 'raw text']"
 metadata:
   author: the user & Claude
@@ -11,7 +11,7 @@ metadata:
 
 A deep, compute-intensive automated fact-checker. Treats every verifiable claim as a lead to investigate. The aspiration: match what a professional fact-checker would produce in a week of full-time work.
 
-This skill can run **standalone** (`/fact-check path/to/doc.md`) or be invoked as a **sub-skill by `/audit`**, which passes individual sections.
+This skill can run **standalone** (`/fact-check path/to/doc.md`) or be invoked as a **sub-skill by `/deep-review`**, which passes individual sections.
 
 ---
 
@@ -30,10 +30,10 @@ All output follows the user's epistemic standards (see `.claude/rules/`). Key pr
 
 When invoked:
 
-1. **Read the document** (or section, if passed a section by `/audit`).
+1. **Read the document** (or section, if passed a section by `/deep-review`).
 2. **Check web access.** Fact-checking without web search is severely degraded. If denied:
    > "Web search is unavailable. Fact-checking quality will be significantly reduced — I can only check against training knowledge, which may be outdated. I strongly recommend granting web search permission."
-3. If running standalone on a full document, **parse into sections** and spawn one fact-check agent per section (each reads the full document for context, then focuses on their assigned section). If invoked by `/audit` on a single section, run directly.
+3. If running standalone on a full document, **parse into sections** and spawn one fact-check agent per section (each reads the full document for context, then focuses on their assigned section). If invoked by `/deep-review` on a single section, run directly.
 
 ### Phase 1: Claim Extraction
 
@@ -171,9 +171,9 @@ The `00-INDEX.md` provides a quick-scan dashboard:
 [Collected from all sections]
 ```
 
-### When invoked by /audit (single section)
+### When invoked by /deep-review (single section)
 
-Return the section findings directly. The `/audit` skill handles file creation and indexing.
+Return the section findings directly. The `/deep-review` skill handles file creation and indexing.
 
 ---
 

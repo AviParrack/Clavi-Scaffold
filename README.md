@@ -38,16 +38,14 @@ This is the public version of [Avi Parrack](https://aviparrack.com/)'s scaffold.
 
 ## Six Spaces for Your Workflows
 
-Spatially organized for ease of orientation so you get a sense of where things are in your second-brain, navigated by compass direction.
+You run a town. It's got several buildings, and different files and agents wait in each one.
 
-| Direction | Space | Function |
-|---|---|---|
-| **N** | **Harbor** | Intake, triage, dispatch, specs for your agents to go interface with the internet/world. |
-| **W** | **Town Hall** | Identity + infrastructure. Who you are, your scaffold and meta level docs, universal constants, and ground truth. |
-| **E** | **Workshop** | Active projects. Each project is a self-contained unit for workflows, context files, scripts, etc. Claude projects sit in queue waiting for you to greenlight with your spare tokens. |
-| **S** | **Library** | Long-term memory. Your knowledge/context accrues here over years. |
-| **NE** | **Embassy** | Org-specific files, skills, workflows, etc. |
-| **NW** | **Crossroads** | your personal network. Collaborators, and shared repos. |
+- **Town Hall:** top-level instructions and info about you, meta files about the structure of the scaffold itself.
+- **Library:** where context gets saved/stored for Claude (automatic after setup); when triaging you can have Claude add to your personal wiki (a la Karpathy) or bin for sorting 'someday'.
+- **Workshop:** you spawn project folders, copy in all the files you need Claude to see, Claude writes files, you can give custom rules for each project like "always use APA citation style".
+- **Harbor:** this is where agents sail out to go do stuff on your behalf and sail back to report. You can configure email, Slack, calendar, Telegram integrations, etc. You can set up schedulers to have agents go crawl the web on your behalf, etc. (I have an agent that wakes weekly and searches for conferences I might want to attend and texts me the application link 2 weeks before deadline, for example.)
+- **Embassy** *(less important):* mostly a slot for your org-specific materials, e.g. you can clone the Forethought repo here so your Claude can access it.
+- **Crossroads** *(less important):* similar but you whitelist the scaffold of specific friends and can configure an agent to spot if they add something to their repository that you might want to clone/fork.
 
 ---
 
@@ -91,6 +89,19 @@ After setup, queue your first build:
 ```bash
 claude   # interactive
 ```
+
+---
+
+## The basic idea — and the 80/20
+
+Basic idea for the system is to passively accrue lots of context as you work with the thought that it will be helpful later.
+
+The 80/20 is probably:
+
+1. **Set up `CLAUDE.md`** with your custom instructions (present for all future instances).
+2. **Get Claude to walk you through the skills.** The most useful ones IMO are orchestrators that run many agents on subtasks in parallel and loop through auditing steps to give you a better output with less back-and-forth.
+3. **See if any integrations call to you, else shelve setup.** Before building new tooling for yourself in future, maybe just ask Claude to check if the scaffold already does this. This can be a good way to go so it grows with you organically on an as-needed basis and doesn't risk you getting bogged down by stuff you don't need. Recommend this if you feel a sense of overwhelm or just aren't confident that a feature is useful to you.
+4. **Take inspiration from the orchestrator skills.** E.g. ask Claude to read a few of them, then ask Claude to pay attention to your workflow — e.g. something you do with 10+ back-and-forth prompts — then see if Claude can just write a skill to instead do that workflow in one shot. (For example I run lots of BOTECs; now I use a BOTEC skill that has 10 Claude instances each try the same problem. If convergence is poor I step in and debug; if convergence is strong I take the consensus and spawn 10 auditors split to look for different things + a few anti-sycophancy prompts. This doesn't make the BOTECs perfect but saves me a ton of back-and-forth.)
 
 ---
 

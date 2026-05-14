@@ -104,19 +104,9 @@ The workspace has six color-coded spaces, navigated by compass direction. Above 
 | **NE — Embassy** | Purple | Org-specific spaces. Each has its own scaffolding. |
 | **NW — Crossroads** | Red | Personal network. Collaborators, shared repos, dispatch rules. |
 
-### Naming Themes
+### Naming
 
-The spatial names are configurable. During `/setup`, users pick a theme — folder structure and functionality stay identical, only the names change.
-
-| Function | **Plain** | **Town** (default) | **Ship** |
-|---|---|---|---|
-| Intake + dispatch | `Inbox` | `Harbor` | `Hangar-Bay` |
-| Identity + infra | `Identity` | `Town-Hall` | `Bridge` |
-| Active work | `Projects` | `Workshop` | `Workshop` |
-| Long-term memory | `Memory` | `Library` | `Databanks` |
-| External orgs | `Orgs` | `Embassy` | `High-Command` |
-| Personal network | `Network` | `Crossroads` | `Fleet` |
-| *The world outside* | `External` | `World` | `Outer-Space` |
+The six spaces use canonical names — `Harbor`, `Town-Hall`, `Workshop`, `Library`, `Embassy`, `Crossroads`. Every skill, hook, and reference doc in the scaffold points at these paths. You *can* rename them after the fact, but be aware: renaming means updating every internal reference. The town metaphor is load-bearing — it shapes how Claude reasons about the system. Recommend living with it for a while before renaming.
 
 ---
 

@@ -1,12 +1,13 @@
 # Setup Templates
 
-*Read by the /setup wizard to create folder structures for each naming theme.*
+*Read by the /setup wizard. Canonical folder structure and per-space CLAUDE.md templates.*
+
+The scaffold uses six canonical spaces — `Harbor`, `Town-Hall`, `Workshop`, `Library`, `Embassy`, `Crossroads`. Every skill, hook, and reference doc in the repo points at these paths. Renaming has a cost; the wizard does not offer theme variants.
 
 ---
 
-## Theme: Town
+## Folder structure
 
-### Folder names
 ```
 Harbor/
   Inbox/
@@ -34,7 +35,8 @@ Embassy/
 Crossroads/
 ```
 
-### Finder colors
+## Finder colors (macOS)
+
 ```bash
 osascript -e "tell application \"Finder\" to set label index of (POSIX file \"$DIR/Harbor\" as alias) to 7"      # gray
 osascript -e "tell application \"Finder\" to set label index of (POSIX file \"$DIR/Town-Hall\" as alias) to 4"   # blue
@@ -44,7 +46,8 @@ osascript -e "tell application \"Finder\" to set label index of (POSIX file \"$D
 osascript -e "tell application \"Finder\" to set label index of (POSIX file \"$DIR/Crossroads\" as alias) to 2"  # red
 ```
 
-### Space CLAUDE.md — Harbor
+## Space CLAUDE.md — Harbor
+
 ```markdown
 # Harbor — North
 
@@ -66,7 +69,8 @@ osascript -e "tell application \"Finder\" to set label index of (POSIX file \"$D
 - [opportunities.md](opportunities.md) — actionable opportunities
 ```
 
-### Space CLAUDE.md — Town-Hall
+## Space CLAUDE.md — Town-Hall
+
 ```markdown
 # Town Hall — West
 
@@ -83,7 +87,8 @@ osascript -e "tell application \"Finder\" to set label index of (POSIX file \"$D
 - Claude's long-term observations live in auto-memory at `~/.claude/projects/<your-project-id>/memory/`
 ```
 
-### Space CLAUDE.md — Workshop
+## Space CLAUDE.md — Workshop
+
 ```markdown
 # Workshop — East
 
@@ -99,7 +104,8 @@ osascript -e "tell application \"Finder\" to set label index of (POSIX file \"$D
 - [archived/](archived/) — abandoned/completed, restorable
 ```
 
-### Space CLAUDE.md — Library
+## Space CLAUDE.md — Library
+
 ```markdown
 # Library — South
 
@@ -107,7 +113,7 @@ osascript -e "tell application \"Finder\" to set label index of (POSIX file \"$D
 
 ## Knowledge Graph
 - [Knowledge-Graph/PREMISES.md](Knowledge-Graph/PREMISES.md) — your foundational commitments
-- [Knowledge-Graph/KEY_FINDINGS.md](Knowledge-Graph/KEY_FINDINGS.md) — canonical findings
+- [Knowledge-Graph/KEY_FINDINGS.md](Knowledge-Graph/KEY_FINDINGS.md) — canonical Gold/Green-tier findings
 - [Knowledge-Graph/index.md](Knowledge-Graph/index.md) — catalog of all wiki pages
 - [Knowledge-Graph/wiki/](Knowledge-Graph/wiki/) — compiled synthesis pages
 
@@ -122,135 +128,9 @@ osascript -e "tell application \"Finder\" to set label index of (POSIX file \"$D
 
 ---
 
-## Theme: Ship
+## Root CLAUDE.md template
 
-### Folder names
-```
-Hangar-Bay/
-  Inbox/
-  Dispatch/
-    agents/
-    instructions/
-    log/
-Bridge/
-  User/
-  Scaffold/
-Workshop/
-  Complete/
-  backburner/
-  archived/
-Databanks/
-  Knowledge-Graph/
-    wiki/
-  Logs/
-    metadata/
-  Conversations/
-    transcripts/
-  Someday/
-  Archive/
-High-Command/
-Fleet/
-```
-
-### Finder colors
-Same color indices, different folder names.
-
-### Space CLAUDE.md — Hangar-Bay
-```markdown
-# Hangar Bay — North
-
-*Docking and launch. All shuttles arrive and depart here.*
-
-## Inbound
-- [Inbox/](Inbox/) — incoming transmissions and cargo
-- `/triage` processes inbox: 🥇 Gold, 🟢 Green, 🟡 Yellow, 🔴 Red
-
-## Outbound — Dispatch
-- [Dispatch/agents/](Dispatch/agents/) — scout shuttle definitions
-- [Dispatch/instructions/](Dispatch/instructions/) — mission briefings
-- [Dispatch/log/](Dispatch/log/) — flight log
-```
-
-### Space CLAUDE.md — Bridge
-```markdown
-# Bridge — West
-
-*Command center. Your identity and ship systems.*
-
-## Captain
-- [User/User.md](User/User.md) — captain's profile and preferences
-
-## Ship Systems
-- [Scaffold/](Scaffold/) — navigation, weapons, shields (skills, hooks, rules)
-
-## AI Officer
-- The AI officer's log lives in auto-memory at `~/.claude/projects/<your-project-id>/memory/`
-```
-
-### Space CLAUDE.md — Databanks
-```markdown
-# Databanks — South
-
-*Ship's memory core. All accumulated knowledge.*
-
-## Core Database
-- [Knowledge-Graph/](Knowledge-Graph/) — foundational data + wiki synthesis pages
-
-## Ship's Log
-- [Logs/](Logs/) — session logs, system telemetry, feedback
-
-## Cold Storage
-- [Archive/](Archive/) — decommissioned data, restorable
-```
-
----
-
-## Theme: Plain
-
-### Folder names
-```
-Inbox/
-  Inbox/
-  Dispatch/
-    agents/
-    instructions/
-    log/
-Identity/
-  User/
-  Scaffold/
-Projects/
-  Complete/
-  backburner/
-  archived/
-Memory/
-  Knowledge-Graph/
-    wiki/
-  Logs/
-    metadata/
-  Conversations/
-    transcripts/
-  Someday/
-  Archive/
-Orgs/
-Network/
-```
-
-### Space CLAUDE.md files
-Plain theme uses minimal, functional headers:
-```markdown
-# Inbox — Intake and dispatch
-# Identity — Your profile and system configuration
-# Projects — Active work
-# Memory — Long-term storage
-# Orgs — Organization spaces
-# Network — Personal contacts
-```
-
----
-
-## Root CLAUDE.md Template
-
-The root CLAUDE.md is generated from the user's answers during setup. Template:
+The root CLAUDE.md uses the canonical town structure. During setup, the wizard fills in the user's identity but leaves the spatial layout fixed. Template:
 
 ```markdown
 # CLAUDE.md
@@ -260,7 +140,7 @@ The root CLAUDE.md is generated from the user's answers during setup. Template:
 ## Who is [NAME]
 
 [NAME] — [ROLE]. [1-2 sentences from identity setup].
-Read [User.md]([TOWN_HALL]/User/User.md) for the full picture.
+Read [User.md](Town-Hall/User/User.md) for the full picture.
 
 ## Working with [NAME]
 
@@ -270,16 +150,16 @@ Read [User.md]([TOWN_HALL]/User/User.md) for the full picture.
 
 > 🚩 Use this format for anything requiring [NAME]'s input before continuing.
 
-## The [THEME_NAME]
+## The Town
 
 | Dir | Space | Color | Function |
 |---|---|---|---|
-| **N** | [[NORTH_NAME]]([NORTH_FOLDER]/) | Gray | Intake, triage, dispatch |
-| **W** | [[WEST_NAME]]([WEST_FOLDER]/) | Blue | Identity, scaffold, infrastructure |
-| **E** | [[EAST_NAME]]([EAST_FOLDER]/) | Orange | Active projects |
-| **S** | [[SOUTH_NAME]]([SOUTH_FOLDER]/) | Green | Long-term memory |
-| **NE** | [[NE_NAME]]([NE_FOLDER]/) | Purple | Organizations |
-| **NW** | [[NW_NAME]]([NW_FOLDER]/) | Red | Personal network |
+| **N** | [Harbor](Harbor/) | Gray | Intake, triage, dispatch |
+| **W** | [Town Hall](Town-Hall/) | Blue | Identity, scaffold, infrastructure |
+| **E** | [Workshop](Workshop/) | Orange | Active projects |
+| **S** | [Library](Library/) | Green | Long-term memory |
+| **NE** | [Embassy](Embassy/) | Purple | Organizations |
+| **NW** | [Crossroads](Crossroads/) | Red | Personal network |
 
 ## Active Projects
 
@@ -287,10 +167,10 @@ Read [User.md]([TOWN_HALL]/User/User.md) for the full picture.
 |---|---|---|
 | 🟢 | [project from setup] | [description from setup] |
 
-@[TOWN_HALL]/Clavi-Scaffold-Guide.md
+@Town-Hall/Clavi-Scaffold-Guide.md
 ```
 
-Replace bracketed values with user's chosen theme and identity answers.
+Replace bracketed values with the user's identity answers.
 
 ---
 

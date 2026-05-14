@@ -31,13 +31,13 @@ For each opportunity proposed, include:
 - **Deadline** (and how-soon flag: 🔴 <2 weeks / 🟡 <1 month / 🟢 >1 month)
 - **Why this fits the user** — 1-2 sentences tied to specific projects or goals from User.md
 - **Effort estimate** — what application materials are required, rough hours
-- **Tier proposal** — S / A / B (the user does the final tier in `/triage`)
+- **Tier proposal** — 🥇 Gold / 🟢 Green / 🟡 Yellow (the user does the final tier in `/triage`)
 
 ## Calibration over time
 
 After each `/triage` of opportunity-scan output, update `Harbor/Dispatch/scout-calibration.md`:
 
-- What patterns rated S/A consistently (e.g., *"convergent signals"*, *"deadline within 30d on active project"*)
+- What patterns rated 🥇 Gold / 🟢 Green consistently (e.g., *"convergent signals"*, *"deadline within 30d on active project"*)
 - What patterns the user skipped (*"speaker series without honorarium"*, *"venues with low readership"*)
 - Specific orgs / venues to upweight or down-weight
 

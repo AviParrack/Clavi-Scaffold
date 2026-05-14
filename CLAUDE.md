@@ -5,7 +5,7 @@
 
 ## 🔧 First run — start here
 
-**Fresh clone?** Run `/setup` to walk through the wizard. It builds out User.md, configures hooks, picks a theme, and (optionally) wires up the agents and skill packs. The wizard is resumable — stop anywhere, type `/setup` again later to pick up where you left off. Skipping modules is fine; many users never need Embassy or Crossroads. Configure as you grow into them.
+**Fresh clone?** Run `/setup` to walk through the wizard. It offers a ⚡ Quick (~5 min), 🚶 Medium (~25 min), or 🏗️ Full (~60–90 min) path — or skip the wizard entirely and configure as you go. The wizard is resumable: stop anywhere, type `/setup` again later to pick up where you left off. Skipping modules is fine; many users never need Embassy or Crossroads.
 
 - **Progress tracker:** `Town-Hall/Scaffold/setup-state.json` *(machine-readable, created when you first run `/setup`)*
 - **Live todo:** [Town-Hall/Scaffold/setup-todo.md](Town-Hall/Scaffold/setup-todo.md) *(human-readable, ticked off as you go)*
@@ -67,7 +67,7 @@ Six color-coded spaces. Navigate by compass direction.
 ## Key References
 
 - [PREMISES.md](Library/Knowledge-Graph/PREMISES.md) — constitutional commitments (grounds all research, amend only with Avi's approval)
-- [KEY_FINDINGS.md](Library/Knowledge-Graph/KEY_FINDINGS.md) — canonical S/A-tier claims
+- [KEY_FINDINGS.md](Library/Knowledge-Graph/KEY_FINDINGS.md) — canonical Gold/Green-tier claims
 - [Clavi-Scaffold-Guide.md](Clavi-Scaffold-Guide.md) — the full guide: design philosophy, system map, module I/O, hooks, skills, automation
 
 ## Submodule Governance

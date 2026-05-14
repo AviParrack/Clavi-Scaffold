@@ -6,18 +6,19 @@
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` complete · `[/]` skipped
 
+**Setup paths** (the wizard offers these up front): **⚡ Quick** (just Phase A, ~5 min) · **🚶 Medium** (A + B + C + H, ~25 min) · **🏗️ Full** (every phase) · **🎯 Pick** (name the ones you want) · **📚 Grow into it** (skip the wizard entirely). Anything not run stays `[ ]` — pending and resumable at any time.
+
 ---
 
 ## ⭐ Phase A — Foundation (required, ~5 min)
 
-- [ ] **A1** Choose theme (Town / Ship / Plain)
-- [ ] **A2** Create folder structure + Finder colors (macOS)
-- [ ] **A3** Pick automation lane (native cron / cloud routines / hybrid)
-- [ ] **A4** Configure persistence (`cleanupPeriodDays`, `.gitignore` defaults)
+- [ ] **A1** Create folder structure + Finder colors (macOS)
+- [ ] **A2** Pick automation lane (native cron / cloud routines / hybrid)
+- [ ] **A3** Configure persistence (`cleanupPeriodDays`, `.gitignore` defaults)
 
 ## 🏛️ Phase B — Town Hall (recommended, ~10 min)
 
-- [ ] **B1** Fill out `User.md` — identity, preferences, communication style
+- [ ] **B1** ⭐ **Strongly recommended** — Fill out `User.md` AND personalize the root `CLAUDE.md` "Who is X" / "Working with X" sections. Skip this and every skill, scout, and email-drafter calibrates to the maintainer (Avi), not you. The wizard will warn you before retiring the First Run prompt if B1 is still pending.
 - [ ] **B1.5** Web-presence links (`Town-Hall/User/Web-Presence/links.md`)
 - [ ] **B2** Scaffold tour: pick which custom skills to enable, install skill packs, review hooks + rules
 - [ ] **B3** Auto-memory note (info-only — Claude's long-term observations live in `~/.claude/projects/<your-project-id>/memory/`)
@@ -70,4 +71,4 @@
 
 ## Re-running
 
-`/setup` always reads `setup-state.json` first and shows you what's incomplete before doing anything. You can re-run any phase to reconfigure (e.g., change theme, add a new skill pack, swap automation lanes).
+`/setup` always reads `setup-state.json` first and shows you what's incomplete before doing anything. You can re-run any phase to reconfigure (e.g., add a new skill pack, swap automation lanes, add an integration).

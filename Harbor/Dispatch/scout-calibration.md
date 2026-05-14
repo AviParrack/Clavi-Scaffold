@@ -10,7 +10,7 @@
 
 ### What the user gets excited about
 
-*(populated as calibration accrues — examples might look like: "Time-sensitive convergence on active projects rates S-tier", "Fellowships with explicit deadlines rate A-tier")*
+*(populated as calibration accrues — examples might look like: "Time-sensitive convergence on active projects rates 🥇 Gold", "Fellowships with explicit deadlines rate 🟢 Green")*
 
 ### What the user skips
 

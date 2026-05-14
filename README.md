@@ -84,7 +84,7 @@ claude   # opens an interactive Claude Code session
 
 Then say: *"Run /setup."*
 
-The Setup Wizard will walk you through naming your spaces, picking a theme (Town / Ship / Plain), wiring scouts, choosing automation lane (cloud routines vs. local cron), and setting up your identity and integrations. 15-30 minutes end-to-end; everything is optional except creating the folders.
+The Setup Wizard offers five paths: **⚡ Quick** (~5 min, just folders + automation lane + persistence), **🚶 Medium** (~25 min, baseline daily workflow), **🏗️ Full** (~60–90 min, everything wired up — splittable across sessions), **🎯 Pick** (name the phases you want), or **📚 Grow into it** (skip the wizard entirely and configure as you go). Anything you skip stays unfinished and resumable — type `/setup` anytime to come back.
 
 After setup, queue your first build:
 

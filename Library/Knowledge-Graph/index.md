@@ -8,13 +8,13 @@
 ## Constitutional
 
 - [PREMISES.md](PREMISES.md) — Worldview commitments. Grounds all research. Amend only with the user's approval.
-- [KEY_FINDINGS.md](KEY_FINDINGS.md) — Canonical S/A-tier claims. Load-bearing beliefs.
+- [KEY_FINDINGS.md](KEY_FINDINGS.md) — Canonical Gold/Green-tier claims. Load-bearing beliefs.
 
 ## Wiki Pages
 
 *Organized by topic. Each page is a standalone synthesis — the compiled knowledge on a subject, with cross-references to related pages and citations to source material.*
 
-*(none yet — pages created when /triage promotes S or A tier items, or when a query produces synthesis worth keeping)*
+*(none yet — pages created when /triage promotes 🥇 Gold or 🟢 Green items, or when a query produces synthesis worth keeping)*
 
 <!-- 
 Format for entries:

@@ -9,7 +9,7 @@
 Format:
 ## [YYYY-MM-DD] ingest | Title
 Source: [path to source file]
-Tier: [S/A]
+Tier: [🥇 Gold | 🟢 Green]
 Pages created: [list]
 Pages updated: [list]
 Summary: [one-line]

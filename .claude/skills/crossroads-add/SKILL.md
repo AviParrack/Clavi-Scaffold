@@ -48,7 +48,6 @@ Inspect the file/folder layout for these signatures:
 | Shape | Signal |
 |---|---|
 | `clavi-town` | Has all four of: `Town-Hall/`, `Harbor/`, `Workshop/`, `Library/` |
-| `clavi-ship` | Has all four of: `Bridge/`, `Hangar Bay/`, `Engineering/`, `Databanks/` |
 | `foreign` | None of the above |
 
 For `foreign`, also note what's predominant: skill collection (`.claude/skills/` or top-level `skills/`), markdown notes, full project, etc.

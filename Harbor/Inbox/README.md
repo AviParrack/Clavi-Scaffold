@@ -2,12 +2,12 @@
 
 Landing zone for research output, brainstorms, and captures pending triage.
 
-**Nothing here is integrated.** Items sit here until Avi reviews and assigns a tier (S/A/B/C/D/F) via `/triage`. After triage, items are either promoted to the right project folder, archived, or rejected.
+**Nothing here is integrated.** Items sit here until you review them and assign a tier (🥇 Gold / 🟢 Green / 🟡 Yellow / 🔴 Red) via `/triage`. After triage, items are either promoted to permanent knowledge, parked for later, or discarded.
 
 ## How items arrive
 
 - Research sprints (`/research-sprint`) deposit output here
-- Manual drops — anything Avi or Claude wants to process later
+- Manual drops — anything you or Claude wants to process later
 - Agent-generated proposals (connection maps, reweave suggestions)
 
 ## File naming convention
@@ -23,18 +23,18 @@ Each file should have frontmatter:
 source: research-sprint | manual | agent-proposal
 date: 2026-04-08
 status: pending | triaged | promoted | archived | rejected
-tier: null  # assigned during triage: S/A/B/C/D/F
+tier: null  # assigned during triage: gold / green / yellow / red
 related_projects: []
 ---
 ```
 
-## Triage ratings
+## Triage tiers
 
 | Tier | Meaning | What happens |
 |---|---|---|
-| **S** | Shattering — changes priors, must propagate | Full reweave. Avi reviews each proposed update. May update PREMISES.md. |
-| **A** | Significant — important finding | Targeted integration into relevant projects. Avi spot-checks. |
-| **B** | Good — worth keeping and referencing | Promote to project folder. Update handoffs. No reweave. |
-| **C** | Context — useful background | Archive with tags. Discoverable but passive. |
-| **D** | Low value — not wrong, just not useful | Archive minimally. |
-| **F** | Reject — wrong premises, bad analysis | Archive with rejection note. Prevents re-surfacing. |
+| 🥇 **Gold** | Core knowledge — changes priors, must propagate | Updates `PREMISES.md` + `KEY_FINDINGS.md` + creates wiki page + reweaves connected files. You review each proposed update. |
+| 🟢 **Green** | Solid — worth compiling into knowledge | Creates a wiki page + cross-references. Optional `KEY_FINDINGS.md` entry. Links into relevant Workshop projects. |
+| 🟡 **Yellow** | Interesting but not now | Moves to `Library/Someday/` with topic tags. Discoverable but passive. |
+| 🔴 **Red** | Discard | Delete (git preserves history) with a rejection note in the commit message. |
+
+Default to Yellow when uncertain. It's cheap to promote later; expensive to undo a bad Gold integration.

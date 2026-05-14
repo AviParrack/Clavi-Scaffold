@@ -9,10 +9,10 @@
 The foundation + compiled knowledge. Constitutional docs amend only with the user's approval.
 
 - [PREMISES.md](Knowledge-Graph/PREMISES.md) — worldview commitments, grounds all research
-- [KEY_FINDINGS.md](Knowledge-Graph/KEY_FINDINGS.md) — canonical S/A-tier claims
+- [KEY_FINDINGS.md](Knowledge-Graph/KEY_FINDINGS.md) — canonical Gold/Green-tier claims
 - [index.md](Knowledge-Graph/index.md) — catalog of all wiki pages (read this first when searching for knowledge)
 - [log.md](Knowledge-Graph/log.md) — chronological record of every ingest and synthesis
-- [wiki/](Knowledge-Graph/wiki/) — standalone synthesis pages. Compiled knowledge on topics, cross-referenced. Created by /triage (S/A items) or manually when conversations produce good synthesis.
+- [wiki/](Knowledge-Graph/wiki/) — standalone synthesis pages. Compiled knowledge on topics, cross-referenced. Created by /triage (🥇 Gold / 🟢 Green items) or manually when conversations produce good synthesis.
 
 ## Topic Collections
 

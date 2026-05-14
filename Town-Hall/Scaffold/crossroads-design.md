@@ -41,7 +41,7 @@ repos:
     category: friend            # friend | skill-pack | infra | org
     description: "Finn's experimental skill collection"
     summary_depth: rich         # rich | titles  — how thorough the scout summary is
-    scaffold_shape: clavi-town  # clavi-town | clavi-ship | foreign  (auto-detected on first scan; can be overridden)
+    scaffold_shape: clavi-town  # clavi-town | foreign  (auto-detected on first scan; can be overridden)
     watch:                      # globs the scout pays special attention to
       - .claude/skills/**
       - .claude/rules/**
@@ -77,7 +77,6 @@ When a new repo is added, or a known repo gains a new file in a watched path, th
 | Shape | Detection signal | Slotting behaviour |
 |---|---|---|
 | `clavi-town` | Has `Town-Hall/`, `Harbor/`, `Workshop/`, `Library/` folders | 1:1 — new files map to the same room in our scaffold (e.g. their `Workshop/foo/` → propose `Workshop/foo-friend/`) |
-| `clavi-ship` | Has `Bridge/`, `Hangar Bay/`, `Engineering/`, `Databanks/` | Mapped via theme table to Town equivalents |
 | `foreign` | None of the above | Heuristic: if it's mostly skills → `.claude/skills/<prefix>-<name>/`. If it's mostly markdown → propose Library. If it's a project → propose Workshop. Otherwise ask. |
 
 Auto-detection runs on first scan and is cached in the manifest. Override by editing `scaffold_shape` manually.

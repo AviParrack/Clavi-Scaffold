@@ -1,6 +1,6 @@
 # KEY FINDINGS
 
-*Canonical S/A-tier claims. Load-bearing beliefs that have passed the Gold or A tier gate via `/triage`. These are referenced across the system — research builds on them, analysis cites them.*
+*Canonical Gold/Green-tier claims. Load-bearing beliefs that have passed the `/triage` gate. These are referenced across the system — research builds on them, analysis cites them.*
 
 *This file starts empty. Your first Gold-tier triage will populate it.*
 

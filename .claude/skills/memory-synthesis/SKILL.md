@@ -92,12 +92,12 @@ Entry B (April 10): "the user said stop over-hedging"
 
 Find entries that reference:
 - Projects that no longer exist or have been archived
-- Old folder paths (Bridge/, Lab/, etc.)
+- Folder paths that have been renamed or removed
 - People/roles that may have changed
 - Completed tasks still described as in-progress
 - Anything older than 60 days that hasn't been validated
 
-**Auto-apply:** Auto-fix old paths (Bridge/ → new paths). Flag everything else for review.
+**Auto-apply:** Auto-fix renamed paths when the rename is unambiguous. Flag everything else for review.
 
 ### Operation 5: Promote Feedback Patterns (flag for review)
 

@@ -230,3 +230,20 @@ def prop_ellipse(m, cx, cy, r, rgb, density=1.3):
     for k, (w, j) in enumerate([(4, 0.0), (2, 0.03)]):
         b = m.box(cx - r - j, cy - r + j, cx + r - j, cy + r + j)
         d.arc(b, 20 * k, 340 + 20 * k, fill=INK, width=w)
+
+
+def ink_poly(m, pts, t=0.12, closed=True, color=INK):
+    """Hand-inked polyline through points in squares (hull outlines, curves)."""
+    P = list(pts) + ([pts[0]] if closed else [])
+    dense = []
+    for (x0, y0), (x1, y1) in zip(P[:-1], P[1:]):
+        n = max(2, int(np.hypot(x1 - x0, y1 - y0) / 0.2))
+        dense += [(x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n) for k in range(n)]
+    dense.append(P[-1])
+    j = ndi.gaussian_filter1d(m.rng.standard_normal((len(dense), 2)), 2, axis=0) * 0.02
+    px = [(m.px(x + a), m.px(y + b)) for (x, y), (a, b) in zip(dense, j)]
+    lay = Image.new("RGBA", m.img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(lay)
+    d.line(px, fill=color + (235,), width=int(t * m.pps), joint="curve")
+    d.line([(x + 3, y - 2) for x, y in px], fill=color + (80,), width=max(2, int(t * m.pps * 0.4)), joint="curve")
+    m.img = Image.alpha_composite(m.img.convert("RGBA"), lay).convert("RGB")

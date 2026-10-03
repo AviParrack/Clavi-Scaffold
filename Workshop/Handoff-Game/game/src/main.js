@@ -1,18 +1,31 @@
-// ===== Boot, game loop, input. Glue between sim (state) and render (reads state). =====
+// ===== Boot, loop, scale, input. Glue between the sim (game state) and the ui modules (read state, draw the board) =====
+// One canvas, 1200×660 logical px, letterboxed and crisp at any devicePixelRatio. Modal screens are HTML (ui/overlays.js).
+// Plan: design/UI-PLAN.md. Every ui/ module only reads state and acts through ui/act.js.
 
 import * as Sim from './sim/sim.js';
-import { scorecard } from './sim/scorecard.js';
-import { DIFFICULTY } from './config/balance.js';
-import { LAYERS } from './config/layers.js';
-import { createPlayfield } from './render/playfield.js';
-import { createHud, renderScorecard } from './render/hud.js';
-import { createCodec } from './render/codec.js';
-import { createDebug } from './render/debug.js';
-import { initAudio, setMuted, isMuted, onFx as audioFx, sfx } from './render/audio.js';
+import * as Rules from './sim/rules.js';
+import * as Layout from './ui/layout.js';
+import { W, H, REGIONS } from './ui/layout.js';
+import { C, F, setScale, cssVars, fontsReady, box, text } from './ui/theme.js';
+import { createView, resetView } from './ui/view.js';
+import { createHits } from './ui/hit.js';
+import { createAct } from './ui/act.js';
+import { attachInput } from './ui/input.js';
+import * as tracks from './ui/tracks.js';
+import * as hud from './ui/hud.js';
+import * as codec from './ui/codec.js';
+import * as menu from './ui/menu.js';
+import * as overlays from './ui/overlays.js';
+import { createDebug } from './ui/debug.js';
+import { initAudio, setMuted, isMuted } from './ui/audio.js';
 
 const params = new URLSearchParams(location.search);
 const DEBUG = params.get('debug') === '1';
+const PIXEL = params.get('pixel') === '1';        // integer scale only (sharper pixels, wider letterbox)
 const SIM_DT = 1 / 60;
+
+// board modules, in draw order. Each exports draw(c) and input = { kind: { click, context, drag } }
+const MODULES = [['tracks', tracks], ['hud', hud], ['codec', codec], ['menu', menu]];
 
 // ---------- tiny localStorage wrapper (best scorecard + settings only) ----------
 const store = {
@@ -20,143 +33,283 @@ const store = {
   set(k, v) { try { localStorage.setItem('handoff.' + k, JSON.stringify(v)); } catch { /* private mode etc. */ } },
 };
 
-// ---------- state ----------
-let st = null, paused = false, fast = false, lastFx = 0, scoreShown = false;
-const ui = { selected: null, hover: null };
+// =================== state ===================
 
-const canvas = document.getElementById('field');
-const field = createPlayfield(canvas);
+let st = null;
+const view = createView();
+const hits = createHits();
+const canvas = document.getElementById('screen');
+const frameEl = document.getElementById('frame');
+const g = canvas.getContext('2d');           // not { alpha: false }: an opaque canvas gets LCD sub-pixel text (colour fringes)
+let k = 1;                                   // device px per logical px
 
-const actions = {
-  select(id) { ui.selected = ui.selected === id ? null : id; sfx.click(); },
-  pickResearch(i) { Sim.pickResearch(st, i); },
-  skipGen() { Sim.debugSkipGen(st); },
-  addMoney() { Sim.debugAddMoney(st); },
-  unlockAll() { Sim.debugUnlockAll(st); },
-  addSlot(l) { Sim.debugAddSlot(st, l); },
-  fireEvent(id) { Sim.fireEvent(st, id); },
+const api = {
+  get st() { return st; },
+  view, debug: DEBUG, store,
+  act: null,
+  newGame, endGame,
+  isMuted,
+  toggleMute() { setMuted(!isMuted()); store.set('muted', isMuted()); view.toast(isMuted() ? 'muted' : 'sound on'); },
+  onGesture: initAudio,
+  debugActions: null,
 };
-const hud = createHud(actions);
-const codec = createCodec(i => Sim.choose(st, i));
-const debug = DEBUG ? createDebug(actions) : null;
+api.act = createAct(api);
 setMuted(store.get('muted', false));
 
 // ---------- start / restart ----------
-function newGame(difficulty) {
+function newGame(difficulty = 'medium') {
   const seed = params.has('seed') ? Number(params.get('seed')) : Math.floor(Math.random() * 1e9);
   st = Sim.createState({ seed, difficulty });
   st.debug = DEBUG;
-  lastFx = 0; scoreShown = false; paused = false; ui.selected = null;
-  codec.reset(); hud.reset();
-  document.getElementById('ov-start').hidden = true;
-  document.getElementById('ov-score').hidden = true;
-  console.log(`[handoff] new game seed=${seed} difficulty=${difficulty} (true: ${st.trueDifficulty})`);
+  resetView(view);
+  acc = 0;
   store.set('settings', { difficulty });
-  if (DEBUG) window.__handoff = { st, Sim, ui };   // poke at it from the console
+  console.log(`[handoff] new game seed=${seed} difficulty=${difficulty}${DEBUG ? ` (true: ${st.trueDifficulty})` : ''}`);
+  return st;
 }
+function endGame() { st = null; resetView(view); }
 
-function showStart() {
-  const box = document.getElementById('difficulty');
-  box.innerHTML = '';
-  for (const [id, d] of Object.entries(DIFFICULTY)) {
-    const b = document.createElement('button');
-    b.textContent = d.label.toUpperCase();
-    b.onclick = () => { initAudio(); newGame(id); };
-    box.appendChild(b);
-  }
-  const best = store.get('best', null);
-  document.getElementById('best').textContent = best ? `best run: grade ${best.grade} · ${best.ending.title} · reached G${best.gen}` : '';
-  document.getElementById('ov-start').hidden = false;
+// =================== scale: fit the board in the window ===================
+// fit = CSS px per logical px, k = device px per logical px. The canvas backing store is W·k × H·k device px.
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  let fit = Math.min(window.innerWidth / W, window.innerHeight / H);
+  let kk = fit * dpr;
+  if (PIXEL && kk >= 1) { kk = Math.floor(kk); fit = kk / dpr; }
+  const fw = W * kk / dpr, fh = H * kk / dpr, px = v => Math.floor(v * dpr) / dpr + 'px';    // whole device px
+  Object.assign(frameEl.style, { width: fw + 'px', height: fh + 'px', left: px((window.innerWidth - fw) / 2), top: px((window.innerHeight - fh) / 2) });
+  const root = document.documentElement.style, P = Math.max(2, Math.round(2 * kk)), T = Math.max(1, Math.round(kk));
+  root.setProperty('--k', fit);
+  root.setProperty('--crtP', P / dpr + 'px'); root.setProperty('--crtGap', (P - T) / dpr + 'px');   // scanline period, gap
+  return kk;
 }
-
-// ---------- input ----------
-function canvasXY(e) { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
-
-function clickSlot(h, sell = false) {
-  if (!st || st.over) return;
-  const slot = st.lanes[h.lane].slots[h.slot];
-  let res;
-  if (sell) res = Sim.sellLayer(st, h.lane, h.slot);
-  else if (!slot.layer && ui.selected) {
-    const global = LAYERS[ui.selected].lanes.includes('global');          // Interp Lab: any mount click builds it off-track
-    res = global ? Sim.placeLayer(st, 'global', 0, ui.selected) : Sim.placeLayer(st, h.lane, h.slot, ui.selected);
-    if (res.ok) ui.selected = null;
-  }
-  else if (slot.layer) res = Sim.toggleLayer(st, h.lane, h.slot);
-  else res = { ok: false, msg: 'pick a layer card first' };
-  if (!res.ok) hud.toast(res.msg);
+// the backing store (and every cache keyed on k) follows only once the window stops moving: CSS stretches the old
+// canvas meanwhile, so a drag-resize never repaints every cached layer on every step
+function applyScale(kk) {
+  canvas.width = Math.round(W * kk); canvas.height = Math.round(H * kk);
+  k = kk;
+  setScale(k);
 }
-
-canvas.addEventListener('mousemove', e => { if (st) ui.hover = field.hit(st, ...canvasXY(e)); });
-canvas.addEventListener('mouseleave', () => { ui.hover = null; });
-canvas.addEventListener('click', e => { initAudio(); const h = st && field.hit(st, ...canvasXY(e)); if (h) clickSlot(h); });
-canvas.addEventListener('contextmenu', e => { e.preventDefault(); const h = st && field.hit(st, ...canvasXY(e)); if (h) clickSlot(h, true); });
-canvas.addEventListener('dragover', e => e.preventDefault());
-canvas.addEventListener('drop', e => {
-  e.preventDefault();
-  const h = st && field.hit(st, ...canvasXY(e));
-  const id = e.dataTransfer.getData('text/plain');
-  if (h && id) { ui.selected = id; clickSlot(h); }
+let resizeTimer = 0;
+window.addEventListener('resize', () => {
+  const kk = resize();
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => applyScale(kk), 150);
 });
+// a devicePixelRatio change with no CSS resize (the window moved to another monitor)
+function watchDpr() {
+  const mq = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+  mq.addEventListener?.('change', () => { applyScale(resize()); watchDpr(); }, { once: true });
+}
 
-document.getElementById('btn-research').onclick = () => { const r = Sim.drawResearch(st); if (!r.ok) hud.toast(r.msg); };
-document.getElementById('btn-retrain').onclick = () => Sim.retrainProbes(st);
+// =================== draw one frame ===================
 
-window.addEventListener('keydown', e => {
-  if (!st) return;
-  const k = e.key;
-  if (k === ' ') { e.preventDefault(); paused = !paused; }
-  else if (k === 'Escape') ui.selected = null;
-  else if (k === 'f' || k === 'F') fast = !fast;
-  else if (k === 'm' || k === 'M') { setMuted(!isMuted()); store.set('muted', isMuted()); hud.toast(isMuted() ? 'muted' : 'sound on'); }
-  else if (/^[1-9]$/.test(k)) {
-    const i = Number(k) - 1;
-    if (st.pendingChoice) Sim.choose(st, i);
-    else if (st.pendingResearch) Sim.pickResearch(st, i);
-    else if (st.unlocked[i]) actions.select(st.unlocked[i]);
+const warned = new Set();
+function guard(name, fn) {
+  g.save();
+  try { fn(); }
+  catch (err) {
+    const key = name + ':' + err.message;
+    if (!warned.has(key)) { warned.add(key); console.error(`[handoff] ${name} failed:`, err); }
   }
-  else if (DEBUG && (k === 'n' || k === 'N')) actions.skipGen();
-  else if (DEBUG && k === '$') actions.addMoney();
-  else if (DEBUG && (k === 'd' || k === 'D')) { const d = document.getElementById('debug'); d.hidden = !d.hidden; }
-  else if (DEBUG && (k === 'u' || k === 'U')) actions.unlockAll();
-});
+  finally { g.restore(); }
+}
 
-window.addEventListener('resize', () => field.resize());
+// screen shake (EXTERNAL INCIDENT): whole device pixels, deterministic in t
+function shakeOffset(t) {
+  const s = view.shake;
+  if (!s) return [0, 0];
+  const e = (t - s.t0) / s.dur;
+  if (e < 0 || e >= 1) return [0, 0];
+  const a = s.amp * (1 - e) * k;
+  return [Math.round(Math.sin(t * 91) * a), Math.round(Math.cos(t * 73) * a)];
+}
 
-// ---------- loop: fixed-step sim, render every frame ----------
-let acc = 0, prev = performance.now();
-function frame(nowMs) {
-  const dt = Math.min(0.1, (nowMs - prev) / 1000);
-  prev = nowMs;
+const perf = { draw: 0, step: 0 };
 
+function render(t, dt) {
+  const t0 = performance.now();
+  view.now = t;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = C.bg;
+  g.fillRect(0, 0, canvas.width, canvas.height);
+  const [sx, sy] = shakeOffset(t);
+  g.setTransform(k, 0, 0, k, sx, sy);
+  g.imageSmoothingEnabled = false;
+
+  // ---------- board ----------
+  const late = [];
+  const c = { g, st, view, t, dt, k, hit: hits, act: api.act, api, debug: DEBUG, late: fn => late.push(fn) };
+  hits.begin();
   if (st) {
-    if (!paused) {
-      acc += dt * (fast ? 3 : 1);
-      while (acc >= SIM_DT) { Sim.step(st, SIM_DT); acc -= SIM_DT; }
-    }
-    // dispatch new fx to the renderers
-    for (const e of st.fx) if (e.id > lastFx) { field.onFx(e, st); audioFx(e); hud.onFx(e, st); lastFx = e.id; }
+    for (const [name, m] of MODULES) guard(name, () => m.draw(c));
+    for (const fn of late) guard('late', () => fn(c));
+    if (DEBUG && view.layout) guard('layout', outline);
+  }
+  hits.end();
+  input?.refresh();                             // a still mouse: hover (and its tooltip) follows this frame's regions
 
-    field.draw(st, ui);
-    hud.update(st, ui);
-    codec.update(st, nowMs / 1000);
-    if (debug) debug.update(st);
-    document.getElementById('ov-pause').hidden = !paused;
+  // ---------- overlays, sound (the CRT scanlines are a CSS layer over the canvas: style.css #crt) ----------
+  g.setTransform(k, 0, 0, k, 0, 0);
+  guard('overlays', () => overlays.update(c));
+  guard('sound', () => overlays.sound(c));
+  if (debugPanel && st && !debugEl.hidden) debugPanel.update(st);
+  perf.draw = performance.now() - t0;
+}
 
-    if (st.over && !scoreShown) {
-      scoreShown = true;
-      setTimeout(() => {
-        const card = scorecard(st);
-        const best = store.get('best', null);
-        if (!best || card.score > best.score) store.set('best', card);
-        renderScorecard(card, best, showStart);
-        console.log('[handoff] scorecard', card);
-      }, 1800);
-    }
+// debug key L: every layout region, outlined and labelled with its owner
+function outline() {
+  for (const [owner, r] of REGIONS) { box(g, r.x, r.y, r.w, r.h, C.debug); text(g, owner, r.x + 2, r.y + r.h - 2, F.k8, C.debug); }
+  for (const r of hits.all()) box(g, r.x, r.y, r.w, r.h, 'rgba(255,0,255,.35)');
+}
+
+// =================== loop: fixed-step sim, render every frame ===================
+
+let acc = 0, prev = performance.now(), lastLog = 0;
+function frame(ms) {
+  const dt = Math.min(0.1, (ms - prev) / 1000);
+  prev = ms;
+  if (st && !view.paused && !view.hold && !view.modal) {
+    const t0 = performance.now();
+    acc += dt * (view.fast ? 3 : 1);
+    while (acc >= SIM_DT) { Sim.step(st, SIM_DT); acc -= SIM_DT; }
+    perf.step = performance.now() - t0;
+  }
+  render(view.clock ?? ms / 1000, dt);
+  if (DEBUG && st && ms - lastLog > 10000) {
+    lastLog = ms;
+    const chips = st.lanes.ext.tasks.length + st.lanes.int.tasks.length;
+    console.log(`[handoff] t=${st.t.toFixed(1)} G${st.gen} chips=${chips} draw ${perf.draw.toFixed(1)}ms step ${perf.step.toFixed(1)}ms`);
   }
   requestAnimationFrame(frame);
 }
 
-field.resize();
-showStart();
+// =================== input ===================
+
+const handlers = {};
+for (const [name, m] of MODULES) for (const [kind, h] of Object.entries(m.input || {})) {
+  if (handlers[kind]) console.warn(`[handoff] hit kind "${kind}" claimed twice (${name})`);
+  handlers[kind] = h;
+}
+
+// =================== debug (?debug=1): the panel, cheat keys, and hooks for test/ui-shot.mjs ===================
+
+const debugEl = document.getElementById('debug');
+let debugPanel = null;
+if (DEBUG) {
+  const on = fn => (...a) => st && fn(st, ...a);
+  api.debugActions = {
+    skipGen: on(Sim.debugSkipGen), addMoney: on(Sim.debugAddMoney), unlockAll: on(Sim.debugUnlockAll),
+    addSlot: on(Sim.debugAddSlot), fireEvent: on(Sim.fireEvent),
+    togglePanel() { debugEl.hidden = !debugEl.hidden; },
+  };
+  debugPanel = createDebug(api.debugActions);
+  debugEl.hidden = true;                        // D shows it
+  window.__handoff = debugHooks();
+}
+
+function debugHooks() {
+  const halt = () => !st || st.over;
+  const ensure = price => { while (price != null && st.money < price) Sim.debugAddMoney(st); };
+  // one sim step; a pending choice is answered with `choose` (clamped), else it stops the run like research does
+  const stepOnce = choose => {
+    if (st.pendingResearch) return false;
+    if (st.pendingChoice) {
+      if (choose == null) return false;
+      Sim.choose(st, Math.min(choose, st.pendingChoice.choices.length - 1));
+    }
+    Sim.step(st, SIM_DT);
+    return true;
+  };
+  const summary = () => st && { t: +st.t.toFixed(2), gen: st.gen, over: !!st.over, phase: st.phase,
+    choice: st.pendingChoice?.eventId ?? null, research: !!st.pendingResearch, money: Math.round(st.money) };
+
+  const hooks = {
+    get st() { return st; }, Sim, Rules, Layout, view, act: api.act, hits, fontsReady, perf,
+    newGame: d => { newGame(d); return summary(); },
+
+    // ---------- time ----------
+    hold(on = true) { view.hold = on; },               // the loop keeps drawing but stops stepping the sim
+    clock(t) { view.clock = t; },                      // freeze the animation clock (null = real time)
+    frame() { render(view.clock ?? performance.now() / 1000, 1 / 60); },
+    // step the frozen clock and draw: lets fx-born animations play out without moving the sim
+    settle(sec = 1.5, fps = 20) {
+      const t0 = view.clock ?? 0;
+      for (let i = 1; i <= Math.round(sec * fps); i++) { view.clock = t0 + i / fps; render(view.clock, 1 / fps); }
+    },
+    advance(sec, { choose } = {}) {
+      for (let i = 0; i < Math.round(sec / SIM_DT) && !halt(); i++) if (!stepOnce(choose)) break;
+      return summary();
+    },
+    // run until an fx of one of these types appears (returns it), or maxSec passes (null)
+    advanceUntil(types, maxSec = 30, { choose } = {}) {
+      const want = [].concat(types);
+      for (let i = 0; i < Math.round(maxSec / SIM_DT) && !halt(); i++) {
+        const from = st.fxId;
+        if (!stepOnce(choose)) break;
+        const fresh = st.fx.slice(Math.max(0, st.fx.length - (st.fxId - from)));   // counted, see ui/view.js drain()
+        const hit = fresh.find(e => want.includes(e.type));
+        if (hit) return hit;
+      }
+      return null;
+    },
+
+    // ---------- set-ups ----------
+    toGen(gen) { while (!halt() && st.gen < gen) Sim.debugSkipGen(st); return summary(); },
+    finish() { while (!halt()) Sim.debugSkipGen(st); return summary(); },
+    money(times = 1) { for (let i = 0; i < times; i++) Sim.debugAddMoney(st); return Math.round(st.money); },
+    unlockAll() { Sim.debugUnlockAll(st); },
+    labMode(on = true) { st.labMode = on; },           // tests only: a loss is tallied and the run goes on
+    forceAttack(lane, type, n = 1) { for (let i = 0; i < n; i++) st.forcedAttacks[lane].push(type); },
+    // ids[i] goes on mount i (null = leave it). Buys mounts, money and unlocks as needed; replaces what is there.
+    build(lane, ids) {
+      const slots = () => Rules.slotsOf(st, lane);
+      ids.forEach((id, i) => {
+        while (lane !== 'global' && slots().length <= i) {
+          ensure(Rules.slotPrice(st, lane));
+          if (!Sim.buySlot(st, lane).ok) break;
+        }
+        const slot = slots()[i];
+        if (!id || !slot || slot.layer === id) return;
+        if (slot.layer) Sim.sellLayer(st, lane, i);
+        if (!st.unlocked.includes(id)) Sim.debugUnlockAll(st);
+        ensure(Rules.buyPrice(st, id));
+        const r = Sim.placeLayer(st, lane, i, id);
+        if (!r.ok) console.warn(`[handoff] build ${lane}/${i} ${id}: ${r.msg}`);
+      });
+    },
+    placeStarter() { for (const lane of ['ext', 'int']) hooks.build(lane, ['probe', 'monitor', null, null, 'auditor', 'killswitch']); },
+    upgradeTo(lane, slot, level) {
+      const s = Rules.slotAt(st, lane, slot);
+      while (s?.layer && s.level < level) {
+        ensure(Rules.upgradePrice(st, s.layer, s.level));
+        if (!Sim.upgrade(st, lane, slot).ok) break;
+      }
+    },
+
+    // ---------- measuring ----------
+    regions: kind => hits.all(kind),
+    // logical px → client px (for page.mouse in the harness)
+    client(x, y) { const r = canvas.getBoundingClientRect(); return { x: r.left + x * r.width / W, y: r.top + y * r.height / H }; },
+    bench(n = 30) {
+      const t0 = performance.now(), clk = view.clock ?? 0;
+      for (let i = 0; i < n; i++) render(clk + i / 60, 1 / 60);
+      view.clock = clk;
+      render(clk, 0);
+      return +((performance.now() - t0) / (n + 1)).toFixed(2);
+    },
+    summary,
+  };
+  return hooks;
+}
+
+// =================== boot ===================
+
+cssVars();
+applyScale(resize());
+watchDpr();
+const input = attachInput({ canvas, hits, handlers, api });
+overlays.init(api);
+fontsReady.then(ok => DEBUG && console.log(`[handoff] fonts ${ok ? 'loaded' : 'fallback'}`));
 requestAnimationFrame(frame);

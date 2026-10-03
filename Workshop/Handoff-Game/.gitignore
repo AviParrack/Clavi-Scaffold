@@ -1,0 +1,4 @@
+# harness output (game/test/ui-shot.mjs, ui-play.mjs): screenshots stay out of git
+*.png
+shots/
+play/

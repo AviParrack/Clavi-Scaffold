@@ -1,4 +1,4 @@
-// ===== ?debug=1 overlay: the truth, plus cheat keys =====
+// ===== ?debug=1 panel (key D): the hidden truth in plain text, plus cheat buttons. DOM only, never read by the game =====
 
 import { EVENTS } from '../config/events.js';
 import { LAYERS } from '../config/layers.js';

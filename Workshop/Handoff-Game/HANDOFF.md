@@ -12,7 +12,7 @@
 | M2 playfield, lanes, tiers, place/toggle, chips, payouts | 🟢 |
 | M3 economy, research draws, full layer set | 🟢 v2: 18 elements, 27 research cards in 5 branches |
 | M4 generations, bundles, ramp counters, m + drift | 🟢 |
-| M5 codec, events, tutorial call | 🟢 v2: 31 events in 4 families (sim only; codec UI rebuild pending) |
+| M5 codec, events, tutorial call | 🟢 v2: 31 events in 4 families, and the v2 codec is built |
 | M6 scorecard, effects, sound, balance | 🟡 scorecard, effects and sound done. Balance is a first cut |
 
 ## Places where I departed from the spec (and why)
@@ -509,3 +509,84 @@ At 0.3 it is an emergency brake that comes up about once a game on Medium and ev
 - 🚩 **Retrain decay** ×0.5 per use: −0.04, −0.02, −0.01…
 - 🚩 **RSP threshold**: 0.3 (the design), or 0.2 to bring it up more often?
 - 🚩 **Difficulty**: smart wins 8 / 6 / 5. Medium still pushes m below 0.05 by G4 in half the runs.
+
+## v2 UI rebuild: SOLITON skeleton (UI architect, 2026-10-03)
+
+- **Plan:** [design/UI-PLAN.md](design/UI-PLAN.md) covers the five builder modules and their files, the frame contract, the layout rects, the hit-region kinds, the timing rules, the hidden-truth rules and what the UI needs from the sim.
+- **Skeleton:** `game/src/ui/` (theme, sprites, layout, hit, view, input, act, plus stubs for tracks, hud, codec, portraits, menu, upgrade and overlays), a new `game/src/main.js`, `game/index.html` and `game/style.css`.
+  - One 1200×660 canvas, crisp at any devicePixelRatio. Modal screens are HTML.
+  - It played the real sim with placeholders. (Superseded: the builders filled the stubs and `src/render/` is gone — see the last section.)
+- **Harness:** `NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt NODE_USE_ENV_PROXY=1 node game/test/ui-shot.mjs <outdir> [scenario]` runs 11 scenarios. Each saves a 1200 and a 1600 PNG and reports ms/frame and console errors. All 11 are clean at 2–4 ms/frame.
+- **Next:** the five builders fill in their stubs (UI-PLAN §2 and §4). The visual target is `design/codec-mockups/variant-c.js`.
+- **Gotchas:**
+  - `fx(st, 'event' | 'card', { id })` overwrites the numeric fx id with a string, so `ui/view.js drain()` counts with `st.fxId`. Never key anything on an fx's `e.id`. Sim fix requested (UI-PLAN §7).
+  - `elementStats().catch` leaks hidden m and traits, so the hover card must show a spec number (§6).
+  - `?debug=1` keys: D shows the panel, T toggles truth marks, L draws layout outlines.
+
+## v2 UI: wired up (integrator, 2026-10-03)
+
+The five builder modules are merged, `src/render/` is deleted and the board is the real thing: tracks, HUD, codec,
+menu, upgrade panel and the five HTML overlays. `?debug=1` still works (D panel, T truth marks, L layout outlines).
+
+- **New shared module:** `src/ui/derive.js` — `specCatch` / `specAudit` (the spec sheet every surface quotes, never the
+  truth) and `splitRates` (what the compute split pays per second). Tracks, HUD, menu and upgrade all read it, so a
+  number shown in two places is the same number. No sim or config file was touched.
+- **New view field:** `view.codecLine = { open, urgent, typing }`, written by codec.js each frame, read by overlays.js
+  so the ring and the typewriter click follow the call that is actually on screen.
+- **Tuning:** `overlays.js` MODEL_SECONDS 6 (the reveal card), SCORE_DELAY 1.8, FX_FRESH 0.5; `codec.js` CPS 45;
+  `audio.js` VOLUME 0.32. All in one place at the top of each file.
+- **Builder "needs", resolved UI-side:** per-mount verdicts, fx y/text and the desk index are derived from the fx log and
+  remembered in the module's own `A` cache; task text is cached on sight (`hud.js remember`) because a trimmed fx log
+  loses it; the spec-sheet catch replaces `elementStats().catch`. Nothing new was added to `sim/rules.js`.
+- **Not resolved:** `setBayRule` would be a new sim *action*, so the BAY FULL chip in the upgrade panel is read-only.
+  The `fx(st, 'event'|'card', { id })` id clobbering is still in the sim; the UI counts with `st.fxId` instead.
+- **Harness:** `test/ui-shot.mjs` now has 28 scenarios (all clean, 2–5 ms/frame) and `test/ui-play.mjs` is a real
+  playthrough — real clicks, real time, start → Medium → build → upgrade → buy a mount → drag the split → answer a
+  choice → research → G7 → scorecard → play again. Both are in the README. `node test/headless.mjs` still passes.
+
+**Known, left alone:** the ops log says "a line" for tasks that scrolled out of a harness jump. (The model card and the
+early choice keys were fixed in the QA pass below.)
+
+**For Avi:**
+- 🚩 **Sound needs an ear pass.** It is tuned by eye, not by ear: VOLUME, the codec ring and the typewriter click.
+- 🚩 **The model reveal card** now really does hold the board (the sim waits under it) for 6 s, or until a click / Esc.
+  Keep 6 s, go shorter, or make it click-to-close only?
+- 🚩 **BAY FULL block/wave** wants a sim action (`setBayRule`) before the chip can do anything.
+
+## v2 UI: QA pass (finisher, 2026-10-03)
+
+A QA sweep logged 40 findings (1 blocker, 9 majors, 30 minors). All are verified. Every blocker and major is fixed, and so are all the minors except #31 and most of #40.
+
+- **Blocker #19:** selling a detector mid-read threw in `tracks.js reticle()` and blanked the board for about half a second. `engagement()` now drops a read whose mount was sold, and the reticle guards the tag.
+- **Gameplay:**
+  - #20: an **OUT OF CASH nn s** countdown tile sits on both event strips, and a choice row the bank can't cover says `you have $X`.
+  - #21/#35: tooltips and the cursor re-resolve every frame (`input.refresh()` after `hits.end()`).
+  - #22: the auditor card has a **COVERS** row ("5 of 1k tasks"), and NEXT says `L5 covers 10×`.
+  - #23: the NEW MODEL card holds the sim (`view.modal`) and shows `THE LAB WAITS n · CLICK OR ESC`.
+  - #32: ▼ no longer opens the choices. Only the read timer does, a click on a choice counts after `CHOICE_GRACE` 0.6 s, and the handset keys only light up once the choices do.
+  - #38: held keys don't repeat. #39: double-clicks count once.
+  - #25: placing onto a taken mount gives a toast and a not-allowed cursor. #24: digit keys are bounds-checked.
+  - Hovering the selected mount now shows its upgrade panel, not its card.
+- **Visual:**
+  - #1: canvas text is greyscale-AA (no `alpha:false`, so no LCD fringes).
+  - #11/#33: the CRT is a CSS layer.
+  - #2: `C.gdd` is never text.
+  - #3: capstones wrap to two lines (a shorter `BRIEF` wording when needed, the full config text on hover), and NEXT keeps whole items (`· +2 more`).
+  - Menu: keys get 3 px between icon and tag, prices drop the `$` (#4/#5), the notch follows a row-2 key (#8), locked keys show hover (#9), the Red Team bracket moves under the bar (#26), and job lines, descriptions and jargon are shortened (#27).
+  - Also fixed: #6, #7, #10 (branch colours are theme tokens), #12–#17, #28, #30.
+- **Perf:**
+  - #36: resize is debounced 150 ms. #37: DPR changes are watched.
+  - #34: lineInk has its own 160-entry LRU. The FAN gradients rebuild per epoch.
+  - #40: sprite and menu cache keys no longer use JSON.stringify.
+- **Draw ms (headless SwiftShader, sim running):**
+  - 1200×660@1: p50 3.0.
+  - 1440×900@2: 3.4 (was 13.4).
+  - 1920×1080@2: 16.5 (was 24.9). That one sits at about 30 fps, because software compositing of the soft-light layer costs about a quarter of a frame there; with `normal` blend it reaches about 40.
+- **Harness:** each size gets a fresh page (#18). New scenarios are `g3-incident` and `perf-g7`, 30 in all. `ui-play` waits out the choice grace. `ui-shot`, `ui-play` and `headless` all pass.
+- **Left for the integrator:**
+  - #31: "chips / layer / element" in config and sim strings, for example the ratelimit capstone and the research cards.
+  - #40: layout() still allocates each frame; low priority.
+  - Capstone texts want a short `short` field in `config/upgrades.js`, so `upgrade.js BRIEF` can go.
+- **Gotchas:**
+  - A harness that clicks a choice must wait 0.7 s after the choices appear.
+  - If a real GPU ever stutters on the CRT layer, `#crt { mix-blend-mode: normal }` is the one-line fallback, but it stripes letters again.

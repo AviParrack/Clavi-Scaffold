@@ -1,10 +1,11 @@
 """Liandao: the Pearl Tier players' guildhall, where Kismet's theatre sigil lands.
 
-Run:  python3 pearl_tier.py        -> out/pearl_tier_*.png / .pdf
+Run:  python3 pearl_tier.py        -> out/pearl_tier_*.png / .pdf  (clean + watercolor "_wc")
 32 x 24 squares = 160 x 120 ft.  x runs west->east, y runs north->south.
 """
 import os
 from bm import *
+import wc
 
 W, H, PPS = 32, 24, 100
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
@@ -24,8 +25,8 @@ KEY = [
 ]
 
 
-def build():
-    m = Map(W, H, PPS, seed=7)
+def build(style="clean"):
+    m = Map(W, H, PPS, seed=7, style=style)
 
     # ---------------- floors ----------------
     roof_edge(m, 0, 0, W, 1), roof_edge(m, 0, 1, 1, 18), roof_edge(m, 31, 1, W, 18)   # neighbouring roofs
@@ -156,19 +157,27 @@ def build():
     return m
 
 
-def main():
-    os.makedirs(OUT, exist_ok=True)
-    m = build()
-    base = m.img
-    gridded = grid(base, PPS)
+def render(style):
+    m = build(style)
+    if style == "wc":
+        base = wc.finish(m.img, PPS, seed=3, debug=True)
+        gridded = grid(base, PPS, alpha=95, rgb=(52, 30, 74))
+    else:
+        base, gridded = m.img, grid(m.img, PPS)
     check_grid(gridded, PPS, W, H)
 
-    base.save(f"{OUT}/pearl_tier_vtt_gridless.png")
-    gridded.save(f"{OUT}/pearl_tier_gridded.png")
-    gm = with_coords(gm_labels(m, gridded), PPS)
-    gm.save(f"{OUT}/pearl_tier_gm.png")
-    n = print_tiles(gridded, PPS, f"{OUT}/pearl_tier_print_1inch.pdf")
-    print(f"  wrote gridless, gridded, gm, and {n}-page print PDF to {OUT}")
+    tag = "pearl_tier" + ("_wc" if style == "wc" else "")
+    base.save(f"{OUT}/{tag}_vtt_gridless.png")
+    gridded.save(f"{OUT}/{tag}_gridded.png")
+    with_coords(gm_labels(m, gridded), PPS).save(f"{OUT}/{tag}_gm.png")
+    n = print_tiles(gridded, PPS, f"{OUT}/{tag}_print_1inch.pdf")
+    print(f"  [{style}] wrote gridless, gridded, gm, and {n}-page print PDF")
+
+
+def main(styles=("clean", "wc")):
+    os.makedirs(OUT, exist_ok=True)
+    for s in styles:
+        render(s)
     for k, name, note in KEY:
         print(f"  {k:>2}  {name:<15} {note}")
 

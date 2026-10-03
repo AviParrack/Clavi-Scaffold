@@ -5,6 +5,7 @@
 import math
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+import wc
 
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
 
@@ -28,10 +29,10 @@ C = dict(
 # ============================================================
 
 class Map:
-    def __init__(self, w, h, pps=100, seed=0):
-        self.w, self.h, self.pps = w, h, pps
+    def __init__(self, w, h, pps=100, seed=0, style="clean"):
+        self.w, self.h, self.pps, self.style = w, h, pps, style
         self.rng = np.random.default_rng(seed)
-        self.img = Image.new("RGB", (w * pps, h * pps), C["wall"])
+        self.img = wc.blank(w * pps, h * pps, seed) if style == "wc" else Image.new("RGB", (w * pps, h * pps), C["wall"])
         self.labels = []   # (x, y, text) in squares, GM-only
 
     def px(self, v):
@@ -117,6 +118,12 @@ def tex_flat(m, w, h, base, amp=14, scale=8):
 
 
 def fill(m, x0, y0, x1, y1, kind, **kw):
+    if m.style == "wc":
+        if kind == "planks":
+            kind = "planks_h" if kw.get("horizontal", True) else "planks_v"
+        if kind == "flat" and kw["base"] == C["grass"]:
+            kind = "grass"
+        return wc.wash_rect(m, x0, y0, x1, y1, kw["base"], kind)
     b = m.box(x0, y0, x1, y1)
     w, h = b[2] - b[0], b[3] - b[1]
     fn = dict(planks=tex_planks, stone=tex_stone, cobble=tex_cobble, flat=tex_flat)[kind]
@@ -128,13 +135,14 @@ def tatami(m, x0, y0, x1, y1, vertical=False):
     """Mats are exactly 1x2 squares, so they line up with the grid."""
     fill(m, x0, y0, x1, y1, "flat", base=C["tatami"], amp=8, scale=3)
     d = ImageDraw.Draw(m.img)
+    edge = C["tatami_edge"] if m.style != "wc" else (70, 110, 80)
     for i, yy in enumerate(range(y0, y1)):
         for xx in range(x0, x1, 2) if not vertical else []:
-            d.rectangle(m.box(xx, yy, min(xx + 2, x1), yy + 1), outline=C["tatami_edge"], width=4)
+            d.rectangle(m.box(xx, yy, min(xx + 2, x1), yy + 1), outline=edge, width=4 if m.style != "wc" else 3)
     if vertical:
         for xx in range(x0, x1):
             for yy in range(y0, y1, 2):
-                d.rectangle(m.box(xx, yy, xx + 1, min(yy + 2, y1)), outline=C["tatami_edge"], width=4)
+                d.rectangle(m.box(xx, yy, xx + 1, min(yy + 2, y1)), outline=edge, width=4 if m.style != "wc" else 3)
 
 
 # ============================================================
@@ -142,6 +150,8 @@ def tatami(m, x0, y0, x1, y1, vertical=False):
 # ============================================================
 
 def wall(m, x0, y0, x1, y1, t=0.18):
+    if m.style == "wc":
+        return wc.ink_segment(m, x0, y0, x1, y1, t)
     d = ImageDraw.Draw(m.img)
     d.rectangle(m.box(min(x0, x1) - t / 2, min(y0, y1) - t / 2, max(x0, x1) + t / 2, max(y0, y1) + t / 2), fill=C["wall"])
 
@@ -185,12 +195,17 @@ def drop_shadow(m, shapes, off=0.08, blur=6):
     d = ImageDraw.Draw(lay)
     for kind, (x0, y0, x1, y1) in shapes:
         b = m.box(x0 + off, y0 + off, x1 + off, y1 + off)
-        (d.rectangle if kind == "rect" else d.ellipse)(b, fill=(0, 0, 0, 110))
+        sh = (70, 40, 120, 80) if m.style == "wc" else (0, 0, 0, 110)
+        (d.rectangle if kind == "rect" else d.ellipse)(b, fill=sh)
     m.paste(Image.composite(lay, lay, lay).filter(ImageFilter.GaussianBlur(blur)))
 
 
 def pillar(m, x, y, r=0.32):
     drop_shadow(m, [("ellipse", (x - r, y - r, x + r, y + r))])
+    if m.style == "wc":
+        wc.prop_ellipse(m, x, y, r, C["lacquer"], density=1.6)
+        glow(m, x - r * 0.3, y - r * 0.4, r * 0.35, (255, 200, 180), 120)
+        return
     d = ImageDraw.Draw(m.img)
     d.ellipse(m.box(x - r, y - r, x + r, y + r), fill=C["lacquer"], outline=C["wall"], width=4)
     d.ellipse(m.box(x - r * 0.5, y - r * 0.6, x - r * 0.1, y - r * 0.2), fill=(178, 70, 60))
@@ -199,7 +214,10 @@ def pillar(m, x, y, r=0.32):
 def crate(m, x0, y0, x1, y1, color=None, straps=True):
     drop_shadow(m, [("rect", (x0, y0, x1, y1))])
     d = ImageDraw.Draw(m.img)
-    d.rectangle(m.box(x0 + 0.05, y0 + 0.05, x1 - 0.05, y1 - 0.05), fill=color or C["wood_dark"], outline=C["wall"], width=3)
+    if m.style == "wc":
+        wc.prop_rect(m, x0 + 0.05, y0 + 0.05, x1 - 0.05, y1 - 0.05, color or C["wood_dark"])
+    else:
+        d.rectangle(m.box(x0 + 0.05, y0 + 0.05, x1 - 0.05, y1 - 0.05), fill=color or C["wood_dark"], outline=C["wall"], width=3)
     if straps:
         for f in (0.3, 0.7):
             xx = x0 + (x1 - x0) * f
@@ -207,6 +225,8 @@ def crate(m, x0, y0, x1, y1, color=None, straps=True):
 
 
 def cushion(m, x, y, s=0.5, color=None):
+    if m.style == "wc":
+        return wc.prop_ellipse(m, x, y, s * 0.5, color or C["cloth"], density=1.2)
     d = ImageDraw.Draw(m.img)
     d.rounded_rectangle(m.box(x - s / 2, y - s / 2, x + s / 2, y + s / 2), radius=m.px(0.1),
                         fill=color or C["cloth"], outline=(50, 34, 70), width=2)
@@ -214,6 +234,8 @@ def cushion(m, x, y, s=0.5, color=None):
 
 def table(m, x0, y0, x1, y1):
     drop_shadow(m, [("rect", (x0, y0, x1, y1))])
+    if m.style == "wc":
+        return wc.prop_rect(m, x0 + 0.1, y0 + 0.1, x1 - 0.1, y1 - 0.1, (110, 60, 45), density=1.5)
     d = ImageDraw.Draw(m.img)
     d.rectangle(m.box(x0 + 0.1, y0 + 0.1, x1 - 0.1, y1 - 0.1), fill=(70, 40, 30), outline=C["wall"], width=3)
 
@@ -233,12 +255,23 @@ def brazier(m, x, y):
 
 def lantern(m, x, y, rgb=(200, 140, 255)):
     glow(m, x, y, 1.2, rgb, 80)
+    if m.style == "wc":
+        glow(m, x, y, 0.3, (255, 240, 220), 160)
+        return wc.prop_ellipse(m, x, y, 0.14, (150, 60, 160), density=0.8)
     d = ImageDraw.Draw(m.img)
     d.ellipse(m.box(x - 0.18, y - 0.18, x + 0.18, y + 0.18), fill=(150, 60, 160), outline=C["wall"], width=2)
 
 
 def tree(m, x, y, r, seed=0):
     rng = np.random.default_rng(seed)
+    if m.style == "wc":
+        drop_shadow(m, [("ellipse", (x - r, y - r, x + r, y + r))], off=0.25, blur=12)
+        for i in range(9):
+            a, rr = rng.uniform(0, 2 * math.pi), rng.uniform(0, r * 0.55)
+            cx, cy, cr = x + rr * math.cos(a), y + rr * math.sin(a), r * rng.uniform(0.35, 0.5)
+            P = [(cx + cr * math.cos(t), cy + cr * math.sin(t)) for t in np.linspace(0, 2 * math.pi, 18, endpoint=False)]
+            wc.wash_poly(m, P, [(200, 90, 150), (225, 130, 180), (150, 70, 140)][i % 3], density=0.7)
+        return
     lay = m.overlay()
     d = ImageDraw.Draw(lay)
     for _ in range(14):
@@ -252,6 +285,10 @@ def tree(m, x, y, r, seed=0):
 
 def water(m, pts):
     """Irregular pool; pts are polygon vertices in squares."""
+    if m.style == "wc":
+        wc.wash_poly(m, pts, C["water"], density=1.3)
+        ImageDraw.Draw(m.img).line([(m.px(x), m.px(y)) for x, y in pts + pts[:1]], fill=wc.INK, width=4)
+        return
     mask = Image.new("L", m.img.size, 0)
     ImageDraw.Draw(mask).polygon([(m.px(x), m.px(y)) for x, y in pts], fill=255)
     mask = mask.filter(ImageFilter.GaussianBlur(4))
@@ -320,6 +357,8 @@ def steps(m, x0, y0, x1, y1, n=3, vertical=True):
 
 def roof_edge(m, x0, y0, x1, y1):
     """Violet tile eaves overhanging the street."""
+    if m.style == "wc":
+        return wc.wash_rect(m, x0, y0, x1, y1, (90, 60, 130), "roof", density=1.2)
     b = m.box(x0, y0, x1, y1)
     w, h = b[2] - b[0], b[3] - b[1]
     a = tex_flat(m, w, h, (90, 60, 130), amp=10)
@@ -333,14 +372,14 @@ def roof_edge(m, x0, y0, x1, y1):
 # Grid + output
 # ============================================================
 
-def grid(img, pps, alpha=90, width=2):
+def grid(img, pps, alpha=90, width=2, rgb=(0, 0, 0)):
     lay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(lay)
     W, H = img.size
     for x in range(0, W + 1, pps):
-        d.line([x, 0, x, H], fill=(0, 0, 0, alpha), width=width)
+        d.line([x, 0, x, H], fill=rgb + (alpha,), width=width)
     for y in range(0, H + 1, pps):
-        d.line([0, y, W, y], fill=(0, 0, 0, alpha), width=width)
+        d.line([0, y, W, y], fill=rgb + (alpha,), width=width)
     return Image.alpha_composite(img.convert("RGBA"), lay).convert("RGB")
 
 

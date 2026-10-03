@@ -52,6 +52,7 @@ function spawnLane(st, lane, dt) {
   if (L.spawnT > 0) return;
 
   const rate = genDef(st).rate * mod(st, lane === 'ext' ? 'extSpawn' : 'intSpawn');
+  if (rate <= 0) { L.spawnT = 0.5; return; }   // lane shut down by an event
   L.spawnT += (1 / rate) * uniform(st, 1 - B.spawnJitter / 2, 1 + B.spawnJitter / 2);
 
   st.genStats.realTotal += genDef(st).bundle;

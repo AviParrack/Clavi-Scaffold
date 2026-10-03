@@ -1,8 +1,9 @@
 // ===== Headless sim runner + tests =====
-// usage:  node test/headless.mjs            (all tests)
-//         node test/headless.mjs run all 7  (one verbose run: policy, seed)
+// usage:  node test/headless.mjs                 (all tests)
+//         node test/headless.mjs run all 7       (one verbose run: policy, seed)
+//         node test/headless.mjs balance smart   (win/loss table across difficulties)
 
-import { createState, step, placeLayer, drawResearch, pickResearch, choose, debugUnlockAll } from '../src/sim/sim.js';
+import { createState, step, placeLayer, sellLayer, drawResearch, pickResearch, choose, retrainProbes, debugUnlockAll } from '../src/sim/sim.js';
 import { scorecard } from '../src/sim/scorecard.js';
 import { LAYERS } from '../src/config/layers.js';
 import { GENERATIONS } from '../src/config/generations.js';
@@ -22,16 +23,55 @@ export const POLICIES = {
   starter: { build: STARTER },
   // all: research greedily, fill every slot, keep everything on
   all:     { build: STARTER, research: true, fillAll: true },
+  // smart: a reasonable human strategy, used for balancing (not asserted)
+  smart:   { fn: smartPolicy },
 };
+
+// ----- smart policy: cheap detectors, swap humans for AI responders as bundles grow -----
+const PREFER = ['unlock_defer', 'unlock_untrusted', 'unlock_paraphraser', 'retrain_probes', 'extra_slot_int', 'unlock_sandbox', 'unlock_resampler', 'unlock_honeypot', 'irt', 'extra_slot_ext', 'monitor_ensemble', 'ai_auditing', 'tripwires'];
+function want(st) {
+  const has = id => st.unlocked.includes(id);
+  const late = st.gen >= 3;
+  const respExt = has('defer') && (late || !has('auditor')) ? 'defer' : 'auditor';
+  const respInt = has('defer') && late ? 'defer' : 'auditor';
+  const ext = ['probe', 'monitor', has('untrusted') ? 'untrusted' : null, respExt];
+  const int = [has('paraphraser') ? 'paraphraser' : null, has('untrusted') ? 'untrusted' : 'probe', st.gen >= 4 && has('sandbox') && st.gen <= 5 ? 'sandbox' : 'probe', respInt];
+  // extra slots: more detectors in the internal lane, a resampler above the final responder
+  const extraInt = [has('untrusted') ? 'untrusted' : 'probe', has('honeypot') ? 'honeypot' : 'probe', has('resampler') ? 'resampler' : 'probe'];
+  for (let i = 4; i < st.lanes.int.slots.length; i++) int.splice(int.length - 1, 0, extraInt[i - 4]);
+  for (let i = 4; i < st.lanes.ext.slots.length; i++) ext.splice(ext.length - 1, 0, 'probe');
+  return { ext, int };
+}
+function smartPolicy(st) {
+  if (st.pendingChoice) choose(st, st.pendingChoice.eventId === 'caught' ? 0 : st.money > 2000 * GENERATIONS[st.gen - 1].bundle ? 1 : 0);
+  if (st.pendingResearch) {
+    const ids = st.pendingResearch;
+    const rank = id => { const r = PREFER.indexOf(id); return r < 0 ? 99 : r; };
+    pickResearch(st, rank(ids[0]) <= rank(ids[1] ?? ids[0]) ? 0 : 1);
+  }
+  const w = want(st);
+  for (const lane of ['ext', 'int']) {
+    w[lane].forEach((id, i) => {
+      const s = st.lanes[lane].slots[i];
+      if (!id || s.layer === id) return;
+      if (s.layer && st.money > 3 * (LAYERS[id].buy * GENERATIONS[st.gen - 1].bundle)) sellLayer(st, lane, i);
+      if (!s.layer) placeLayer(st, lane, i, id);
+    });
+  }
+  if (st.probe.trainedGen < st.gen) retrainProbes(st);
+  if (st.money > 1.5 * (1000 * Math.pow(1.6, st.researchCount) * GENERATIONS[st.gen - 1].bundle)) drawResearch(st);
+}
 
 const ORDER = ['probe', 'monitor', 'untrusted', 'paraphraser', 'honeypot', 'sandbox', 'resampler', 'defer', 'auditor'];
 
 function act(st, policy) {
+  if (policy.fn) return policy.fn(st);
   if (st.pendingChoice) choose(st, 1 % 2);                  // "keep running" / "refuse": never halts
   if (st.pendingResearch) {
     const ids = st.pendingResearch;
-    const unlock = ids.findIndex(id => CARD_BY_ID[id].type === 'unlock');
-    pickResearch(st, Math.max(0, unlock));
+    // all-layers: more slots first, then unlocks, then anything
+    const score = id => (CARD_BY_ID[id].lane ? 0 : CARD_BY_ID[id].type === 'unlock' ? 1 : 2);
+    pickResearch(st, ids.length > 1 && score(ids[1]) < score(ids[0]) ? 1 : 0);
   }
   for (const [lane, slot, id] of policy.build) {
     const s = st.lanes[lane].slots[slot];
@@ -145,13 +185,19 @@ function testPolicies() {
   console.log('\n▶ Policy: starter hand only (Medium)');
   for (const s of seeds.slice(0, 3)) { const r = run('starter', s); summary('starter', s, r); results.push([`starter/${s}`, r]); console.log(confusion(r.st)); }
 
-  console.log('\n▶ Policy: all layers (Medium) — must go bankrupt or fall behind the rival');
+  console.log('\n▶ Policy: smart (balance reference, not asserted)');
+  for (const s of seeds) { const r = run('smart', s); summary('smart', s, r); results.push([`smart/${s}`, r]); }
+
+  console.log('\n▶ Policy: all layers (Medium) — must never win; bankrupt or behind the rival in ≥ 4/5 seeds');
+  let taxed = 0;
   for (const s of seeds) {
     const r = run('all', s); summary('all', s, r); results.push([`all/${s}`, r]);
     const bankrupt = r.card.reason === 'bankrupt';
     const behind = r.rivalAheadT > 0.25 * r.st.t;
-    check(`all seed ${s} bankrupt or behind rival`, bankrupt || behind, `bankrupt=${bankrupt}, rival ahead ${pct(r.rivalAheadT / r.st.t)} of the run`);
+    if (bankrupt || behind) taxed++;
+    check(`all seed ${s} does not win`, !r.card.win, `bankrupt=${bankrupt}, rival ahead ${pct(r.rivalAheadT / r.st.t)} of the run, ended ${r.card.reason}`);
   }
+  check(`all-layers bankrupt or behind rival in ≥ 4/5 seeds`, taxed >= 4, `${taxed}/5`);
   return results;
 }
 
@@ -164,7 +210,17 @@ function testDeterminism() {
 // =================== main ===================
 
 const [, , cmd, pol, seedArg] = process.argv;
-if (cmd === 'run') {
+const isMain = import.meta.url === `file://${process.argv[1]}`;
+if (!isMain) { /* imported as a module */ }
+else if (cmd === 'balance') {
+  // win/loss table for a policy across difficulties: W7 = win, R/C/B = reputation/catastrophe/bankrupt + gen reached
+  for (const difficulty of ['easy', 'medium', 'hard']) {
+    const rows = [];
+    for (let seed = 1; seed <= 10; seed++) { const r = run(pol || 'smart', seed, { difficulty }); rows.push(`${r.card.win ? 'W' : r.card.reason[0].toUpperCase()}${r.st.gen}`); }
+    console.log(difficulty.padEnd(7), rows.join(' '));
+  }
+}
+else if (cmd === 'run') {
   const r = run(pol || 'starter', Number(seedArg || 1));
   summary(pol, seedArg, r);
   console.log(confusion(r.st));

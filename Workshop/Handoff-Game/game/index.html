@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HANDOFF</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ===== top bar ===== -->
+  <header id="topbar">
+    <div class="stat"><span class="k">CASH</span><span id="hud-money" class="v big">$0</span></div>
+    <div class="stat"><span class="k">REPUTATION</span><span class="bar"><i id="hud-rep-bar"></i></span><span id="hud-rep" class="v">100</span></div>
+    <div class="stat model"><span class="k">MODEL</span><span id="hud-gen" class="v">G1 Autocomplete</span></div>
+    <div class="stat"><span class="k">R&amp;D → NEXT MODEL</span><span class="bar wide"><i id="hud-rd-bar"></i></span></div>
+    <div class="stat"><span class="k">RIVAL LAB</span><span class="race"><i id="hud-race-you" title="you"></i><i id="hud-race-rival" title="rival"></i></span><span id="hud-rival" class="v small">even</span></div>
+    <div class="stat"><span class="k">MISALIGNMENT EST.</span><span id="hud-mis" class="v">?</span></div>
+    <div class="stat"><span class="k">TASKS/S</span><span id="hud-tps" class="v">0</span></div>
+    <div class="stat"><span class="k">HUMAN-RESEARCHER EQ.</span><span id="hud-hre" class="v">0</span></div>
+    <div class="stat"><span class="k">SEEN BY A HUMAN</span><span id="hud-seen" class="v">100%</span></div>
+  </header>
+
+  <!-- ===== playfield + right panel ===== -->
+  <main id="middle">
+    <div id="field-wrap">
+      <canvas id="field"></canvas>
+      <div id="debug" hidden></div>
+      <div id="toast"></div>
+    </div>
+    <aside id="panel">
+      <h2>LAYERS <small>click card → click slot</small></h2>
+      <div id="hand"></div>
+      <button id="btn-research" class="btn">RESEARCH</button>
+      <button id="btn-retrain" class="btn" hidden>RETRAIN PROBES</button>
+      <div id="inspector"></div>
+      <div id="upgrades"></div>
+      <div id="help">
+        <b>click</b> layer: toggle on/off<br>
+        <b>right-click</b> layer: sell (50%)<br>
+        <b>space</b> pause · <b>1-9</b> pick card · <b>esc</b> cancel<br>
+        <b>F</b> fast-forward · <b>M</b> mute
+      </div>
+    </aside>
+  </main>
+
+  <!-- ===== codec ===== -->
+  <footer id="codec">
+    <canvas id="portrait-l" width="48" height="48"></canvas>
+    <div id="codec-body">
+      <div id="codec-name">HEAD OF SAFETY <span class="freq">140.85</span></div>
+      <div id="codec-text"></div>
+      <div id="codec-choices"></div>
+    </div>
+    <canvas id="portrait-r" width="48" height="48"></canvas>
+  </footer>
+</div>
+
+<!-- ===== overlays ===== -->
+<div id="ov-start" class="overlay">
+  <div class="box">
+    <h1>HANDOFF</h1>
+    <p class="sub">You run the safety team at a frontier lab.<br>The models get smarter. The tasks get faster. You never see the truth.</p>
+    <div id="difficulty"></div>
+    <p id="best"></p>
+    <p class="tiny">add <code>?seed=N</code> for a reproducible run · <code>?debug=1</code> for the debug overlay</p>
+  </div>
+</div>
+
+<div id="ov-research" class="overlay" hidden>
+  <div class="box">
+    <h2>RESEARCH: PICK ONE</h2>
+    <div id="research-cards"></div>
+  </div>
+</div>
+
+<div id="ov-model" class="overlay passive" hidden>
+  <div class="box">
+    <div class="flash">NEW MODEL TRAINED</div>
+    <canvas id="model-portrait" width="96" height="96"></canvas>
+    <h2 id="model-name"></h2>
+    <div id="model-stats"></div>
+  </div>
+</div>
+
+<div id="ov-pause" class="overlay passive" hidden><div class="paused">PAUSED</div></div>
+
+<div id="ov-score" class="overlay" hidden>
+  <div class="box wide" id="score-body"></div>
+</div>
+
+<div id="crt"></div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -9,6 +9,7 @@ Read the HANDOFF.md inside each project for current state.
 | Project | Description |
 |---|---|
 | [Claudes-Projects/](Claudes-Projects/) | Claude's autonomous project ideas — starts with the First Build Tutorial |
+| [Handoff-Game/](Handoff-Game/) | HANDOFF: browser tower defense about AI control |
 | *(your projects)* | *Add active workshops here as you start them* |
 
 ## Other Tiers

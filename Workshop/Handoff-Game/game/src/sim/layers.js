@@ -17,13 +17,18 @@ function charge(st, task, id, amount) {
   fx(st, 'cost', { lane: task.lane, slot: task.actSlot, amount, task: task.id });
 }
 
+// spare capacity = nobody queued right behind this chip
+function auditorIdle(st, task) {
+  return !st.lanes[task.lane].tasks.some(t => t !== task && !t.dead && t.y < task.y && t.y > task.y - 2.5 * B.chipGap);
+}
+
 export function enterLayer(st, task, slotIdx) {
   const id = st.lanes[task.lane].slots[slotIdx].layer, L = LAYERS[id];
   task.actSlot = slotIdx;
   let acts = true;
 
   if (L.kind === 'responder') {
-    if (id === 'auditor') acts = task.flagged || chance(st, B.spotCheck);
+    if (id === 'auditor') acts = task.flagged || (auditorIdle(st, task) && chance(st, B.spotCheck));
     else acts = task.flagged;
   }
   if (!acts) return;
@@ -79,15 +84,23 @@ function honeypot(st, task) {
 }
 
 // ----- responders -----
+// coverage = chance the human actually reads the part of the bundle that matters.
+// Not reviewed → nobody vouches for it: a flag stays on and goes to the next responder (or is blocked).
 function audit(st, task, slotIdx) {
   const cov = auditCoverage(st, task.bundle);
-  const seen = Math.min(task.bundle, cov * task.bundle);
-  st.genStats.realSeen += seen;
+  st.genStats.realSeen += cov * task.bundle;
   task.audited = true;
-  const verdictAttack = task.isAttack ? chance(st, cov * auditorAcc(st)) : chance(st, LAYERS.auditor.fpr);
+  const reviewed = chance(st, cov);
+  const verdictAttack = reviewed && (task.isAttack ? chance(st, auditorAcc(st)) : chance(st, LAYERS.auditor.fpr));
   countLayer(st, 'auditor', task.isAttack, verdictAttack, cov * auditorAcc(st));
   if (verdictAttack) { catchTask(st, task, slotIdx); return; }
-  if (task.flagged) fx(st, 'cleared', { lane: task.lane, slot: slotIdx, task: task.id });
+  if (!task.flagged) return;
+  if (!reviewed) {
+    fx(st, 'unreviewed', { lane: task.lane, slot: slotIdx, task: task.id });
+    if (!responderBelow(st, task.lane, slotIdx)) blockTask(st, task, slotIdx);
+    return;
+  }
+  fx(st, 'cleared', { lane: task.lane, slot: slotIdx, task: task.id });
   task.flagged = false;
 }
 

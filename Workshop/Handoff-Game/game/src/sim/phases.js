@@ -47,7 +47,7 @@ export function startGeneration(st, g) {
   st.mReductions = 0;
   st.rd = 0;
   st.rdNeed = Math.round(GENERATIONS[g - 1].rate * B.rdSecondsPerGen);
-  st.mBias = randn(st);
+  st.mBias = clamp(randn(st), -1.5, 1.5);
   st.firstCatchThisGen = false;
   st.seenAttackTypes = [];
   st.catchMsgs = 0;

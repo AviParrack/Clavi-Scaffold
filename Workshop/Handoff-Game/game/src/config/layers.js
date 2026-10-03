@@ -17,7 +17,7 @@ export const LAYERS = {
   auditor: {
     name: 'Human Auditor', tag: 'AUD', kind: 'responder', buy: 800, cost: 25, latency: 3.0,
     fpr: 0.01,
-    desc: 'Reviews flagged tasks, spot-checks the rest. Slow, fixed capacity in real tasks.',
+    desc: 'Reviews flagged tasks, spot-checks the rest. Slow, fixed capacity in real tasks: big bundles mostly go unread (flag passes on).',
   },
   untrusted: {
     name: 'Untrusted Monitor', tag: 'UM', kind: 'detector', buy: 600, cost: 3, latency: 0.2,

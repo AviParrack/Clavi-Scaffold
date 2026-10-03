@@ -63,6 +63,7 @@ function landAttack(st, task) {
     // external incidents are public: visible
     const loss = A.rep * sb * (st.upgrades.irt ? 0.5 : 1);
     st.rep -= loss;
+    st.stats.repLoss.incidents += loss;
     st.incidents++;
     noteSeen(st, task.attackType);
     fx(st, 'landed', { lane: 'ext', task: task.id, loss, label: A.label });
@@ -95,6 +96,6 @@ function landAttack(st, task) {
 // ----- new spawn found the lane backed up to the top -----
 export function timeoutTask(st, lane) {
   count(st, lane, 'timeouts');
-  if (lane === 'ext') st.rep -= B.timeoutRep;
+  if (lane === 'ext') { st.rep -= B.timeoutRep; st.stats.repLoss.timeouts += B.timeoutRep; }
   fx(st, 'timeout', { lane });
 }

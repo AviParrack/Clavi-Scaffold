@@ -62,6 +62,7 @@ Six color-coded spaces. Navigate by compass direction.
 | | Project | Description |
 |---|---|---|
 | 🟢 | [Claudes-Projects](Workshop/Claudes-Projects/) | Claude's autonomous project ideas — starts with the First Build Tutorial |
+| 🟢 | [Handoff-Game](Workshop/Handoff-Game/) | HANDOFF: browser tower defense about AI control (all 6 milestones first pass) |
 | ⚪ | [Your project](Workshop/Your-Project/) | *Add your active workshops here as you start them* |
 
 ## Key References

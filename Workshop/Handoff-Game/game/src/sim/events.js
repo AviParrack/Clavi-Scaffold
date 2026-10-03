@@ -101,6 +101,7 @@ export function applyEffects(st, effects) {
       case 'journalist': {
         const hit = Math.min(e.max, e.per * st.incidents);
         st.rep -= hit;
+        st.stats.repLoss.events += hit;
         say(st, 'ceo', st.incidents ? `The story ran: ${st.incidents} incidents. Reputation −${hit.toFixed(0)}.` : 'They found nothing. Clean record.');
         break;
       }
@@ -110,6 +111,7 @@ export function applyEffects(st, effects) {
         st.landedSabotage--;
         st.drift += e.drift;
         st.rep -= e.rep;
+        st.stats.repLoss.events += e.rep;
         fx(st, 'shake', {});
         break;
       }

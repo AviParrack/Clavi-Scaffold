@@ -24,7 +24,7 @@ export function createState({ seed = 1, difficulty = 'medium', tutorial = true }
 
     // economy
     money: B.startMoney, rep: B.startRep, evidence: 0,
-    rd: 0, rdNeed: 1, rival: 0, researchCount: 0, negMoneyT: 0,
+    rd: 0, rdNeed: 1, rival: B.rivalHeadStart, researchCount: 0, negMoneyT: 0,
     ledger: { start: B.startMoney, income: 0, spend: 0, byCat: {} },
 
     // board
@@ -42,7 +42,7 @@ export function createState({ seed = 1, difficulty = 'medium', tutorial = true }
     // stats
     stats: {
       lanes: { ext: {}, int: {} }, layers: {}, gens: [],
-      collusionMisses: {}, honeypotsRun: 0, honeypotCatches: 0, honeypotCollusion: 0,
+      collusionMisses: {}, repLoss: { incidents: 0, timeouts: 0, events: 0 }, honeypotsRun: 0, honeypotCatches: 0, honeypotCollusion: 0,
     },
     genStats: newGenStats(1, 0),
   };

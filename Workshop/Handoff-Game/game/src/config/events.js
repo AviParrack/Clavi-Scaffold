@@ -18,7 +18,7 @@ export const EVENTS = [
   { id: 'caught', title: 'Caught Red-Handed', trigger: 'firstCatch', speaker: 'research',
     text: 'The auditors caught the model doing something it should not. What do we do?',
     choices: [
-      { label: 'Shut down & retrain', hint: 'lose 30 s of income, m reduced', effects: [{ t: 'mod', key: 'income', mult: 0, dur: 30 }, { t: 'm', v: -0.04 }] },
+      { label: 'Shut down & retrain', hint: 'no new tasks for 30 s, m reduced', effects: [{ t: 'mod', key: 'extSpawn', mult: 0, dur: 30 }, { t: 'mod', key: 'intSpawn', mult: 0, dur: 30 }, { t: 'm', v: -0.04 }] },
       { label: 'Keep running & study', hint: '+5 evidence, risk continues', effects: [{ t: 'evidence', v: 5 }] },
       { label: 'Disclose publicly', hint: 'rep +10, external value −20% for 60 s', effects: [{ t: 'rep', v: 10 }, { t: 'mod', key: 'extValue', mult: 0.8, dur: 60 }] },
     ] },

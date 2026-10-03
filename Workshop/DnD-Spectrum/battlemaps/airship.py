@@ -35,12 +35,13 @@ KEY_TOP = [
     ("10", "Rotors and props", "Three stacked rotors on the bow mast, a propeller on each outrigger. Reaching one means climbing out along the arm."),
 ]
 KEY_UNDER = [
-    ("1", "Meridian's stateroom", "Forward, under the chart room. The old captain's cabin, redone by Lord Beaumont: rose silk, a bunk piled with stuffed animals, a note on the biggest bear, a writing desk with five scrolls in pink ribbon."),
-    ("2", "Crew quarters", "Hammock bay, with a tiny galley in the corner (stove and kettle). Room for the Harbingers if they come aboard."),
-    ("3", "Engine bay", "Sparkstone batteries at quarter charge, the burner, pipes up to the rotors. The engineer's bench and ledger, and the speaking tube to the chart room."),
-    ("4", "Hold", "Cargo, ballast sandbags, rope, two folded Sky Perches (AC 8, HP 20), and a hooded perch built for a captured roc."),
-    ("5", "Brig", "Small and barred, with a ring bolt in the floor."),
-    ("6", "Spider-latch panel", "GM only. Behind the engine bay, one of three panels that don't match the manual. Sealed, a spider etched on the latch; the engineer hasn't opened it."),
+    ("1", "Meridian's stateroom", "Forward, under the chart room, the one walled room. The old captain's cabin, redone by Lord Beaumont: rose silk, a bunk piled with stuffed animals, a note on the biggest bear, a writing desk with five scrolls in pink ribbon."),
+    ("2", "Crew quarters", "Hammocks slung along both sides of the open deck, with a tiny galley in the corner (stove and kettle). Room for the Harbingers if they come aboard."),
+    ("3", "Drop doors", "Big double doors in the middle of the deck (10 ft by 15 ft), opening straight onto the sky. A lever by the starboard rail throws the bolts."),
+    ("4", "Engine bay", "Aft of the doors, open to the deck. Sparkstone batteries at quarter charge, the burner, pipes up to the rotors. Lincoln's bench and ledger, and the speaking tube to the chart room."),
+    ("5", "Hold", "Aft, under the cargo hatch. Cargo, ballast sandbags, rope, two folded Sky Perches (AC 8, HP 20), and a hooded perch built for a captured roc."),
+    ("6", "Brig", "A barred cage against the port hull, with a ring bolt in the floor."),
+    ("7", "Spider-latch panel", "GM only. On the hull behind the engine bay, one of three panels that don't match the manual. Sealed, a spider etched on the latch; Lincoln hasn't opened it."),
 ]
 LADDERS = [(5.5, 9.1, 6.4, 10.0), (4.6, 12.2, 5.6, 13.2)]                          # chart room -> stateroom, midship -> crew
 CARGO_HATCH = (6.5, 16.6, 7.5, 17.6)                                                 # -> hold
@@ -347,33 +348,41 @@ def top_deck():
 def spider_panel(img, m):
     """GM-only mark, drawn after the player image is saved."""
     d = ImageDraw.Draw(img)
-    cx, cy = 7.0, 16.05
-    d.rectangle(m.box(cx - 0.3, cy - 0.12, cx + 0.3, cy + 0.12), fill=(150, 150, 165), outline=wc.INK, width=2)
+    cx, cy = 9.0, 17.0
+    d.rectangle(m.box(cx - 0.12, cy - 0.3, cx + 0.12, cy + 0.3), fill=(150, 150, 165), outline=wc.INK, width=2)
     for a in np.linspace(0, 2 * math.pi, 8, endpoint=False):
-        d.line(m.box(cx, cy, cx + 0.14 * math.cos(a), cy + 0.09 * math.sin(a)), fill=(30, 20, 40), width=2)
+        d.line(m.box(cx, cy, cx + 0.09 * math.cos(a), cy + 0.14 * math.sin(a)), fill=(30, 20, 40), width=2)
     d.ellipse(m.box(cx - 0.05, cy - 0.05, cx + 0.05, cy + 0.05), fill=(30, 20, 40))
+
+
+def drop_doors(m, x0, y0, x1, y1):
+    wc.prop_rect(m, x0, y0, x1, y1, (95, 65, 40), density=1.5, ink=0.04)
+    d = ImageDraw.Draw(m.img)
+    xm = (x0 + x1) / 2
+    d.line(m.box(xm, y0, xm, y1), fill=wc.INK, width=6)                              # the seam
+    for y in np.arange(y0 + 0.5, y1, 0.5):
+        d.line(m.box(x0 + 0.1, y, x1 - 0.1, y), fill=(70, 45, 30), width=2)          # planks
+    for y in (y0 + 0.5, y1 - 0.5):                                                    # hinge straps
+        d.line(m.box(x0, y, xm - 0.15, y), fill=(60, 60, 70), width=7)
+        d.line(m.box(xm + 0.15, y, x1, y), fill=(60, 60, 70), width=7)
+    for y in (y0 + 1.0, (y0 + y1) / 2, y1 - 1.0):                                    # bolts across the seam
+        d.rectangle(m.box(xm - 0.22, y - 0.06, xm + 0.22, y + 0.06), fill=C_BRASS, outline=wc.INK, width=2)
 
 
 def under_deck():
     m = Map(W, H, PPS, seed=22, style="wc")
     sky(m)
     exterior(m)
-    floor(m, 0, 0, W, H, (130, 95, 65))
+    floor(m, 0, 0, W, H, (125, 92, 62), "planks_h")
     floor(m, 0, 8.9, W, 11.6, C_ROSE, "flat", density=0.9)                          # stateroom
-    floor(m, 0, 14.2, W, 16.0, (120, 110, 105), "stone")                             # engine bay, iron plate
-    floor(m, 0, 16.0, W, H, (115, 85, 60), "planks_h")                               # hold
+    floor(m, 7.9, 15.5, W, 17.6, (120, 110, 105), "stone")                           # iron plate under the engine
     hull_outline(m)
     x0, y0, x1, y1 = HOUSE
     wc.wash_poly(m, [(x0 + 0.05, y0 + 0.05), (x1 - 0.05, y0 + 0.05), (x1 - 0.05, y1 - 0.05), (x0 + 0.05, y1 - 0.05)], C_CANOPY, "flat", 0.8, var=0.3)
     wc.ink_poly(m, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], t=0.14)                 # the helm deck above, shown as a blue block
 
-    walls = [(4.4, 8.9, 9.6, 8.9),
-             (4.4, 11.6, 6.5, 11.6), (7.5, 11.6, 9.6, 11.6),
-             (4.4, 14.2, 6.5, 14.2), (7.5, 14.2, 9.6, 14.2),
-             (4.4, 16.0, 6.5, 16.0), (7.5, 16.0, 9.6, 16.0),
-             (5.9, 16.0, 5.9, 16.8), (5.9, 17.6, 5.9, 17.8), (4.6, 17.8, 5.9, 17.8)]
-    rooms_from_walls(m, walls, "wall")
-    rooms_from_walls(m, [(6.5, 11.6, 7.5, 11.6), (6.5, 14.2, 7.5, 14.2), (6.5, 16.0, 7.5, 16.0), (5.9, 16.8, 5.9, 17.6)], "door")
+    rooms_from_walls(m, [(4.4, 8.9, 9.6, 8.9), (4.4, 11.6, 6.5, 11.6), (7.5, 11.6, 9.6, 11.6)], "wall")
+    rooms_from_walls(m, [(6.5, 11.6, 7.5, 11.6)], "door")
 
     # 1. stateroom
     wc.prop_rect(m, 4.6, 9.1, 6.3, 10.5, (240, 200, 210), density=0.9)               # bunk
@@ -390,48 +399,56 @@ def under_deck():
     lantern(m, 9.2, 9.3, (255, 190, 210))
     m.label(7.0, 10.0, "1")
 
-    # 2. crew quarters + tiny galley
-    for x in (7.9, 8.5, 9.1):
-        hammock(m, x, 11.9, 13.9)
-    for x in (4.9, 5.5):
-        hammock(m, x, 13.3, 14.0)
-    brazier(m, 6.0, 12.0)
-    barrel(m, 4.75, 12.0, 0.15, (90, 90, 100))                                        # the kettle
-    m.label(7.0, 12.9, "2")
+    # 3. drop doors, centre of the open deck: 2 x 3 squares
+    drop_doors(m, 6.0, 12.4, 8.0, 15.4)
+    wc.prop_rect(m, 8.8, 13.7, 9.1, 14.2, (200, 50, 40), density=1.3, ink=0.02)      # bolt lever
+    m.label(7.0, 13.9, "3")
 
-    # 3. engine bay
-    for x, y in [(5.0, 14.9), (9.0, 14.9)]:
-        battery(m, x, y)
-    brazier(m, 7.0, 15.3)                                                              # the burner
+    # 2. crew quarters + tiny galley, along both rails
+    for x in (8.45, 9.1):
+        hammock(m, x, 11.9, 13.4)
+    for x in (4.85, 5.5):
+        hammock(m, x, 13.45, 15.05)
+    brazier(m, 8.95, 14.55)                                                            # galley stove
+    barrel(m, 9.25, 15.1, 0.15, (90, 90, 100))                                        # the kettle
+    m.label(5.2, 15.4, "2")
+
+    # 4. engine bay, aft of the doors to starboard
+    battery(m, 8.6, 16.0), battery(m, 8.6, 17.0)
+    brazier(m, 7.75, 15.85)                                                            # the burner
     d = ImageDraw.Draw(m.img)
-    for x in (5.6, 8.4):                                                               # pipes up to the rotors
-        d.line(m.box(x, 14.3, x, 15.9), fill=(150, 120, 80), width=8)
-    table(m, 5.9, 14.3, 6.7, 14.8)
-    wc.prop_rect(m, 6.1, 14.42, 6.45, 14.68, (240, 230, 200), density=0.6, ink=0.012)  # ledger
-    wc.prop_ellipse(m, 8.2, 14.4, 0.1, C_BRASS, density=1.2)                           # speaking tube
-    m.label(7.0, 14.65, "3")
+    for x in (8.15, 9.05):                                                             # pipes up to the rotors
+        d.line(m.box(x, 15.55, x, 17.5), fill=(150, 120, 80), width=8)
+    table(m, 6.0, 15.75, 6.9, 16.25)
+    wc.prop_rect(m, 6.2, 15.85, 6.55, 16.12, (240, 230, 200), density=0.6, ink=0.012)  # ledger
+    wc.prop_ellipse(m, 9.25, 15.7, 0.1, C_BRASS, density=1.2)                          # speaking tube
+    m.label(7.85, 16.9, "4")
 
-    # 4. hold
-    sky_perch(m, 7.9, 16.3, 9.2, 17.3)
-    crate(m, 7.8, 17.5, 8.9, 18.3), crate(m, 6.4, 18.2, 7.3, 18.9)
-    sandbags(m, 5.4, 18.2)
-    rope_coil(m, 8.3, 18.8, 0.3)
-    roc_perch(m, 7.0, 17.9)
-    m.label(6.2, 19.5, "4")
-
-    # 5. brig
+    # 6. brig, barred cage on the port hull
     d = ImageDraw.Draw(m.img)
-    for y in np.arange(16.15, 17.8, 0.22):
-        d.line(m.box(5.85, y, 5.95, y), fill=wc.INK, width=3)
-    d.ellipse(m.box(5.0, 16.8, 5.25, 17.05), outline=wc.INK, width=4)                 # ring bolt
-    m.label(5.1, 16.4, "5")
+    for y in np.arange(15.85, 17.6, 0.22):
+        d.line(m.box(5.75, y, 5.85, y), fill=wc.INK, width=3)
+    for x in np.arange(4.75, 5.8, 0.22):
+        d.line(m.box(x, 15.75, x, 15.85), fill=wc.INK, width=3)
+    d.line(m.box(4.6, 15.8, 5.8, 15.8), fill=wc.INK, width=3)
+    d.line(m.box(5.8, 15.8, 5.8, 17.6), fill=wc.INK, width=3)
+    d.ellipse(m.box(5.0, 16.9, 5.25, 17.15), outline=wc.INK, width=4)                 # ring bolt
+    m.label(5.15, 16.35, "6")
 
-    lantern(m, 7.0, 13.6, C_SPARK)
+    # 5. hold, aft
+    sky_perch(m, 7.9, 17.9, 9.0, 18.8)
+    crate(m, 5.6, 18.6, 6.5, 19.4), crate(m, 6.6, 19.3, 7.4, 20.0, color=(100, 80, 60))
+    sandbags(m, 5.4, 17.85)
+    rope_coil(m, 7.9, 19.3, 0.3)
+    roc_perch(m, 7.0, 18.35)
+    m.label(6.3, 17.75, "5")
+
+    lantern(m, 7.0, 11.95, C_SPARK)
     for b in LADDERS:
         ladder(m, *b)
     hatch_grate(m, *CARGO_HATCH)
     m.gm_extra = [spider_panel]
-    m.label(7.85, 16.05, "6")
+    m.label(9.45, 17.65, "7")
     return m
 
 

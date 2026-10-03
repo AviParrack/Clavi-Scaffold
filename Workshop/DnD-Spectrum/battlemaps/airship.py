@@ -38,10 +38,10 @@ KEY_UNDER = [
     ("1", "Meridian's stateroom", "Forward, under the chart room, the one walled room. The old captain's cabin, redone by Lord Beaumont: rose silk, a bunk piled with stuffed animals, a note on the biggest bear, a writing desk with five scrolls in pink ribbon."),
     ("2", "Crew quarters", "Hammocks slung along both sides of the open deck, with a tiny galley in the corner (stove and kettle). Room for the Harbingers if they come aboard."),
     ("3", "Drop doors", "Big double doors in the middle of the deck (10 ft by 15 ft), opening straight onto the sky. A lever by the starboard rail throws the bolts."),
-    ("4", "Engine bay", "Aft of the doors, open to the deck. Sparkstone batteries at quarter charge, the burner, pipes up to the rotors. Lincoln's bench and ledger, and the speaking tube to the chart room."),
+    ("4", "Engine bay", "Aft of the doors, open to the deck. Sparkstone batteries at quarter charge, the burner, pipes up to the rotors. Blinkin's bench and ledger, and the speaking tube to the chart room."),
     ("5", "Hold", "Aft, under the cargo hatch. Cargo, ballast sandbags, rope, two folded Sky Perches (AC 8, HP 20), and a hooded perch built for a captured roc."),
     ("6", "Brig", "A barred cage against the port hull, with a ring bolt in the floor."),
-    ("7", "Spider-latch panel", "GM only. On the hull behind the engine bay, one of three panels that don't match the manual. Sealed, a spider etched on the latch; Lincoln hasn't opened it."),
+    ("7", "Spider-latch panel", "GM only. On the hull behind the engine bay, one of three panels that don't match the manual. Sealed, a spider etched on the latch; Blinkin hasn't opened it."),
 ]
 LADDERS = [(5.5, 9.1, 6.4, 10.0), (4.6, 12.2, 5.6, 13.2)]                          # chart room -> stateroom, midship -> crew
 CARGO_HATCH = (6.5, 16.6, 7.5, 17.6)                                                 # -> hold

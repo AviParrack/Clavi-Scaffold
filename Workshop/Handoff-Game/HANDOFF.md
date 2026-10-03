@@ -42,3 +42,11 @@ W = win, C = catastrophe, R = reputation, B = bankrupt; the number is the genera
 - 🚩 Playtest by hand and retune. Questions for Avi: should Medium be winnable on a first serious try?
 - Spec open questions are still open: should internal tasks pay cash, is a board-confidence meter needed, should lanes split into sub-lanes, and is mobile in scope? (Currently internal tasks pay $20 and the game is desktop only.)
 - Training and Evals phases are stubs in `src/sim/phases.js` (`trainingPhase`, `evalPhase`).
+
+## v2 (in progress, 2026-10-03)
+
+Avi's v2 feedback asked for a deep stack, distinct lanes, visible events with timers, icon menu with locked previews and hover cards, upgrades, an evidence dossier, a compute split, task volume as the main ramp, incident flashes on the codec, and a bigger art direction.
+
+- Design doc: "HANDOFF v2 Design" (Claude Doc) with the 31 events, 18 elements, research branches, upgrade levels and evidence thresholds.
+- Visual directions mockup: https://claude.ai/artifact/LsTKsM1Wu8fwcQKiCweG9S (Control Room, Blueprint, Transit Map, Riso Zine). 🚩 Waiting on Avi's pick.
+- Build order: deep stack (6 to 10 tiers) and side bays, then upgrades L1 to L5, the compute split, the evidence dossier, the element catalogue, then the UI (icon bar, hover cards, event banners, incident flashes), then the volume ramp and the new events.

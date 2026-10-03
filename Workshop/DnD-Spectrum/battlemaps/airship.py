@@ -1,7 +1,7 @@
 """The party's airship: the captured Veil ship (working name Whispering Web).
 
 Traced on Avi's original ship map (Spectrum/battlemaps/airship/reference/original_ship_map.png):
-same 14 x 25 grid, so tokens sit on the same squares. Stern (props, blue canopy) at the top, bow at the bottom.
+same 14 x 25 grid, so tokens sit on the same squares. Bow (rotors, blue canopy, helm) at the top, stern at the bottom.
 
 Run:  python3 airship.py        -> out/airship_{top,under}_*.png / .pdf + airship_gm_both.png
 """
@@ -18,30 +18,32 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
 HOUSE = (4.0, 5.1, 10.1, 8.4)                                      # canopy house over the stern
 HULL = [(4.0, 5.1), (10.1, 5.1), (10.1, 8.4), (9.6, 8.9), (9.6, 16.0), (9.3, 17.6), (8.8, 18.8), (8.1, 19.8),
         (7.4, 20.5), (6.6, 20.5), (5.9, 19.8), (5.2, 18.8), (4.7, 17.6), (4.4, 16.0), (4.4, 8.9), (4.0, 8.4)]
-STERN_LADDER, CARGO_HATCH = (4.6, 9.0, 5.6, 10.0), (6.5, 17.4, 7.5, 18.4)
 
 C_DECK, C_CANOPY, C_GOLD, C_BAG = (150, 104, 66), (45, 75, 140), (210, 170, 70), (238, 226, 196)
 C_SKY, C_BRASS, C_SPARK, C_ROSE = (120, 170, 215), (200, 160, 70), (90, 220, 230), (225, 120, 150)
 
 KEY_TOP = [
-    ("1", "Canopy house", "Blue canopy with gold scrollwork over the stern. Inside: Meridian's stateroom (interior map 1)."),
-    ("2", "Helm", "The wheel with a web worn into its hub, the brass dial panel, and the lever marked DO NOT."),
-    ("3", "Main deck", "Gold centre-line from helm to bow. Weapon racks down the middle (half cover)."),
-    ("4", "Stern ladder", "Down to the engine room (interior 2)."),
-    ("5", "Cargo hatch", "Down into the hold (interior 5)."),
-    ("6", "Bow", "A red-trimmed chest at the bow rail, then the bowsprit and figurehead."),
-    ("7", "Gas bladders", "Two lobed bags strapped along the hull. Climbable, soft, and a very bad place to start a fire."),
-    ("8", "Propellers", "A three-tier stack on the stern mast and one on each outrigger. Reaching one means climbing out along the arm."),
+    ("1", "Helm", "Under the blue-and-gold canopy at the bow. The wheel with a web etched into its hub, the brass dial panel, and the lever marked DO NOT."),
+    ("2", "Chart room", "Just aft of the helm. Chart table, a speaking tube down to the engine bay, and a ladder down to the stateroom."),
+    ("3", "Main deck", "Gold centre-line fore to aft. Lashed crates, rope coils and bolts of spare envelope silk where the gun table used to be."),
+    ("4", "Benches", "Two heavy benches lashed down where the gun table stood (half cover). Boarding hooks hang on the stern rail."),
+    ("5", "Crow's nest", "A platform on the rotor mast above the bow. Climb the mast to reach it; sees for miles."),
+    ("6", "Mooring winches", "Two under the canopy, two at the stern."),
+    ("7", "Ladders and hatch", "Midship ladder down to the crew quarters; cargo hatch down to the hold."),
+    ("8", "Red chest", "At the stern rail."),
+    ("9", "Gasbag pontoons", "Two cream gasbags lashed along the hull. Climbable, soft, and a very bad place to start a fire."),
+    ("10", "Rotors and props", "Three stacked rotors on the bow mast, a propeller on each outrigger. Reaching one means climbing out along the arm."),
 ]
 KEY_UNDER = [
-    ("1", "Meridian's stateroom", "Deck level, under the canopy (roof lifted here). The Veil captain's cabin, redone by Lord Beaumont: rose silk, a bunk of stuffed animals, a note on the biggest bear, five scrolls in pink ribbon."),
-    ("2", "Engine room", "Sparkstone batteries at quarter charge feeding the props. The engineer's bench and ledger. Three panels on the stern wall that don't match the manual; one latch has a spider on it."),
-    ("3", "Galley", "Stove, mess table, water casks."),
-    ("4", "Crew bunks", "Hammocks both sides of the passage. Room for the Harbingers if they come aboard."),
-    ("5", "Hold", "Under the cargo hatch. Two folded Sky Perches (AC 8, HP 20), crates, sealed casks."),
-    ("6", "Drop doors", "In the hold floor. The Veil dropped alchemical fire on Landril from a ship like this. Whether any is left in those casks is open."),
-    ("7", "Fore peak", "Chain locker and rope in the narrowing bow. Dark, cramped, good for stowaways."),
+    ("1", "Meridian's stateroom", "Forward, under the chart room. The old captain's cabin, redone by Lord Beaumont: rose silk, a bunk piled with stuffed animals, a note on the biggest bear, a writing desk with five scrolls in pink ribbon."),
+    ("2", "Crew quarters", "Hammock bay, with a tiny galley in the corner (stove and kettle). Room for the Harbingers if they come aboard."),
+    ("3", "Engine bay", "Sparkstone batteries at quarter charge, the burner, pipes up to the rotors. The engineer's bench and ledger, and the speaking tube to the chart room."),
+    ("4", "Hold", "Cargo, ballast sandbags, rope, two folded Sky Perches (AC 8, HP 20), and a hooded perch built for a captured roc."),
+    ("5", "Brig", "Small and barred, with a ring bolt in the floor."),
+    ("6", "Spider-latch panel", "GM only. Behind the engine bay, one of three panels that don't match the manual. Sealed, a spider etched on the latch; the engineer hasn't opened it."),
 ]
+LADDERS = [(5.5, 9.1, 6.4, 10.0), (4.6, 12.2, 5.6, 13.2)]                          # chart room -> stateroom, midship -> crew
+CARGO_HATCH = (6.5, 16.6, 7.5, 17.6)                                                 # -> hold
 
 
 # ============================================================
@@ -188,6 +190,24 @@ def weapon_rack(m, x0, y0, x1, y1, n=6, long=False):
                 d.line(m.box(x - 0.08, yy, x + 0.08, yy + 0.3), fill=(170, 175, 185), width=4)
 
 
+def chart_table(m, x0, y0, x1, y1):
+    table(m, x0, y0, x1, y1)
+    wc.prop_rect(m, x0 + 0.25, y0 + 0.3, x1 - 0.25, y1 - 0.3, (235, 220, 180), density=0.6, ink=0.015)
+    d = ImageDraw.Draw(m.img)
+    rng = np.random.default_rng(9)
+    pts = [(x0 + 0.35 + rng.uniform(0, x1 - x0 - 0.7), y0 + 0.4 + k * (y1 - y0 - 0.8) / 5) for k in range(6)]
+    d.line([(m.px(x), m.px(y)) for x, y in pts], fill=(150, 60, 50), width=3)       # a route, pencilled
+    for x, y in pts[::2]:
+        d.ellipse(m.box(x - 0.05, y - 0.05, x + 0.05, y + 0.05), fill=(150, 60, 50))
+
+
+def rope_coil(m, x, y, r=0.38):
+    wc.prop_ellipse(m, x, y, r, (190, 160, 110), density=1.0)
+    d = ImageDraw.Draw(m.img)
+    for rr in (0.27, 0.18, 0.09):
+        d.ellipse(m.box(x - rr, y - rr, x + rr, y + rr), outline=(120, 95, 60), width=3)
+
+
 def battery(m, x, y, r=0.38):
     glow(m, x, y, 1.1, C_SPARK, 90)
     wc.prop_ellipse(m, x, y, r, (60, 150, 170), density=1.4)
@@ -230,47 +250,108 @@ def canopy(m):
 # Maps
 # ============================================================
 
+def canopy_rim(m):
+    """The canopy cut away: blue-and-gold fabric along the rim, ribs, the helm visible underneath."""
+    x0, y0, x1, y1 = HOUSE
+    t = 0.45
+    for b in [(x0, y0, x1, y0 + t), (x0, y1 - t, x1, y1), (x0, y0, x0 + t, y1), (x1 - t, y0, x1, y1)]:
+        wc.wash_poly(m, [(b[0], b[1]), (b[2], b[1]), (b[2], b[3]), (b[0], b[3])], C_CANOPY, "flat", 1.4, var=0.4)
+    d = ImageDraw.Draw(m.img)
+    for x in np.arange(x0 + 0.5, x1 - 0.3, 0.9):
+        d.arc(m.box(x - 0.18, y0 + 0.05, x + 0.18, y0 + 0.4), 200, 520, fill=C_GOLD, width=5)
+        d.arc(m.box(x - 0.18, y1 - 0.4, x + 0.18, y1 - 0.05), 20, 340, fill=C_GOLD, width=5)
+    for xe in (x0, 7, x1):
+        d.line(m.box(xe, y0, 7, 6.2), fill=(110, 75, 45, 0), width=6)
+    wc.ink_poly(m, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], t=0.14)
+
+
+def winch(m, x, y):
+    barrel(m, x, y, 0.3, (120, 110, 100))
+    ImageDraw.Draw(m.img).line(m.box(x - 0.35, y, x + 0.35, y), fill=wc.INK, width=5)
+
+
+def sandbags(m, x0, y0, n=4):
+    for k in range(n):
+        wc.prop_ellipse(m, x0 + (k % 2) * 0.45, y0 + (k // 2) * 0.35, 0.22, (175, 155, 115), density=1.0)
+
+
+def roc_perch(m, x, y):
+    wc.prop_rect(m, x - 0.9, y - 0.12, x + 0.9, y + 0.12, (110, 75, 45), density=1.6, ink=0.02)
+    wc.prop_ellipse(m, x, y - 0.55, 0.38, (60, 40, 30), density=1.6)                 # the hood
+    ImageDraw.Draw(m.img).line(m.box(x, y - 0.2, x, y + 0.6), fill=wc.INK, width=6)
+
+
 def top_deck():
     m = Map(W, H, PPS, seed=21, style="wc")
     sky(m)
     exterior(m)
     floor(m, 0, 0, W, H, C_DECK)
+    floor(m, 0, 0, W, 8.4, (120, 85, 55), "planks_h")                                # helm deck under the canopy
     hull_outline(m)
-    canopy(m)
     d = ImageDraw.Draw(m.img)
-    d.line(m.box(7, 9.0, 7, 20.0), fill=C_GOLD, width=5)                           # gold centre-line
-    m.label(7, 5.7, "1")
+    d.line(m.box(7, 11.1, 7, 20.0), fill=C_GOLD, width=5)                            # gold centre-line
 
-    # helm, just forward of the house door
-    wc.prop_rect(m, 6.5, 8.3, 7.5, 8.5, (90, 60, 40), density=1.6, ink=0.02)       # house door
-    wheel(m, 7, 9.5)
-    wc.prop_rect(m, 8.2, 9.1, 9.3, 9.6, C_BRASS, density=1.1, ink=0.03)
-    for x in np.arange(8.4, 9.2, 0.27):
-        d = ImageDraw.Draw(m.img)
-        d.ellipse(m.box(x - 0.1, 9.25, x + 0.1, 9.45), fill=(245, 235, 200), outline=wc.INK, width=2)
-    wc.prop_rect(m, 8.9, 9.8, 9.2, 10.4, (200, 50, 40), density=1.3, ink=0.02)     # DO NOT
-    m.label(8.0, 10.6, "2")
+    # 1. helm
+    wheel(m, 7, 7.2)
+    wc.prop_rect(m, 5.6, 5.6, 8.4, 6.1, C_BRASS, density=1.1, ink=0.03)
+    for x in np.arange(5.85, 8.3, 0.4):
+        ImageDraw.Draw(m.img).ellipse(m.box(x - 0.12, 5.73, x + 0.12, 5.97), fill=(245, 235, 200), outline=wc.INK, width=2)
+    wc.prop_rect(m, 8.7, 5.9, 9.0, 6.5, (200, 50, 40), density=1.3, ink=0.02)       # DO NOT
+    winch(m, 4.75, 5.8), winch(m, 9.35, 5.8)
+    canopy_rim(m)
+    m.label(7.0, 8.0, "1")
 
-    # main deck
-    weapon_rack(m, 6.35, 11.0, 7.7, 13.9, n=4)
-    weapon_rack(m, 6.9, 14.1, 7.8, 17.2, n=3, long=True)
-    crate(m, 5.7, 13.8, 6.6, 14.7)
-    for x, y in [(9.0, 15.2), (5.2, 16.3), (5.3, 16.9), (9.0, 9.0)]:
+    # 2. chart room
+    for sgm in [(5.4, 8.9, 8.6, 8.9), (5.4, 8.9, 5.4, 11.0), (8.6, 8.9, 8.6, 11.0), (5.4, 11.0, 6.5, 11.0), (7.5, 11.0, 8.6, 11.0)]:
+        wall(m, *sgm, t=0.12)
+    door(m, 6.5, 11.0, 7.5, 11.0, t=0.12)
+    chart_table(m, 6.6, 9.2, 8.3, 10.6)
+    wc.prop_ellipse(m, 8.35, 9.15, 0.12, C_BRASS, density=1.2)                        # speaking tube
+    m.label(7.7, 10.3, "2")
+
+    # 3. main deck: the gun table's spot, refurnished
+    crate(m, 6.2, 11.6, 7.2, 12.5), crate(m, 7.3, 11.7, 8.1, 12.4, color=(100, 80, 60))
+    for y in (13.3, 14.1):
+        rope_coil(m, 7.4, y)
+    for y in (13.2, 13.75):
+        wc.prop_rect(m, 5.8, y - 0.2, 6.9, y + 0.2, (205, 205, 220), density=0.9, ink=0.02)
+    for x, y in [(9.0, 15.2), (5.2, 16.3), (5.3, 16.9)]:
         barrel(m, x, y)
-    for x, y in [(4.8, 11.0), (9.2, 11.0), (4.8, 15.0), (9.2, 15.0)]:
+    for x, y in [(4.8, 11.4), (9.2, 11.4), (4.8, 15.0), (9.2, 15.0)]:
         lantern(m, x, y, C_SPARK)
-    m.label(5.4, 12.4, "3")
+    m.label(8.5, 12.9, "3")
 
-    ladder(m, *STERN_LADDER)
-    m.label(5.1, 10.5, "4")
+    # 4. benches, where the gun table stood
+    table(m, 6.1, 14.8, 6.6, 16.5), table(m, 7.4, 14.8, 7.9, 16.5)
+    m.label(8.4, 15.6, "4")
+
+    # 5. crow's nest on the rotor mast
+    wc.prop_ellipse(m, 7, 4.5, 0.5, (130, 95, 60), density=1.4)
+    ImageDraw.Draw(m.img).ellipse(m.box(6.6, 4.1, 7.4, 4.9), outline=wc.INK, width=3)
+    m.label(8.0, 4.5, "5")
+
+    # 6. stern winches, 7. ladders + hatch, 8. red chest
+    winch(m, 5.4, 18.1), winch(m, 8.6, 18.1)
+    m.label(4.85, 18.75, "6")
+    for b in LADDERS:
+        ladder(m, *b)
     hatch_grate(m, *CARGO_HATCH)
-    m.label(8.1, 17.9, "5")
-
-    crate(m, 6.55, 18.7, 7.6, 19.3, color=(150, 40, 40))                            # the red-trimmed chest
-    m.label(7.0, 21.6, "6")
-    m.label(2.6, 13.5, "7")
-    m.label(1.9, 8.0, "8")
+    m.label(5.1, 13.7, "7"), m.label(7.0, 18.1, "7")
+    crate(m, 6.55, 18.9, 7.6, 19.5, color=(150, 40, 40))
+    m.label(7.0, 21.6, "8")
+    m.label(2.6, 13.5, "9")
+    m.label(1.9, 8.0, "10")
     return m
+
+
+def spider_panel(img, m):
+    """GM-only mark, drawn after the player image is saved."""
+    d = ImageDraw.Draw(img)
+    cx, cy = 7.0, 16.05
+    d.rectangle(m.box(cx - 0.3, cy - 0.12, cx + 0.3, cy + 0.12), fill=(150, 150, 165), outline=wc.INK, width=2)
+    for a in np.linspace(0, 2 * math.pi, 8, endpoint=False):
+        d.line(m.box(cx, cy, cx + 0.14 * math.cos(a), cy + 0.09 * math.sin(a)), fill=(30, 20, 40), width=2)
+    d.ellipse(m.box(cx - 0.05, cy - 0.05, cx + 0.05, cy + 0.05), fill=(30, 20, 40))
 
 
 def under_deck():
@@ -278,83 +359,79 @@ def under_deck():
     sky(m)
     exterior(m)
     floor(m, 0, 0, W, H, (130, 95, 65))
-    floor(m, 0, 0, W, 8.4, C_ROSE, "flat", density=0.9)                             # stateroom, deck level
-    floor(m, 0, 8.9, W, 11.6, (120, 110, 105), "stone")                              # engine room, iron plate
-    floor(m, 0, 15.0, W, 18.6, (115, 85, 60), "planks_h")                            # hold
+    floor(m, 0, 8.9, W, 11.6, C_ROSE, "flat", density=0.9)                          # stateroom
+    floor(m, 0, 14.2, W, 16.0, (120, 110, 105), "stone")                             # engine bay, iron plate
+    floor(m, 0, 16.0, W, H, (115, 85, 60), "planks_h")                               # hold
     hull_outline(m)
     x0, y0, x1, y1 = HOUSE
-    wc.ink_poly(m, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], t=0.14)
+    wc.wash_poly(m, [(x0 + 0.05, y0 + 0.05), (x1 - 0.05, y0 + 0.05), (x1 - 0.05, y1 - 0.05), (x0 + 0.05, y1 - 0.05)], C_CANOPY, "flat", 0.8, var=0.3)
+    wc.ink_poly(m, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], t=0.14)                 # the helm deck above, shown as a blue block
 
-    walls = [(4.4, 8.9, 9.6, 8.9),                                                  # stateroom / engine (deck change)
+    walls = [(4.4, 8.9, 9.6, 8.9),
              (4.4, 11.6, 6.5, 11.6), (7.5, 11.6, 9.6, 11.6),
-             (6.5, 11.6, 6.5, 12.2), (6.5, 13.0, 6.5, 13.6), (6.5, 14.4, 6.5, 15.0),
-             (7.5, 11.6, 7.5, 12.6), (7.5, 13.4, 7.5, 15.0),
-             (4.4, 13.6, 6.5, 13.6),
-             (4.4, 15.0, 6.5, 15.0), (7.5, 15.0, 9.6, 15.0),
-             (5.0, 18.6, 6.5, 18.6), (7.5, 18.6, 9.0, 18.6)]
+             (4.4, 14.2, 6.5, 14.2), (7.5, 14.2, 9.6, 14.2),
+             (4.4, 16.0, 6.5, 16.0), (7.5, 16.0, 9.6, 16.0),
+             (5.9, 16.0, 5.9, 16.8), (5.9, 17.6, 5.9, 17.8), (4.6, 17.8, 5.9, 17.8)]
     rooms_from_walls(m, walls, "wall")
-    rooms_from_walls(m, [(6.5, 11.6, 7.5, 11.6), (6.5, 12.2, 6.5, 13.0), (6.5, 13.6, 6.5, 14.4),
-                         (7.5, 12.6, 7.5, 13.4), (6.5, 15.0, 7.5, 15.0), (6.5, 18.6, 7.5, 18.6)], "door")
+    rooms_from_walls(m, [(6.5, 11.6, 7.5, 11.6), (6.5, 14.2, 7.5, 14.2), (6.5, 16.0, 7.5, 16.0), (5.9, 16.8, 5.9, 17.6)], "door")
 
-    # 1. stateroom (under the lifted canopy)
-    wc.prop_rect(m, 4.4, 5.4, 6.4, 6.9, (240, 200, 210), density=0.9)                # bunk
+    # 1. stateroom
+    wc.prop_rect(m, 4.6, 9.1, 6.3, 10.5, (240, 200, 210), density=0.9)               # bunk
     rng = np.random.default_rng(5)
-    for _ in range(20):
-        cushion(m, rng.uniform(4.6, 6.2), rng.uniform(5.6, 6.7), rng.uniform(0.16, 0.28),
+    for _ in range(18):
+        cushion(m, rng.uniform(4.8, 6.1), rng.uniform(9.3, 10.3), rng.uniform(0.16, 0.26),
                 [(170, 120, 80), (230, 160, 190), (150, 190, 230), (240, 220, 140)][rng.integers(0, 4)])
-    cushion(m, 6.0, 6.5, 0.5, (160, 110, 70))                                        # the biggest bear
-    table(m, 8.0, 5.4, 9.8, 6.5)
+    cushion(m, 6.0, 10.2, 0.45, (160, 110, 70))                                       # the biggest bear
+    table(m, 7.7, 10.2, 9.4, 11.3)
     for k in range(5):
-        x = 8.25 + k * 0.3
-        wc.prop_rect(m, x, 5.75, x + 0.22, 6.15, (245, 235, 210), density=0.6, ink=0.012)
-        ImageDraw.Draw(m.img).line(m.box(x + 0.11, 5.75, x + 0.11, 6.15), fill=(230, 90, 150), width=3)
-    wc.wash_poly(m, ellipse_pts(7.4, 7.4, 1.0, 0.6), (200, 90, 130), "flat", 0.9)    # rug
-    lantern(m, 9.4, 7.6, (255, 190, 210))
-    m.label(5.0, 7.7, "1")
+        x = 7.95 + k * 0.27
+        wc.prop_rect(m, x, 10.55, x + 0.2, 10.95, (245, 235, 210), density=0.6, ink=0.012)
+        ImageDraw.Draw(m.img).line(m.box(x + 0.1, 10.55, x + 0.1, 10.95), fill=(230, 90, 150), width=3)
+    lantern(m, 9.2, 9.3, (255, 190, 210))
+    m.label(7.0, 10.0, "1")
 
-    # 2. engine room
-    for x, y in [(8.7, 9.6), (8.7, 10.8), (5.2, 10.9)]:
+    # 2. crew quarters + tiny galley
+    for x in (7.9, 8.5, 9.1):
+        hammock(m, x, 11.9, 13.9)
+    for x in (4.9, 5.5):
+        hammock(m, x, 13.3, 14.0)
+    brazier(m, 6.0, 12.0)
+    barrel(m, 4.75, 12.0, 0.15, (90, 90, 100))                                        # the kettle
+    m.label(7.0, 12.9, "2")
+
+    # 3. engine bay
+    for x, y in [(5.0, 14.9), (9.0, 14.9)]:
         battery(m, x, y)
-    table(m, 6.2, 10.4, 7.8, 11.3)
-    wc.prop_rect(m, 6.5, 10.65, 6.95, 10.95, (240, 230, 200), density=0.6, ink=0.012)  # ledger
-    for x in (6.0, 7.0, 8.0):                                                          # three panels that don't match
-        wc.prop_rect(m, x - 0.22, 8.98, x + 0.22, 9.25, (150, 150, 165), density=1.2, ink=0.015)
+    brazier(m, 7.0, 15.3)                                                              # the burner
     d = ImageDraw.Draw(m.img)
-    cx, cy = 8.0, 9.11                                                                 # the spider latch
-    for a in np.linspace(0, 2 * math.pi, 8, endpoint=False):
-        d.line(m.box(cx, cy, cx + 0.13 * math.cos(a), cy + 0.09 * math.sin(a)), fill=(30, 20, 40), width=2)
-    d.ellipse(m.box(cx - 0.05, cy - 0.05, cx + 0.05, cy + 0.05), fill=(30, 20, 40))
-    m.label(7.0, 9.8, "2")
+    for x in (5.6, 8.4):                                                               # pipes up to the rotors
+        d.line(m.box(x, 14.3, x, 15.9), fill=(150, 120, 80), width=8)
+    table(m, 5.9, 14.3, 6.7, 14.8)
+    wc.prop_rect(m, 6.1, 14.42, 6.45, 14.68, (240, 230, 200), density=0.6, ink=0.012)  # ledger
+    wc.prop_ellipse(m, 8.2, 14.4, 0.1, C_BRASS, density=1.2)                           # speaking tube
+    m.label(7.0, 14.65, "3")
 
-    # 3. galley (port, forward of the engine room)
-    table(m, 4.7, 12.0, 5.9, 13.2)
-    brazier(m, 6.1, 11.95)
-    barrel(m, 4.85, 13.35, 0.2)
-    m.label(5.3, 12.6, "3")
+    # 4. hold
+    sky_perch(m, 7.9, 16.3, 9.2, 17.3)
+    crate(m, 7.8, 17.5, 8.9, 18.3), crate(m, 6.4, 18.2, 7.3, 18.9)
+    sandbags(m, 5.4, 18.2)
+    rope_coil(m, 8.3, 18.8, 0.3)
+    roc_perch(m, 7.0, 17.9)
+    m.label(6.2, 19.5, "4")
 
-    # 4. crew bunks
-    for x in (8.0, 8.6, 9.2):
-        hammock(m, x, 11.9, 12.9), hammock(m, x, 13.6, 14.6)
-    for x in (4.9, 5.6):
-        hammock(m, x, 13.85, 14.85)
-    m.label(7.0, 13.8, "4")
+    # 5. brig
+    d = ImageDraw.Draw(m.img)
+    for y in np.arange(16.15, 17.8, 0.22):
+        d.line(m.box(5.85, y, 5.95, y), fill=wc.INK, width=3)
+    d.ellipse(m.box(5.0, 16.8, 5.25, 17.05), outline=wc.INK, width=4)                 # ring bolt
+    m.label(5.1, 16.4, "5")
 
-    # 5-6. hold
-    sky_perch(m, 4.7, 15.3, 5.9, 16.5), sky_perch(m, 8.1, 15.3, 9.3, 16.5)
-    crate(m, 7.9, 16.8, 9.0, 17.7)
-    for x, y in [(6.6, 15.5), (7.3, 15.6), (6.95, 16.1)]:
-        barrel(m, x, y, 0.25, (150, 60, 40))                                          # sealed casks
-    wc.prop_rect(m, 5.1, 16.9, 6.3, 17.9, (60, 45, 40), density=1.8)                  # drop doors
-    ImageDraw.Draw(m.img).line(m.box(5.7, 16.95, 5.7, 17.85), fill=C_BRASS, width=5)
-    m.label(7.0, 17.0, "5"), m.label(5.7, 18.25, "6")
-
-    # 7. fore peak
-    barrel(m, 6.3, 19.2, 0.3, (110, 100, 100)), barrel(m, 7.7, 19.1, 0.25, (180, 160, 110))
-    m.label(7.0, 19.9, "7")
-
-    lantern(m, 7.0, 12.2, C_SPARK), lantern(m, 7.0, 14.6, C_SPARK)
-    ladder(m, *STERN_LADDER)
+    lantern(m, 7.0, 13.6, C_SPARK)
+    for b in LADDERS:
+        ladder(m, *b)
     hatch_grate(m, *CARGO_HATCH)
+    m.gm_extra = [spider_panel]
+    m.label(7.85, 16.05, "6")
     return m
 
 
@@ -369,7 +446,10 @@ def render(name, m):
     tag = f"airship_{name}"
     base.save(f"{OUT}/{tag}_vtt_gridless.png")
     gridded.save(f"{OUT}/{tag}_gridded.png")
-    gm = with_coords(gm_labels(m, gridded), PPS)
+    gm_img = gridded.copy()
+    for f in getattr(m, "gm_extra", []):
+        f(gm_img, m)
+    gm = with_coords(gm_labels(m, gm_img), PPS)
     gm.save(f"{OUT}/{tag}_gm.png")
     n = print_tiles(gridded, PPS, f"{OUT}/{tag}_print_1inch.pdf")
     print(f"  [{name}] wrote gridless, gridded, gm, and {n}-page print PDF")
@@ -386,7 +466,7 @@ def main():
     both = Image.new("RGB", (a.width + b.width, a.height), (245, 240, 228))
     both.paste(a, (0, 0)), both.paste(b, (a.width, 0))
     both.save(f"{OUT}/airship_gm_both.png")
-    for title, key in (("TOP DECK", KEY_TOP), ("INTERIOR", KEY_UNDER)):
+    for title, key in (("UPPER DECK", KEY_TOP), ("LOWER DECK", KEY_UNDER)):
         print(f"  {title}")
         for k, name, note in key:
             print(f"   {k:>2}  {name:<20} {note[:70]}")

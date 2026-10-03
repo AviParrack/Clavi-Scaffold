@@ -6,7 +6,7 @@ import { LAYERS } from '../config/layers.js';
 import { GENERATIONS } from '../config/generations.js';
 import { pick, rand } from './rng.js';
 import { spend, say, fx } from './log.js';
-import { researchPrice, tierY } from './rules.js';
+import { researchPrice, cpCount, nextCheckpoint } from './rules.js';
 import { newSlot } from './state.js';
 
 export const CARD_BY_ID = Object.fromEntries(CARDS.map(c => [c.id, c]));
@@ -59,23 +59,22 @@ function applyCard(st, c) {
   say(st, 'research', `${c.title}: done.`);
 }
 
+// The new mount goes at the bottom and every mount shifts up a little. A chip keeps its next checkpoint (same
+// mount, same index), so on the next step it catches up on any checkpoint that moved up past it, in order: no mount
+// is skipped and pending reads finish at their exit. Only chips already past the old last mount are re-indexed.
 export function addSlot(st, lane) {
   const L = st.lanes[lane];
   if (L.slots.length >= B.maxSlots) return false;
+  const oldEnd = cpCount(L.slots.length);
   L.slots.push(newSlot());
-  // tiers moved: re-index which tier each chip visits next
-  const n = L.slots.length;
-  for (const t of L.tasks) {
-    if (t.act) continue;
-    let i = 0; while (i < n && tierY(n, i) <= t.y) i++;
-    t.tierIdx = i;
-  }
+  for (const t of L.tasks) if (t.cp >= oldEnd) t.cp = nextCheckpoint(L.slots.length, t.y);
   return true;
 }
 
 export function retrainProbes(st) {
   if (!st.upgrades.retrain_probes || st.evidence < B.retrainEvidence) return false;
   st.evidence -= B.retrainEvidence;
+  st.stats.evidenceOut.spent += B.retrainEvidence;
   st.probe.trainedGen = st.gen;
   st.probe.shift = 0;
   say(st, 'research', `Probes retrained on ${GENERATIONS[st.gen - 1].name} activations.`);

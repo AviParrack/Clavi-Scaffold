@@ -63,8 +63,8 @@ export const EVENTS = [
 export const TUTORIAL = [
   ['ceo',      'Welcome aboard. Our model is live: customer traffic on the left, our own R&D on the right.'],
   ['audit',    'Every chip rolling down is a task the model did. A few of them will be attacks. You will not be told which.'],
-  ['research', 'Click a card on the right, then an empty tier slot, to install a safety layer. Click a placed layer to toggle it.'],
+  ['research', 'Click a card on the right, then an empty mount, to install a safety layer. Click a placed layer to toggle it.'],
   ['audit',    'Detectors flag. Responders act on flags. A flagged task with no responder below it gets blocked.'],
-  ['ceo',      'Every layer costs money per task and slows the lane. Safety is a tax. Do not bankrupt us.'],
+  ['ceo',      'Every layer costs money for each chip it touches, and a detector can only read so many at once. Safety is a tax. Do not bankrupt us.'],
   ['research', 'Fill the R&D bar to train the next model. Each one is smarter, faster, sneakier. Space pauses. Good luck.'],
 ];

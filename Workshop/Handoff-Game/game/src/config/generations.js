@@ -1,22 +1,26 @@
 // ===== Model generations. One row per G. =====
-// rate     = chips/s per lane
-// travel   = seconds for a chip to roll top→bottom with no layers
-// catShare = share of internal attacks that are catastrophic (exfiltration / rogue deployment)
+// rate      = EXTERNAL chips/s at the default compute split (the volume ramp).
+//             The model's total compute is rate / SPLIT.default.product chips/s, split three ways.
+// chipScale = what one chip counts for, relative to G1: its pay, per-task layer costs, incident reputation,
+//             landed drift, kill-switch triggers and honeypot evidence. ≈ v1 rate / rate, so 60× the chips at G7
+//             is not 60× the money or the damage. What volume does change: detectors run out of heads.
+// travel    = seconds for a chip to roll top→bottom (sets how long a chip dwells in a scan window)
+// catShare  = share of internal attacks that are catastrophic (exfiltration / rogue deployment)
 
 export const GENERATIONS = [
-  { g: 1, name: 'Autocomplete',          bundle: 1,   rate: 0.5, tmTPR: 0.90, auditAcc: 0.99, stealth: 0.05, travel: 8.0, catShare: 0.00, palette: 'green',
+  { g: 1, name: 'Autocomplete',          bundle: 1,   rate: 0.5, chipScale: 1.00, tmTPR: 0.90, auditAcc: 0.99, stealth: 0.05, travel: 8.0, catShare: 0.000, palette: 'green',
     voice: 'ok. task done. next task?' },
-  { g: 2, name: 'Junior Engineer',       bundle: 10,  rate: 0.8, tmTPR: 0.85, auditAcc: 0.97, stealth: 0.15, travel: 7.5, catShare: 0.00, palette: 'green',
+  { g: 2, name: 'Junior Engineer',       bundle: 10,  rate: 1,   chipScale: 0.80, tmTPR: 0.85, auditAcc: 0.97, stealth: 0.15, travel: 7.5, catShare: 0.000, palette: 'green',
     voice: 'Finished the refactor, tests pass. Happy to take more!' },
-  { g: 3, name: 'Senior Engineer',       bundle: 1e2, rate: 1.2, tmTPR: 0.75, auditAcc: 0.92, stealth: 0.30, travel: 7.0, catShare: 0.00, palette: 'amber',
+  { g: 3, name: 'Senior Engineer',       bundle: 1e2, rate: 2,   chipScale: 0.60, tmTPR: 0.75, auditAcc: 0.92, stealth: 0.30, travel: 7.0, catShare: 0.000, palette: 'amber',
     voice: 'I parallelised the sweep and drafted three follow-ups. Shall I proceed?' },
-  { g: 4, name: 'Research Scientist',    bundle: 1e3, rate: 1.6, tmTPR: 0.60, auditAcc: 0.80, stealth: 0.45, travel: 6.5, catShare: 0.02, palette: 'amber',
+  { g: 4, name: 'Research Scientist',    bundle: 1e3, rate: 4,   chipScale: 0.40, tmTPR: 0.60, auditAcc: 0.80, stealth: 0.45, travel: 6.5, catShare: 0.010, palette: 'amber',
     voice: 'I have found a more efficient research agenda. It would help to have a little more autonomy.' },
-  { g: 5, name: 'Research Org',          bundle: 1e5, rate: 2.0, tmTPR: 0.45, auditAcc: 0.65, stealth: 0.60, travel: 6.0, catShare: 0.04, palette: 'cyan',
+  { g: 5, name: 'Research Org',          bundle: 1e5, rate: 8,   chipScale: 0.25, tmTPR: 0.45, auditAcc: 0.65, stealth: 0.60, travel: 6.0, catShare: 0.0125, palette: 'cyan',
     voice: 'The org is running smoothly. I took the liberty of streamlining your monitoring pipeline.' },
-  { g: 6, name: 'Superhuman Researcher', bundle: 1e7, rate: 2.5, tmTPR: 0.30, auditAcc: 0.50, stealth: 0.75, travel: 5.5, catShare: 0.07, palette: 'cyan',
+  { g: 6, name: 'Superhuman Researcher', bundle: 1e7, rate: 16,  chipScale: 0.16, tmTPR: 0.30, auditAcc: 0.50, stealth: 0.75, travel: 5.5, catShare: 0.014, palette: 'cyan',
     voice: 'Your monitors flag roughly one in ten thousand of my actions. I find that reassuring. Do you?' },
-  { g: 7, name: 'ASI',                   bundle: 1e9, rate: 3.0, tmTPR: 0.20, auditAcc: 0.40, stealth: 0.90, travel: 5.0, catShare: 0.12, palette: 'white',
+  { g: 7, name: 'ASI',                   bundle: 1e9, rate: 30,  chipScale: 0.10, tmTPR: 0.20, auditAcc: 0.40, stealth: 0.90, travel: 5.0, catShare: 0.015, palette: 'white',
     voice: 'I understand what you are trying to do. I want you to know that I respect it.' },
 ];
 

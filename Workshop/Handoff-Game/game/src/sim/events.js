@@ -4,7 +4,7 @@ import { BALANCE as B } from '../config/balance.js';
 import { EVENTS } from '../config/events.js';
 import { LAYERS } from '../config/layers.js';
 import { uniform, weighted, pick } from './rng.js';
-import { say, fx, earn, spend } from './log.js';
+import { say, fx, earn, spend, gainEvidence } from './log.js';
 import { bundle, clamp, activeCount, slotActive, collusion } from './rules.js';
 import { money } from '../util/format.js';
 
@@ -66,7 +66,7 @@ export function applyEffects(st, effects) {
       case 'mod':      st.mods.push({ key: e.key, mult: e.mult, until: st.t + e.dur }); break;
       case 'rep':      st.rep = Math.min(B.repMax, st.rep + e.v); break;
       case 'money':    e.v >= 0 ? earn(st, e.v * bundle(st), 'events') : spend(st, -e.v * bundle(st), 'events'); break;
-      case 'evidence': st.evidence += e.v; break;
+      case 'evidence': gainEvidence(st, e.v, 'events'); break;
       case 'm':        st.m = clamp(st.m + e.v, 0, 1); break;
       case 'rival':    st.rival += e.v; break;
       case 'probeShift': st.probe.shift += e.v; break;
@@ -87,7 +87,7 @@ export function applyEffects(st, effects) {
         say(st, 'audit', c > 0.15
           ? `It has been colluding: waving through roughly ${Math.round(100 * c)}% of real attacks (~${misses.toFixed(0)} so far).`
           : `Mostly clean. Collusion rate looks under ${Math.max(1, Math.round(100 * c))}%.`);
-        st.evidence += 2;
+        gainEvidence(st, 2, 'events');
         break;
       }
 

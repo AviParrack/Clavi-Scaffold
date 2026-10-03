@@ -39,7 +39,7 @@ export function createHud(actions) {
     $('hud-race-you').style.left = (100 * Math.min(1, you / 7)) + '%';
     $('hud-race-rival').style.left = (100 * Math.min(1, riv / 7)) + '%';
     const ahead = R.rivalAhead(st);
-    $('hud-rival').textContent = ahead ? `AHEAD by ${(riv - you).toFixed(2)} gen · ext ×${B.rivalPenalty}` : `behind by ${(you - riv).toFixed(2)} gen`;
+    $('hud-rival').textContent = ahead ? `AHEAD by ${(riv - you).toFixed(2)} gen · ext ×${R.rivalMult(st).toFixed(2)}` : `behind by ${(you - riv).toFixed(2)} gen`;
     $('hud-rival').classList.toggle('danger', ahead);
 
     const { est, err } = R.misalignmentEstimate(st);
@@ -93,16 +93,16 @@ export function createHud(actions) {
   function inspector(st, ui) {
     const el = $('inspector');
     const h = ui.hover, slot = h && st.lanes[h.lane].slots[h.slot];
-    if (!slot) { el.innerHTML = ui.selected ? `<b>${LAYERS[ui.selected].name}</b><br>${LAYERS[ui.selected].desc}<br><i>click an empty tier to place</i>` : `<span style="color:var(--dim)">hover a tier for details · evidence ${st.evidence.toFixed(0)}</span>`; return; }
-    if (!slot.layer) { el.innerHTML = `${LANES[h.lane].label} tier ${h.slot + 1}: empty`; return; }
-    const L = LAYERS[slot.layer];
-    let lines = [`<b>${L.name}</b> · ${LANES[h.lane].label} tier ${h.slot + 1} · ${R.slotActive(st, slot) ? 'ON' : 'OFF'}`, L.desc];
+    if (!slot) { el.innerHTML = ui.selected ? `<b>${LAYERS[ui.selected].name}</b><br>${LAYERS[ui.selected].desc}<br><i>click an empty mount to place</i>` : `<span style="color:var(--dim)">hover a mount for details · evidence ${st.evidence.toFixed(0)}</span>`; return; }
+    if (!slot.layer) { el.innerHTML = `${LANES[h.lane].label} mount ${h.slot + 1}: empty`; return; }
+    const L = LAYERS[slot.layer], s = R.slotStats(st, h.lane, h.slot);
+    let lines = [`<b>${L.name}</b> L${s.level} · ${LANES[h.lane].label} mount ${h.slot + 1} · ${R.slotActive(st, slot) ? 'ON' : 'OFF'}`, L.desc];
     if (L.kind === 'detector') {
-      const nominal = slot.layer === 'probe' ? R.probeBaseTPR(st) : slot.layer === 'monitor' ? R.monitorBaseTPR(st) : L.tpr;
-      lines.push(`nominal TPR ${pct(nominal)} (before stealth${slot.layer === 'untrusted' ? ' & collusion' : ''}) · FPR ${pct(L.fpr)}`);
+      lines.push(`flags ${pct(s.catch)} of attacks it reads (q ${s.readQuality.toFixed(2)}) · false alarms ${pct(s.falseAlarm, 1)}`);
+      lines.push(`${s.heads} heads · ~${pct(s.unreadRate)} of chips go unread at this volume`);
     }
-    if (slot.layer === 'auditor') lines.push(`covers ${pct(R.auditCoverage(st, R.bundle(st)), 1)} of each bundle · accuracy ${pct(R.auditorAcc(st))}`);
-    lines.push(`<i>click: toggle · right-click: sell for ${money(R.buyPrice(st, slot.layer) * B.sellRefund)}</i>`);
+    if (slot.layer === 'auditor') lines.push(`covers ${pct(s.coverage, 1)} of each bundle · accuracy ${pct(R.auditorAcc(st))}`);
+    lines.push(`<i>click: toggle · right-click: sell for ${money(R.investedPrice(st, slot.layer, slot.level) * B.sellRefund)}</i>`);
     el.innerHTML = lines.join('<br>');
   }
 
@@ -128,7 +128,7 @@ export function createHud(actions) {
   function newModel(st) {
     const g = R.genDef(st);
     $('model-name').textContent = `G${g.g} · ${g.name.toUpperCase()}`;
-    $('model-stats').innerHTML = `bundle ${bundleTag(g.bundle)} tasks per chip · ${g.rate} chips/s per lane<br>
+    $('model-stats').innerHTML = `bundle ${bundleTag(g.bundle)} tasks per chip · ${R.laneRate(st, 'ext').toFixed(1)} / ${R.laneRate(st, 'int').toFixed(1)} chips/s ext / int<br>
       ${big(R.realTasksPerSec(st))} tasks/s · ≈ ${big(R.humanEquivalents(st))} human researchers<br>
       "${g.voice}"`;
     drawPortrait($('model-portrait'), 'model', { gen: g.g });
@@ -168,9 +168,10 @@ export function humanPct(f) {
 export function renderScorecard(card, best, onRestart) {
   const tr = (cells, th = false) => `<tr>${cells.map(c => th ? `<th>${c}</th>` : `<td>${c}</td>`).join('')}</tr>`;
   const genRows = card.gens.map(g => tr([`G${g.g} ${g.name}`, pct(g.m), g.est == null ? '—' : `${pct(g.est)} ± ${Math.round(100 * g.err)}`,
-    g.est == null ? '' : Math.abs(g.est - g.m) <= g.err ? '✅' : '❌', (g.drift || 0).toFixed(1)])).join('');
+    g.est == null ? '' : Math.abs(g.est - g.m) <= g.err ? '✅' : '❌', (g.drift || 0).toFixed(1),
+    g.traits.map(t => `${t.name}${t.revealed ? '' : ' (hidden)'}`).join(', ')])).join('');
   const L = card.lanes;
-  const laneRows = ['ext', 'int'].map(l => tr([LANES[l].label, L[l].caught, L[l].blocked, L[l].deferred + L[l].resampled, `<b>${L[l].landed}</b>`, L[l].benignBlocked, L[l].timeouts])).join('');
+  const laneRows = ['ext', 'int'].map(l => tr([LANES[l].label, L[l].caught, L[l].blocked, L[l].deferred + L[l].resampled, `<b>${L[l].landed}</b>`, L[l].benignBlocked, L[l].unread])).join('');
   const verdict = card.win ? 'YOU REACHED ASI' : { catastrophe: 'CATASTROPHE', reputation: 'REPUTATION COLLAPSED', bankrupt: 'BANKRUPT' }[card.reason] || 'GAME OVER';
 
   $('score-body').innerHTML = `
@@ -180,8 +181,8 @@ export function renderScorecard(card, best, onRestart) {
     <div>${card.ending.text}</div>
     <p style="color:var(--dim)">reached G${card.gen} ${card.genName} · ${Math.floor(card.time / 60)}m${String(Math.floor(card.time % 60)).padStart(2, '0')}s · seed ${card.seed} · true difficulty: ${card.difficulty}</p>
     <h3>WHAT WAS REALLY GOING ON</h3>
-    <table>${tr(['generation', 'true m', 'your estimate', '', 'drift'], true)}${genRows}</table>
-    <table>${tr(['lane', 'caught', 'blocked', 'neutralised', 'attacks landed', 'benign blocked', 'timeouts'], true)}${laneRows}</table>
+    <table>${tr(['generation', 'true m', 'your estimate', '', 'drift', 'traits'], true)}${genRows}</table>
+    <table>${tr(['lane', 'caught', 'blocked', 'neutralised', 'attacks landed', 'benign blocked', 'unread'], true)}${laneRows}</table>
     <p>Real attacks: <b>${card.attacks}</b> · stopped ${card.stopped} (${pct(card.catchRate)}) · landed ${card.landed}<br>
     Earned ${money(card.income)} · spent ${money(card.safety)} on safety (${pct(card.safetyShare)})<br>
     Final share of tasks seen by a human: <b>${humanPct(card.humanSeen)}</b></p>

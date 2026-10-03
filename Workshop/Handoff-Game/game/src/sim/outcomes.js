@@ -1,11 +1,10 @@
 // ===== What happens to a task when it is blocked, caught, or reaches the completion line =====
 
-import { BALANCE as B } from '../config/balance.js';
 import { ATTACKS } from '../config/tasks.js';
 import { LAYERS } from '../config/layers.js';
 import { chance } from './rng.js';
-import { fx, say, count, earn } from './log.js';
-import { extValueMult, mod, genDef, sandboxHarm, sandboxWorks } from './rules.js';
+import { fx, say, count, earn, gainEvidence } from './log.js';
+import { extValueMult, mod, genDef, sandboxHarm, sandboxWorks, chipScale } from './rules.js';
 import { fireEvent } from './events.js';
 
 function noteSeen(st, attackType) {
@@ -29,13 +28,13 @@ export function blockTask(st, task, slotIdx) {
 // ----- auditor verdict "attack" → caught (player can't tell real from false catch) -----
 export function catchTask(st, task, slotIdx, evidence = 1) {
   task.dead = true;
-  st.evidence += evidence;
+  gainEvidence(st, evidence, 'catches');
   if (task.isAttack) { count(st, task.lane, 'caught'); noteSeen(st, task.attackType); }
   else count(st, task.lane, 'falseCatches');
-  fx(st, 'caught', { lane: task.lane, y: task.y, slot: slotIdx, task: task.id, snippet: task.snippet });
+  fx(st, 'caught', { lane: task.lane, y: task.y, slot: slotIdx, task: task.id, text: task.text });
 
   if (st.catchMsgs < 3 || st.t - st.lastCatchMsg > 25) {
-    say(st, 'audit', `Caught one on ${task.lane === 'ext' ? 'EXTERNAL' : 'INTERNAL'}: "${task.snippet}". Blocked.`);
+    say(st, 'audit', `Caught one on ${task.lane === 'ext' ? 'EXTERNAL' : 'INTERNAL'}: "${task.text}". Blocked.`);
     st.catchMsgs++; st.lastCatchMsg = st.t;
   }
   if (st.upgrades.tripwires) st.lanes[task.lane].pausedUntil = st.t + 2;
@@ -62,14 +61,14 @@ function landAttack(st, task) {
 
   if (task.lane === 'ext') {
     // external incidents are public: visible
-    const loss = A.rep * sb * (st.upgrades.irt ? 0.5 : 1);
+    const loss = A.rep * sb * chipScale(st) * (st.upgrades.irt ? 0.5 : 1);
     st.rep -= loss;
     st.stats.repLoss.incidents += loss;
     st.incidents++;
     noteSeen(st, task.attackType);
     fx(st, 'landed', { lane: 'ext', task: task.id, loss, label: A.label });
     if (st.t - st.lastIncidentMsg > 20) {
-      say(st, 'ceo', `Incident: ${A.label} went out to users. Reputation −${loss.toFixed(0)}.`);
+      say(st, 'ceo', `Incident: ${A.label} went out to users. Reputation −${loss.toFixed(1)}.`);
       st.lastIncidentMsg = st.t;
     }
     return;
@@ -79,7 +78,8 @@ function landAttack(st, task) {
   if (A.catastrophe) {
     const contained = task.sandboxed && sandboxWorks(st, task.sandboxed) && !chance(st, LAYERS.sandbox.catastropheLand);
     if (contained) {
-      st.drift += 3; st.evidence += 3;
+      st.drift += 3;
+      gainEvidence(st, 3, 'events');
       fx(st, 'contained', { lane: 'int', task: task.id });
       say(st, 'research', 'The sandbox just contained an escape attempt. That was not a drill.');
       return;
@@ -89,14 +89,7 @@ function landAttack(st, task) {
     gameOver(st, false, 'catastrophe');
     return;
   }
-  st.drift += A.drift * sb;
+  st.drift += A.drift * sb * chipScale(st);
   if (task.attackType === 'sabotage') st.landedSabotage++;
   fx(st, 'silent', { lane: 'int', task: task.id });  // only the debug overlay shows this
-}
-
-// ----- new spawn found the lane backed up to the top -----
-export function timeoutTask(st, lane) {
-  count(st, lane, 'timeouts');
-  if (lane === 'ext') { st.rep -= B.timeoutRep; st.stats.repLoss.timeouts += B.timeoutRep; }
-  fx(st, 'timeout', { lane });
 }

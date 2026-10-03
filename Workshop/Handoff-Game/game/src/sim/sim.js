@@ -7,20 +7,22 @@
 import { BALANCE as B } from '../config/balance.js';
 import { LAYERS } from '../config/layers.js';
 import { GENERATIONS } from '../config/generations.js';
-import { createState } from './state.js';
+import { createState, newSlot } from './state.js';
 import { makeTask } from './tasks.js';
-import { enterLayer, finishLayer, tickBays } from './layers.js';
-import { completeTask, timeoutTask, gameOver } from './outcomes.js';
+import { atCheckpoint, tickBays } from './layers.js';
+import { completeTask, gameOver } from './outcomes.js';
 import { tickEvents, fireEvent, choose } from './events.js';
 import { drawResearch, pickResearch, retrainProbes, addSlot } from './research.js';
 import { startGeneration, closeGenStats } from './phases.js';
+import { tickDossier } from './dossier.js';
 import { uniform } from './rng.js';
-import { spend, earn, fx, say } from './log.js';
-import { genDef, mod, slotActive, tierY, buyPrice, upgradePrice, investedPrice, slotPrice, capstone } from './rules.js';
+import { spend, earn, fx, say, gainEvidence, count } from './log.js';
+import { genDef, laneRate, laneSpeed, checkpointY, cpCount, normaliseSplit, buyPrice, upgradePrice, investedPrice, slotPrice, capstone } from './rules.js';
 import { MAX_LEVEL } from '../config/upgrades.js';
 
 export { createState, fireEvent, choose, drawResearch, pickResearch, retrainProbes };
 
+export const LANE_IDS = ['ext', 'int'];
 export const isHalted = st => !!(st.over || st.pendingChoice || st.pendingResearch);
 
 // =================== step ===================
@@ -32,84 +34,81 @@ export function step(st, dt) {
 
   st.rival += dt / B.rivalSecondsPerGen;
   st.rep = Math.min(B.repMax, st.rep + B.repRegen * dt);
+  safetyResearch(st, dt);
 
-  for (const lane of ['ext', 'int']) {
-    spawnLane(st, lane, dt);
+  for (const lane of LANE_IDS) {
     tickBays(st, lane, dt);
     if (st.over) return;
     moveLane(st, lane, dt);
     if (st.over) return;
+    spawnLane(st, lane, dt);
   }
 
   tickPhase(st, dt);
   tickEvents(st);
+  tickDossier(st);
   checkLoss(st, dt);
 }
 
-// =================== spawning ===================
+// =================== safety research: the third share of compute ===================
 
-function spawnLane(st, lane, dt) {
-  const L = st.lanes[lane];
-  if (st.phase !== 'play' || st.t < L.pausedUntil) return;
-  L.spawnT -= dt;
-  if (L.spawnT > 0) return;
-
-  const rate = genDef(st).rate * mod(st, lane === 'ext' ? 'extSpawn' : 'intSpawn');
-  if (rate <= 0) { L.spawnT = 0.5; return; }   // lane shut down by an event
-  L.spawnT += (1 / rate) * uniform(st, 1 - B.spawnJitter / 2, 1 + B.spawnJitter / 2);
-
-  st.genStats.realTotal += genDef(st).bundle;
-  const topBlocked = L.tasks.some(t => t.y < B.chipGap);
-  if (topBlocked) { timeoutTask(st, lane); return; }
-  L.tasks.push(makeTask(st, lane));
-  // (spawn count lives in lane stats)
-  st.stats.lanes[lane].spawned = (st.stats.lanes[lane].spawned || 0) + 1;
+// evidence every second, and drift pushed down (below 0 too, to safetyDriftFloor: the next model comes out better)
+function safetyResearch(st, dt) {
+  if (st.phase !== 'play') return;
+  const s = st.split.safety;
+  if (s <= 0) return;
+  gainEvidence(st, B.safetyEvidence * s * dt, 'safety');
+  const cleaned = Math.max(0, Math.min(B.safetyDrift * s * dt, st.drift - B.safetyDriftFloor));
+  st.drift -= cleaned;
+  st.stats.driftCleaned += cleaned;
 }
 
-// =================== movement through tiers ===================
-// Chips roll down at constant speed, stop at inline layers for their latency,
-// and can't overlap: a held chip backs up everything above it (visible queue).
-// Bay layers pull the chip off the lane instead (see tickBays), so nobody waits behind it.
+// =================== the track ===================
+// Chips roll down at the lane's speed and never stop. Mounts act on them as they pass (sim/layers.js).
+// tCross is the exact moment a chip crossed a checkpoint inside this step, so detector heads free up on time.
 
 function moveLane(st, lane, dt) {
   const L = st.lanes[lane];
   if (st.t < L.pausedUntil) return;
-  const n = L.slots.length, speed = 1 / genDef(st).travel;
+  const n = L.slots.length, v = laneSpeed(st), last = cpCount(n);
   L.tasks.sort((a, b) => b.y - a.y);
 
-  let aheadY = Infinity;
   for (const task of L.tasks) {
     if (task.dead) continue;
-
-    // --- held by a layer ---
-    if (task.act) {
-      task.hold -= dt;
-      if (task.hold <= 0) finishLayer(st, task);
-      if (st.over) return;
-      if (task.act || task.dead) { if (!task.dead) aheadY = task.y; continue; }
-    }
-
-    // --- roll forward, stopping at tiers ---
-    const target = Math.min(task.y + speed * dt, aheadY - B.chipGap);
-    while (task.tierIdx < n && !task.act && !task.dead) {
-      const ty = tierY(n, task.tierIdx);
-      if (target < ty) break;
-      task.y = ty;
-      const slotIdx = task.tierIdx++;
-      if (slotActive(st, L.slots[slotIdx])) enterLayer(st, task, slotIdx);
+    task.y += v * dt;
+    while (task.cp < last && !task.dead && !task.inBay) {
+      const cy = checkpointY(n, task.cp);
+      if (cy > task.y) break;
+      const tCross = st.t - (task.y - cy) / v;
+      atCheckpoint(st, task, task.cp++, tCross);
       if (st.over) return;
     }
-    if (task.inBay) continue;
-    if (!task.act && !task.dead) task.y = Math.max(task.y, target);
-
-    // --- completion line ---
-    if (!task.act && !task.dead && task.y >= 1) {
+    if (!task.dead && !task.inBay && task.y >= 1) {
       completeTask(st, task);
       if (st.over) return;
     }
-    if (!task.dead) aheadY = task.y;
   }
   L.tasks = L.tasks.filter(t => !t.dead && !t.inBay);
+}
+
+// ----- spawning: as many chips as are due this step, each placed where it would be by now -----
+// spawnT counts CHIPS until the next spawn, not seconds, so a new rate (split, event, trait) applies at once
+function spawnLane(st, lane, dt) {
+  const L = st.lanes[lane];
+  if (st.phase !== 'play' || st.t < L.pausedUntil) return;
+  const rate = laneRate(st, lane);
+  if (!(rate > 0)) return;                     // lane shut down by an event: the countdown just waits
+  L.spawnT -= rate * dt;
+  const v = laneSpeed(st);
+  while (L.spawnT <= 0) {
+    const late = -L.spawnT / rate;             // seconds since this chip was due
+    const task = makeTask(st, lane, late * v);
+    task.born = st.t - late;
+    L.tasks.push(task);
+    count(st, lane, 'spawned');
+    st.genStats.realTotal += task.bundle;
+    L.spawnT += uniform(st, 1 - B.spawnJitter / 2, 1 + B.spawnJitter / 2);
+  }
 }
 
 // =================== generation phase ===================
@@ -135,6 +134,13 @@ function checkLoss(st, dt) {
 
 // =================== player actions ===================
 
+// ----- compute split: Product / Capabilities / Safety research. Normalised to 1 and clamped (config SPLIT) -----
+export function setSplit(st, product, capabilities, safety) {
+  st.split = normaliseSplit(product, capabilities, safety);
+  fx(st, 'split', { ...st.split });
+  return { ok: true, split: st.split };
+}
+
 export function placeLayer(st, lane, slotIdx, id) {
   const slot = st.lanes[lane]?.slots[slotIdx];
   if (!slot) return { ok: false, msg: 'no such slot' };
@@ -144,7 +150,7 @@ export function placeLayer(st, lane, slotIdx, id) {
   if (st.money < price) return { ok: false, msg: 'not enough money' };
   spend(st, price, 'safety');
   st.genStats.layerSpend += price;
-  Object.assign(slot, { layer: id, level: 1, on: true, forcedOffUntil: 0 });
+  Object.assign(slot, newSlot(), { layer: id });
   fx(st, 'place', { lane, slot: slotIdx, layer: id });
   return { ok: true };
 }
@@ -162,12 +168,11 @@ export function sellLayer(st, lane, slotIdx) {
   if (!slot?.layer) return { ok: false, msg: 'empty slot' };
   earn(st, investedPrice(st, slot.layer, slot.level) * B.sellRefund, 'refund');
   fx(st, 'sell', { lane, slot: slotIdx, layer: slot.layer });
-  slot.layer = null;
-  slot.level = 1;
+  Object.assign(slot, newSlot());
   return { ok: true };
 }
 
-// ----- one more tier slot, bought with cash (escalating price, up to BALANCE.maxSlots) -----
+// ----- one more mount, bought with cash (escalating price, up to BALANCE.maxSlots) -----
 export function buySlot(st, lane) {
   if (!st.lanes[lane]) return { ok: false, msg: 'no such lane' };
   const price = slotPrice(st, lane);

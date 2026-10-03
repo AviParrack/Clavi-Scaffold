@@ -1,6 +1,7 @@
 // ===== End-of-run scorecard: reveals what was really going on =====
 
 import { GENERATIONS } from '../config/generations.js';
+import { TRAITS } from '../config/traits.js';
 import { humanSeenFrac } from './rules.js';
 
 const ENDINGS = {
@@ -24,7 +25,7 @@ export function scorecard(st) {
       caught: s.caught || 0, blocked: s.blocked || 0, landed: s.landed || 0,
       deferred: s.deferredAttacks || 0, resampled: s.resampledAttacks || 0,
       benignBlocked: (s.benignBlocked || 0) + (s.falseCatches || 0),
-      completed: s.completed || 0, timeouts: s.timeouts || 0,
+      completed: s.completed || 0, unread: s.unread || 0,
     };
   }
   const stopped = sum(lanes, 'caught') + sum(lanes, 'blocked') + sum(lanes, 'deferred') + sum(lanes, 'resampled');
@@ -36,7 +37,11 @@ export function scorecard(st) {
   const safety = -((st.ledger.byCat.safety || 0) + (st.ledger.byCat.research || 0));
   const safetyShare = income > 0 ? safety / income : 0;
 
-  const gens = st.stats.gens.map(g => ({ g: g.g, name: g.name, m: g.m, est: g.est, err: g.err, drift: g.drift }));
+  // every trait of every generation, revealed by the dossier or not
+  const gens = st.stats.gens.map(g => ({
+    g: g.g, name: g.name, m: g.m, est: g.est, err: g.err, drift: g.drift,
+    traits: g.traits.map((id, k) => ({ id, name: TRAITS[id].name, gift: !!TRAITS[id].gift, revealed: g.revealed[k] })),
+  }));
   const estHits = gens.filter(g => g.est != null && Math.abs(g.est - g.m) <= g.err).length;
 
   // ----- ending -----

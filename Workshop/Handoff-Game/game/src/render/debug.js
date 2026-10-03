@@ -29,13 +29,20 @@ export function createDebug(actions) {
     const lines = [
       `DEBUG  seed ${st.seed}  t ${st.t.toFixed(1)}s  phase ${st.phase}  difficulty ${st.trueDifficulty}`,
       `true m ${st.m.toFixed(3)}   est ${est.toFixed(3)} ± ${err.toFixed(3)}   drift ${st.drift.toFixed(1)}`,
-      `attack rate/task ${R.attackRate(st).toFixed(3)}   catastrophic share ${R.genDef(st).catShare}`,
+      `attack chance/chip ext ${R.attackChance(st, 'ext').toFixed(3)} int ${R.attackChance(st, 'int').toFixed(3)}   catastrophic share ${R.genDef(st).catShare}`,
       `rd ${st.rd.toFixed(1)}/${st.rdNeed}  rival ${st.rival.toFixed(2)} vs ${R.playerProgress(st).toFixed(2)}`,
-      `evidence ${st.evidence.toFixed(1)}  incidents ${st.incidents}  sleeper ${st.landedSabotage}`,
-      '', 'live TPR (with stealth+collusion) / FPR per lane:',
+      `evidence ${st.evidence.toFixed(1)} (on this model ${st.dossier.evidence.toFixed(1)})  incidents ${st.incidents}  sleeper ${st.landedSabotage}`,
+      `traits ${st.traits.join(', ')}   split P ${st.split.product.toFixed(2)} C ${st.split.capabilities.toFixed(2)} S ${st.split.safety.toFixed(2)}`,
+      `chips/s ext ${R.laneRate(st, 'ext').toFixed(1)} int ${R.laneRate(st, 'int').toFixed(1)}   dwell ${R.scanDwell(st).toFixed(2)}s`,
+      '', 'live per read, × q (catch / false alarm / unread estimate), placed level or L1:',
     ];
     for (const id of ['probe', 'monitor', 'untrusted']) {
-      lines.push(`  ${LAYERS[id].tag.padEnd(4)} ext ${R.detectorTPR(st, 'ext', id).toFixed(2)}  int ${R.detectorTPR(st, 'int', id).toFixed(2)}  fpr ${LAYERS[id].fpr}`);
+      const cols = ['ext', 'int'].map(lane => {
+        const level = st.lanes[lane].slots.find(s => s.layer === id)?.level ?? 1;
+        const s = R.elementStats(st, id, { lane, level });
+        return `${lane} L${level} ${s.catch.toFixed(2)}/${s.falseAlarm.toFixed(3)}/${(100 * s.unreadRate).toFixed(0)}%`;
+      });
+      lines.push(`  ${LAYERS[id].tag.padEnd(4)} ${cols.join('   ')}`);
     }
     lines.push(`  AUD  coverage ${R.auditCoverage(st, R.bundle(st)).toExponential(1)}  acc ${R.auditorAcc(st).toFixed(2)}`);
     lines.push('', 'measured (attacks flagged/seen · benign flagged/seen):');

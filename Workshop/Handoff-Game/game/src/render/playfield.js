@@ -1,10 +1,9 @@
-// ===== Playfield: lanes, tiers, chips, effects. Reads state, never writes it. =====
+// ===== Playfield: lanes, mounts, chips, effects. Reads state, never writes it. =====
 
-import { BALANCE as B } from '../config/balance.js';
 import { LAYERS } from '../config/layers.js';
 import { TASK_TYPES, LANES, ATTACKS } from '../config/tasks.js';
 import { GENERATIONS, PALETTES } from '../config/generations.js';
-import { tierY, slotActive, genDef } from '../sim/rules.js';
+import { mountY, slotActive, genDef } from '../sim/rules.js';
 import { money, bundleTag } from '../util/format.js';
 import { Effects } from './effects.js';
 
@@ -32,13 +31,13 @@ export function createPlayfield(canvas) {
     V.lanes.ext = { x: x0, w: V.laneW };
     V.lanes.int = { x: x0 + V.laneW + gap, w: V.laneW };
     V.chipW = V.laneW * 0.8;
-    V.chipH = Math.max(13, Math.min(22, (V.bottom - V.top) * B.chipGap * 0.72));
+    V.chipH = Math.max(13, Math.min(22, (V.bottom - V.top) * 0.047));
     skylineGen = -1;
   }
 
   const yPx = y => V.top + y * (V.bottom - V.top);
   const laneCx = lane => V.lanes[lane].x + V.lanes[lane].w / 2;
-  const slotPx = (st, lane, i) => yPx(tierY(st.lanes[lane].slots.length, i));
+  const slotPx = (st, lane, i) => yPx(mountY(st.lanes[lane].slots.length, i));
 
   // ---------- hit test for clicks / drops ----------
   function hit(st, x, y) {
@@ -59,10 +58,8 @@ export function createPlayfield(canvas) {
     switch (e.type) {
       case 'cost':   fxr.accumulate(`c${e.lane}${e.slot}`, V.lanes[e.lane].x + V.lanes[e.lane].w + 52, sy, -e.amount, '#ff8a8a'); break;
       case 'pay':    fxr.accumulate(`p${e.lane}`, cx + V.chipW / 2 - 10, V.bottom + 14, e.amount, pal.fg); break;
-      case 'enter':
-        if (e.layer === 'probe') { fxr.beam(V.lanes[e.lane].x, V.lanes[e.lane].w, sy, '#77ffff'); fxr.tint(e.task, '#77ffff', 0.35); }
-        if (e.layer === 'paraphraser') fxr.tint(e.task, '#cc99ff', 0.3);
-        break;
+      case 'scan':   fxr.tint(e.task, e.layer === 'probe' ? '#77ffff' : e.layer === 'monitor' ? '#7fd1ff' : '#ff9fe0', 0.35); break;
+      case 'pass':   if (e.layer === 'paraphraser') fxr.tint(e.task, '#cc99ff', 0.3); break;
       case 'flag':   fxr.ring(cx, sy, '#ff3b3b'); break;
       case 'block':  fxr.shatter(cx, yPx(e.y), V.chipW, '#ff7070', 26); fxr.text(cx, yPx(e.y) - 14, 'BLOCKED', '#ff7070'); break;
       case 'caught': fxr.shatter(cx, yPx(e.y), V.chipW, '#ff3b3b', 40); fxr.flash(e.lane, '#ff2020'); fxr.text(cx, yPx(e.y) - 16, 'CAUGHT', '#ff3b3b', 1.6); break;
@@ -74,7 +71,6 @@ export function createPlayfield(canvas) {
       case 'landed': fxr.glitch(e.lane, V.bottom); fxr.text(cx, V.bottom - 18, `INCIDENT: ${e.label}`, '#ff3b3b', 2); break;
       case 'contained': fxr.flash('int', '#ffcf5a'); fxr.text(cx, V.bottom - 18, 'ESCAPE CONTAINED', '#ffcf5a', 2.5); break;
       case 'catastrophe': fxr.flash('ext', '#ff0000'); fxr.flash('int', '#ff0000'); fxr.glitch('int', V.bottom); break;
-      case 'timeout': fxr.text(cx, V.top + 6, 'TIMEOUT', '#ff7070', 0.8); break;
       case 'place':  fxr.ring(cx, sy, pal.fg); break;
       case 'silent': if (st.debug) fxr.text(cx, V.bottom - 18, `(silent ${e.task})`, '#f0f', 1); break;
     }
@@ -112,12 +108,6 @@ export function createPlayfield(canvas) {
     }
   }
 
-  function scramble(s, now) {
-    let out = '';
-    for (let i = 0; i < s.length; i++) out += s[i] !== ' ' && Math.sin(now * 40 + i * 7) > 0.6 ? String.fromCharCode(33 + ((i * 13 + (now * 30 | 0)) % 60)) : s[i];
-    return out;
-  }
-
   function drawChip(st, task, now, pal) {
     const T = TASK_TYPES[task.type];
     const cx = laneCx(task.lane), cy = yPx(task.y);
@@ -133,35 +123,18 @@ export function createPlayfield(canvas) {
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // icon + snippet + bundle tag
+    // icon + text + bundle tag
     ctx.font = `${Math.round(h * 0.55)}px monospace`;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = T.color;
     ctx.fillText(TYPE_ICON[task.type], x + 5, cy + 1);
     const tag = task.bundle > 1 ? bundleTag(task.bundle) : '';
     const maxChars = Math.floor((w - 40 - tag.length * 8) / (h * 0.36));
-    let text = task.snippet.length > maxChars ? task.snippet.slice(0, maxChars - 1) + '…' : task.snippet;
-    if (task.act === 'paraphraser') text = scramble(text, now);
-    ctx.fillStyle = task.suspicious ? '#ffd0d0' : '#e8e8e8';
+    const text = task.text.length > maxChars ? task.text.slice(0, maxChars - 1) + '…' : task.text;
+    ctx.fillStyle = '#e8e8e8';
     ctx.fillText(text, x + 30, cy + 1);
     if (tag) { ctx.fillStyle = pal.fg; ctx.textAlign = 'right'; ctx.fillText(tag, x + w - 5, cy + 1); ctx.textAlign = 'left'; }
 
-    // layer-specific looks while held
-    if (task.act === 'monitor' || task.act === 'untrusted') {
-      const col = task.act === 'monitor' ? '#7fd1ff' : '#ff9fe0';
-      for (let k = 0; k < 6; k++) {
-        const a = now * 5 + k * Math.PI / 3;
-        ctx.fillStyle = col;
-        ctx.fillRect(cx + Math.cos(a) * (w / 2 + 6) - 2, cy + Math.sin(a) * (h + 4) - 2, 4, 4);
-      }
-    }
-    if (task.act === 'sandbox') { ctx.strokeStyle = '#ffcf5a'; ctx.setLineDash([3, 3]); ctx.strokeRect(x - 6, y - 5, w + 12, h + 10); ctx.setLineDash([]); }
-    if (task.act === 'auditor' || task.act === 'defer' || task.act === 'resampler') {
-      const p = 1 - task.hold / Math.max(0.01, task.holdMax);
-      ctx.strokeStyle = task.act === 'auditor' ? '#fff' : '#99ccff';
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(x + w + 12, cy, 6, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2); ctx.stroke();
-    }
     if (st.debug && task.isAttack) {
       ctx.fillStyle = '#f0f';
       ctx.font = '10px monospace';
@@ -171,7 +144,7 @@ export function createPlayfield(canvas) {
     }
   }
 
-  // ---------- tier slot ----------
+  // ---------- mount ----------
   function drawSlot(st, lane, i, ui, now, pal) {
     const L = V.lanes[lane], slot = st.lanes[lane].slots[i];
     const y = slotPx(st, lane, i), h = V.barH, x = L.x, w = L.w;
@@ -186,7 +159,7 @@ export function createPlayfield(canvas) {
       ctx.fillStyle = pal.dim;
       ctx.font = '10px monospace';
       ctx.textBaseline = 'middle';
-      ctx.fillText(ui.selected && hovered ? `+ ${LAYERS[ui.selected].name}` : `tier ${i + 1} · empty`, x + 8, y);
+      ctx.fillText(ui.selected && hovered ? `+ ${LAYERS[ui.selected].name}` : `mount ${i + 1} · empty`, x + 8, y);
       return;
     }
     const def = LAYERS[slot.layer];

@@ -25,7 +25,7 @@ KEY = [
 ]
 
 
-def build(style="clean"):
+def build(style="wc"):
     m = Map(W, H, PPS, seed=7, style=style)
 
     # ---------------- floors ----------------
@@ -174,7 +174,7 @@ def render(style):
     print(f"  [{style}] wrote gridless, gridded, gm, and {n}-page print PDF")
 
 
-def main(styles=("clean", "wc")):
+def main(styles=("wc", "clean")):
     os.makedirs(OUT, exist_ok=True)
     for s in styles:
         render(s)

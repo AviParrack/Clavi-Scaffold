@@ -29,7 +29,7 @@ C = dict(
 # ============================================================
 
 class Map:
-    def __init__(self, w, h, pps=100, seed=0, style="clean"):
+    def __init__(self, w, h, pps=100, seed=0, style="wc"):
         self.w, self.h, self.pps, self.style = w, h, pps, style
         self.rng = np.random.default_rng(seed)
         self.img = wc.blank(w * pps, h * pps, seed) if style == "wc" else Image.new("RGB", (w * pps, h * pps), C["wall"])

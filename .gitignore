@@ -54,3 +54,6 @@ Town-Hall/Scaffold/setup-state.json
 # (uncomment + adjust paths for your scaffold's submodules)
 # Crossroads/forethought-starter/
 # Crossroads/clavi-scaffold/
+
+# Per-session tool-usage logs from metadata-logger hook
+Library/Logs/metadata/

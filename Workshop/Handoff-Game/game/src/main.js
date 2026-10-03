@@ -3,6 +3,7 @@
 import * as Sim from './sim/sim.js';
 import { scorecard } from './sim/scorecard.js';
 import { DIFFICULTY } from './config/balance.js';
+import { LAYERS } from './config/layers.js';
 import { createPlayfield } from './render/playfield.js';
 import { createHud, renderScorecard } from './render/hud.js';
 import { createCodec } from './render/codec.js';
@@ -76,7 +77,11 @@ function clickSlot(h, sell = false) {
   const slot = st.lanes[h.lane].slots[h.slot];
   let res;
   if (sell) res = Sim.sellLayer(st, h.lane, h.slot);
-  else if (!slot.layer && ui.selected) { res = Sim.placeLayer(st, h.lane, h.slot, ui.selected); if (res.ok) ui.selected = null; }
+  else if (!slot.layer && ui.selected) {
+    const global = LAYERS[ui.selected].lanes.includes('global');          // Interp Lab: any mount click builds it off-track
+    res = global ? Sim.placeLayer(st, 'global', 0, ui.selected) : Sim.placeLayer(st, h.lane, h.slot, ui.selected);
+    if (res.ok) ui.selected = null;
+  }
   else if (slot.layer) res = Sim.toggleLayer(st, h.lane, h.slot);
   else res = { ok: false, msg: 'pick a layer card first' };
   if (!res.ok) hud.toast(res.msg);

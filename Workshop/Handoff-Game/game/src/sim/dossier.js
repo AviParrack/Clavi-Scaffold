@@ -3,6 +3,9 @@
 // dossier.evidence = evidence gathered on THIS model (log.js gainEvidence). The 30% carried over from the last
 // model doesn't count here: it is about a different model. It still shrinks the error bar and pays for probes.
 // A row unlocks the first time dossier.evidence reaches its `need` (fx 'reveal' + a codec line).
+// Two shortcuts: Artemis Scheming Eval (event) reveals the next locked trait row; an Interp Lab with the Microscope
+// capstone reveals the truth row while it looks (sold: the row locks again, unless evidence has reached it by then).
+// row.source says what unlocked it ('evidence' | 'artemis' | 'microscope').
 // Unlocked rows stay unlocked and their text stays live. Locked rows carry no text, so the UI can't leak them.
 
 import { BALANCE as B } from '../config/balance.js';
@@ -10,7 +13,7 @@ import { ATTACKS } from '../config/tasks.js';
 import { TRAITS, TRAITS_PER_GEN, DOSSIER, RATE_BANDS, TRUTH_NOISE } from '../config/traits.js';
 import { pick, uniform } from './rng.js';
 import { fx, say } from './log.js';
-import { attackChance, clamp } from './rules.js';
+import { attackChance, clamp, globalSlot, capstone } from './rules.js';
 import { pct } from '../util/format.js';
 
 // =================== rolling the hidden traits ===================
@@ -26,7 +29,7 @@ export function rollTraits(st) {
 
 export function newDossier(st) {
   st.truthOffset = uniform(st, -TRUTH_NOISE, TRUTH_NOISE);
-  return { g: st.gen, evidence: 0, rows: DOSSIER.map(r => ({ ...r, unlocked: false, text: null, value: null })) };
+  return { g: st.gen, evidence: 0, rows: DOSSIER.map(r => ({ ...r, unlocked: false, text: null, value: null, source: null })) };
 }
 
 // =================== row contents ===================
@@ -74,17 +77,39 @@ function rowContent(st, id) {
 
 // =================== tick: unlock, refresh ===================
 
+function unlockRow(st, row, source) {
+  row.unlocked = true;
+  row.source = source;
+  Object.assign(row, rowContent(st, row.id));
+  if (row.id === 'trait1') st.genStats.revealed[0] = true;
+  if (row.id === 'trait2') st.genStats.revealed[1] = true;
+  fx(st, 'reveal', { row: row.id, label: row.label, text: row.text, source });
+  say(st, source === 'artemis' ? 'artemis' : 'research', `Dossier, ${row.label}: ${row.text}`);
+}
+
+// Artemis Scheming Eval: the next locked trait row, now. false if both are already known.
+export function revealTrait(st, source) {
+  const row = st.dossier.rows.find(r => (r.id === 'trait1' || r.id === 'trait2') && !r.unlocked);
+  if (!row) return false;
+  unlockRow(st, row, source);
+  return true;
+}
+
+function lockRow(row) {
+  Object.assign(row, { unlocked: false, text: null, value: null, source: null });
+}
+
 export function tickDossier(st) {
+  const lab = globalSlot(st, 'interp');
+  const microscope = !!lab && !!capstone('interp', lab.level).revealM;
   for (const row of st.dossier.rows) {
-    if (!row.unlocked && st.dossier.evidence >= row.need) {
-      row.unlocked = true;
-      Object.assign(row, rowContent(st, row.id));
-      if (row.id === 'trait1') st.genStats.revealed[0] = true;
-      if (row.id === 'trait2') st.genStats.revealed[1] = true;
-      fx(st, 'reveal', { row: row.id, label: row.label, text: row.text });
-      say(st, 'research', `Dossier, ${row.label}: ${row.text}`);
-    } else if (row.unlocked && (row.id === 'favourite' || row.id === 'truth' || row.id === 'rate')) {
-      Object.assign(row, rowContent(st, row.id));
+    const earned = st.dossier.evidence >= row.need;
+    if (row.unlocked && row.source === 'microscope' && !microscope) {
+      if (earned) row.source = 'evidence';                      // evidence got there meanwhile: it stays
+      else { lockRow(row); continue; }                          // the Microscope is gone, and so is the view
     }
+    if (!row.unlocked && earned) unlockRow(st, row, 'evidence');
+    else if (!row.unlocked && row.id === 'truth' && microscope) unlockRow(st, row, 'microscope');
+    else if (row.unlocked && (row.id === 'favourite' || row.id === 'truth' || row.id === 'rate')) Object.assign(row, rowContent(st, row.id));
   }
 }

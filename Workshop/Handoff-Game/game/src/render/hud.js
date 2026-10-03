@@ -51,7 +51,7 @@ export function createHud(actions) {
 
   // ---------- right panel ----------
   function panel(st, ui) {
-    const key = st.unlocked.join() + '|' + ui.selected + '|' + st.unlocked.map(id => st.money >= R.buyPrice(st, id) ? 1 : 0).join('') + '|' + st.gen + '|' + (st.upgrades.monitor_ensemble ? 1 : 0) + Math.round(R.mod(st, 'cost') * 10);
+    const key = st.unlocked.join() + '|' + ui.selected + '|' + st.unlocked.map(id => st.money >= R.buyPrice(st, id) ? 1 : 0).join('') + '|' + st.gen + '|' + (st.upgrades.distillation ? 1 : 0) + Math.round(R.mod(st, 'cost') * 10);
     if (key !== handKey) {
       handKey = key;
       const hand = $('hand');
@@ -63,7 +63,7 @@ export function createHud(actions) {
         b.draggable = true;
         const per = id === 'defer' ? 'free' : `${money(R.layerCost(st, id))}/${id === 'auditor' ? 'audit' : id === 'resampler' ? 'resample' : 'task'}`;
         b.innerHTML = `<span class="t">${i + 1}. ${L.name}</span><span class="p">${money(R.buyPrice(st, id))}</span>
-          <div class="d">${L.kind} · ${per} · ${L.latency}s</div>`;
+          <div class="d">${L.role} · ${per} · ${L.latency}s</div>`;
         b.title = L.desc;
         b.onclick = () => actions.select(id);
         b.ondragstart = e => { e.dataTransfer.setData('text/plain', id); actions.select(id); };
@@ -77,14 +77,14 @@ export function createHud(actions) {
     rb.disabled = st.money < price || !!st.pendingResearch || !!st.over;
 
     const tb = $('btn-retrain');
-    tb.hidden = !st.upgrades.retrain_probes;
+    tb.hidden = !R.placedAnywhere(st, 'probe');
     tb.textContent = `RETRAIN PROBES (${B.retrainEvidence} evidence · have ${st.evidence.toFixed(0)})`;
     tb.disabled = st.evidence < B.retrainEvidence;
 
     const uk = st.cardsTaken.join();
     if (uk !== upKey) {
       upKey = uk;
-      const ups = st.cardsTaken.filter(id => CARD_BY_ID[id].type === 'upgrade').map(id => '✓ ' + CARD_BY_ID[id].title);
+      const ups = st.cardsTaken.filter(id => CARD_BY_ID[id].type === 'tech').map(id => '✓ ' + CARD_BY_ID[id].title);
       $('upgrades').innerHTML = ups.length ? '<b>UPGRADES</b><br>' + ups.join('<br>') : '';
     }
     inspector(st, ui);
@@ -97,11 +97,11 @@ export function createHud(actions) {
     if (!slot.layer) { el.innerHTML = `${LANES[h.lane].label} mount ${h.slot + 1}: empty`; return; }
     const L = LAYERS[slot.layer], s = R.slotStats(st, h.lane, h.slot);
     let lines = [`<b>${L.name}</b> L${s.level} · ${LANES[h.lane].label} mount ${h.slot + 1} · ${R.slotActive(st, slot) ? 'ON' : 'OFF'}`, L.desc];
-    if (L.kind === 'detector') {
+    if (L.role === 'detector') {
       lines.push(`flags ${pct(s.catch)} of attacks it reads (q ${s.readQuality.toFixed(2)}) · false alarms ${pct(s.falseAlarm, 1)}`);
       lines.push(`${s.heads} heads · ~${pct(s.unreadRate)} of chips go unread at this volume`);
     }
-    if (slot.layer === 'auditor') lines.push(`covers ${pct(s.coverage, 1)} of each bundle · accuracy ${pct(R.auditorAcc(st))}`);
+    if (slot.layer === 'auditor') lines.push(`covers ${pct(s.coverage, 1)} of each bundle · accuracy ${pct(s.accuracy)}`);
     lines.push(`<i>click: toggle · right-click: sell for ${money(R.investedPrice(st, slot.layer, slot.level) * B.sellRefund)}</i>`);
     el.innerHTML = lines.join('<br>');
   }
@@ -172,7 +172,7 @@ export function renderScorecard(card, best, onRestart) {
     g.traits.map(t => `${t.name}${t.revealed ? '' : ' (hidden)'}`).join(', ')])).join('');
   const L = card.lanes;
   const laneRows = ['ext', 'int'].map(l => tr([LANES[l].label, L[l].caught, L[l].blocked, L[l].deferred + L[l].resampled, `<b>${L[l].landed}</b>`, L[l].benignBlocked, L[l].unread])).join('');
-  const verdict = card.win ? 'YOU REACHED ASI' : { catastrophe: 'CATASTROPHE', reputation: 'REPUTATION COLLAPSED', bankrupt: 'BANKRUPT' }[card.reason] || 'GAME OVER';
+  const verdict = card.win ? 'YOU REACHED ASI' : { catastrophe: 'CATASTROPHE', reputation: 'REPUTATION COLLAPSED', bankrupt: 'BANKRUPT', rival: 'PROMETHEUS SHIPPED FIRST' }[card.reason] || 'GAME OVER';
 
   $('score-body').innerHTML = `
     <div class="grade">${card.grade}</div>

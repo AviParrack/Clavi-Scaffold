@@ -44,7 +44,8 @@ export function createDebug(actions) {
       });
       lines.push(`  ${LAYERS[id].tag.padEnd(4)} ${cols.join('   ')}`);
     }
-    lines.push(`  AUD  coverage ${R.auditCoverage(st, R.bundle(st)).toExponential(1)}  acc ${R.auditorAcc(st).toFixed(2)}`);
+    const audLevel = ['ext', 'int'].map(l => st.lanes[l].slots.find(s => s.layer === 'auditor')?.level).find(Boolean) ?? 1;
+    lines.push(`  AUD  L${audLevel} coverage ${R.auditCoverage(st, R.bundle(st), audLevel).toExponential(1)}  acc ${R.auditorAcc(st, audLevel).toFixed(2)}`);
     lines.push('', 'measured (attacks flagged/seen · benign flagged/seen):');
     for (const [id, c] of Object.entries(st.stats.layers)) lines.push(`  ${LAYERS[id].tag.padEnd(4)} ${c.attackFlagged}/${c.attackSeen} · ${c.benignFlagged}/${c.benignSeen}`);
     const L = st.stats.lanes;

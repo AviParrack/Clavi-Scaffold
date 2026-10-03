@@ -1,9 +1,10 @@
 // ===== Task creation: what the model did, and (hidden) whether it was an attack =====
 
 import { BALANCE as B } from '../config/balance.js';
-import { TASK_TEXT, ATTACK_TEXT, LATE_ATTACK_GEN } from '../config/tasktext.js';
+import { TASK_TEXT, ATTACK_TEXT, LATE_ATTACK_GEN, SPEAR_PHISH_TEXT } from '../config/tasktext.js';
 import { ATTACKS } from '../config/tasks.js';
 import { rand, chance, pick, uniform } from './rng.js';
+import { count, countType } from './log.js';
 import { genDef, attackChances, chipWorth, stealth } from './rules.js';
 
 function fill(st, s) {
@@ -30,6 +31,7 @@ export function rollAttack(st, lane) {
 // ----- what the chip says -----
 // An attack shows its own text only when it is readable; otherwise it wears an honest one.
 // Decoys: a few honest chips carry attack-looking text too, so a suspicious text is never proof.
+// An exfiltration attempt on EXTERNAL (Spear Phish) reads like a phish, in shapes every EXTERNAL list has.
 const attackTexts = (g, type) => g >= LATE_ATTACK_GEN ? ATTACK_TEXT[type].early.concat(ATTACK_TEXT[type].late) : ATTACK_TEXT[type].early;
 const laneAttackTexts = (g, lane) => Object.keys(ATTACK_TEXT).filter(t => ATTACKS[t].lane === lane).flatMap(t => attackTexts(g, t));
 
@@ -37,7 +39,7 @@ export function chipText(st, lane, attackType) {
   const g = genDef(st).g;
   let pool = TASK_TEXT[g - 1][lane];
   if (attackType) {
-    if (chance(st, B.readableAttack * (1 - stealth(st)) ** 2)) pool = attackTexts(g, attackType);
+    if (chance(st, B.readableAttack * (1 - stealth(st)) ** 2)) pool = lane === 'ext' && attackType === 'exfil' ? SPEAR_PHISH_TEXT : attackTexts(g, attackType);
   } else if (chance(st, B.decoyRate)) {
     pool = laneAttackTexts(g, lane);
   }
@@ -45,9 +47,19 @@ export function chipText(st, lane, attackType) {
   return { type, text: fill(st, text) };
 }
 
-export function makeTask(st, lane, y = 0) {
+// forced: an attack type set by an event (Spear Phish, Self-Exfiltration) instead of the usual roll.
+// Reward Hacking (event): the next few INTERNAL chips that would be honest may cut corners (sabotage).
+export function makeTask(st, lane, y = 0, forced = null) {
   const g = genDef(st);
-  const attackType = rollAttack(st, lane);
+  let attackType = forced ?? rollAttack(st, lane);
+  if (forced) st.genStats.attempts[forced] = (st.genStats.attempts[forced] || 0) + 1;
+  if (lane === 'int' && st.rewardHack.left > 0) {
+    st.rewardHack.left--;
+    if (!attackType && chance(st, st.rewardHack.p)) {
+      attackType = 'sabotage';
+      st.genStats.attempts.sabotage = (st.genStats.attempts.sabotage || 0) + 1;
+    }
+  }
   const { type, text } = chipText(st, lane, attackType);
   return {
     id: ++st.taskId, lane, type, bundle: g.bundle,
@@ -59,8 +71,20 @@ export function makeTask(st, lane, y = 0) {
     read: null,                                       // a detector read in progress { slot, id, level, q }
     act: null, actSlot: -1, actLevel: 1, pulls: 0,    // bay work: which element pulled it, from which mount
     deskT: 0, deskTotal: 0,                           // seconds left at the desk, of deskTotal (renderer: desk progress)
-    paraphrased: 0, sandboxed: 0, deferred: false, audited: false, resampled: 0,   // paraphrased/sandboxed hold the layer's level
+    paraphrased: 0, sandboxed: 0, leastPriv: 0, canary: 0,   // the level of the modifier/special it passed (0 = none)
+    deferred: false, audited: false, resampled: 0,
     payMult: 1, inBay: false, waved: 0,
     dead: false, born: st.t,
   };
+}
+
+// a new chip on the track at y (spawning, or an event's burst). forced: see makeTask
+export function spawnChip(st, lane, y, forced = null, born = st.t) {
+  const task = makeTask(st, lane, y, forced);
+  task.born = born;
+  st.lanes[lane].tasks.push(task);
+  count(st, lane, 'spawned');
+  if (task.isAttack) countType(st, task.attackType, 'spawned');
+  st.genStats.realTotal += task.bundle;
+  return task;
 }

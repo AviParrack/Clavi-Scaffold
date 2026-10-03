@@ -23,13 +23,14 @@ Controls: click a card (or press 1-9), then an empty mount. Click a placed layer
 
 ```bash
 cd Workshop/Handoff-Game/game
-node test/headless.mjs                 # all asserts (~5 s)
-node test/headless.mjs test passBy     # one test by name (`test` alone lists them)
-node test/headless.mjs run smart 3     # one verbose run: policy, seed
-node test/headless.mjs balance smart   # win/loss table across difficulties + speed at G7 volume
+node test/headless.mjs                     # all asserts (~15 s)
+node test/headless.mjs test events         # one test by name (`test` alone lists them)
+node test/headless.mjs run smart 3         # one verbose run: policy, seed
+node test/headless.mjs balance smart       # win/loss table across difficulties + speed at G7 volume
+node test/headless.mjs balance smart off   # same with BALANCE.rivalWinsRace = grace | instant | off
 ```
 
-Asserts: detector TPR/FPR match config per read, read quality cuts flags to TPR·q, detectors run out of heads at G7 and upgrades help, no chip is ever held (pass-by track), same seed → same run, slot prices escalate and stop at 10, a full bay never stalls the lane, upgrades raise the catch rate as configured, the kill switch blocks unresolved flags, buying a mount mid-run never lets a chip skip one, the compute split moves income / R&D / evidence the right way and takes effect at once (junk inputs too), each generation spawns its configured chips/s, traits roll deterministically and do what they say, dossier rows unlock at exactly 5/12/25/40/60 evidence gathered on the current model, chip text and shape never prove a chip is an attack (decoys), no-layers loses before G4 on Medium, all-layers never wins and pays the safety tax in ≥ 4/5 seeds, money and evidence are conserved.
+Asserts: detector TPR/FPR match config per read, read quality cuts flags to TPR·q, detectors run out of heads at G7 and upgrades help, no chip is ever held (pass-by track), same seed → same run, slot prices escalate and stop at 10, a full bay never stalls the lane, upgrades raise the catch rate as configured, the kill switch blocks unresolved flags, buying a mount mid-run never lets a chip skip one, the compute split moves income / R&D / evidence the right way and takes effect at once (junk inputs too), each generation spawns its configured chips/s, traits roll deterministically and do what they say, dossier rows unlock at exactly 5/12/25/40/60 evidence gathered on the current model, chip text and shape never prove a chip is an attack (decoys), no-layers loses before G4 on Medium, all-layers never wins and pays the safety tax in ≥ 4/5 seeds, money and evidence are conserved. Chunk 3: all 18 elements place where allowed (and nowhere else) with full elementStats, every element moves its metric in a seeded A/B run, each new capstone does what it says, the Red Team's measured rate brackets the true TPR·q, research draws offer two branches with a counter to a seen attack, every tech card changes its number, every one of the 31 events fires, applies its effect and its banner expires, event cooldowns / generation gates / one-choice-at-a-time hold in a stress run, the rival rule works in all three modes, every trait counter answers its trait, a Red Team tally follows the truth when it moves, an exfiltration foiled / contained / announced counts as seen, every event number comes from its effect, and reputation is conserved like money and evidence.
 
 ## Layout
 

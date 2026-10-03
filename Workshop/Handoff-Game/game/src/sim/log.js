@@ -1,5 +1,7 @@
-// ===== Append-only logs the renderer reads: visual fx and codec messages =====
+// ===== Append-only logs the renderer reads (visual fx, codec messages), and the ledgers: money, evidence, reputation =====
 // Renderer tracks the last id it has seen; the sim never waits on it.
+
+import { BALANCE as B } from '../config/balance.js';
 
 const FX_KEEP = 400, CODEC_KEEP = 60;
 
@@ -21,6 +23,12 @@ export function count(st, lane, key, n = 1) {
   st.genStats.lanes[lane][key] = (st.genStats.lanes[lane][key] || 0) + n;
 }
 
+// --- per attack type: spawned / landed ---
+export function countType(st, type, key) {
+  const c = st.stats.byType[type] || (st.stats.byType[type] = { spawned: 0, landed: 0 });
+  c[key]++;
+}
+
 // --- per-layer confusion matrix (for tests and debug overlay). Detectors: one row per read. ---
 export function layerStats(st, id) {
   return st.stats.layers[id] || (st.stats.layers[id] = { attackSeen: 0, attackFlagged: 0, benignSeen: 0, benignFlagged: 0, expTPRsum: 0, unread: 0 });
@@ -37,6 +45,23 @@ export function gainEvidence(st, v, source) {
   st.evidence += v;
   st.dossier.evidence += v;
   st.stats.evidence[source] = (st.stats.evidence[source] || 0) + v;
+}
+
+// --- reputation: every change to st.rep goes through here. Kept in [0, repMax]; gains and losses tallied by source ---
+// stats.repGain[source] − stats.repLoss[source], summed, = st.rep − startRep (tested)
+export function changeRep(st, v, source) {
+  const before = st.rep;
+  st.rep = Math.max(0, Math.min(B.repMax, st.rep + v));
+  const d = st.rep - before;
+  if (d > 0) st.stats.repGain[source] = (st.stats.repGain[source] || 0) + d;
+  if (d < 0) st.stats.repLoss[source] = (st.stats.repLoss[source] || 0) - d;
+  return d;
+}
+
+// --- attack types the player has seen this generation (research draws offer a counter to one of them) ---
+// caught, landed in public, foiled at the last line, named by the eval line, or announced by an event
+export function noteSeen(st, attackType) {
+  if (attackType && !st.seenAttackTypes.includes(attackType)) st.seenAttackTypes.push(attackType);
 }
 
 // --- money ledger: every change to st.money goes through these two ---

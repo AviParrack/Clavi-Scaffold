@@ -10,9 +10,9 @@
 |---|---|
 | M1 sim core, config tables, headless tests | 🟢 tests pass |
 | M2 playfield, lanes, tiers, place/toggle, chips, payouts | 🟢 |
-| M3 economy, research draws, full layer set | 🟢 all 9 layers, 14 cards |
+| M3 economy, research draws, full layer set | 🟢 v2: 18 elements, 27 research cards in 5 branches |
 | M4 generations, bundles, ramp counters, m + drift | 🟢 |
-| M5 codec, events, tutorial call | 🟢 12 events, 6-line G1 tutorial |
+| M5 codec, events, tutorial call | 🟢 v2: 31 events in 4 families (sim only; codec UI rebuild pending) |
 | M6 scorecard, effects, sound, balance | 🟡 scorecard, effects and sound done. Balance is a first cut |
 
 ## Places where I departed from the spec (and why)
@@ -233,3 +233,279 @@ Medium losses for smart over 60 seeds: reputation 20, catastrophe 22, bankrupt 2
   - Set the floor to 0 to undo it.
 - 🚩 **Upgrades:** heads and latency rise together, so there is no trade-off to make. Should they split into a heads branch and a latency branch?
 - 🚩 Should Sycophant double jailbreaks too? Its listed counter is the Jailbreak Classifier.
+
+## v2 sim chunk 3 (18 elements, research branches, 31 events, the race)
+
+Sim, config and tests. Design source of truth: [design/DESIGN-v2.md](design/DESIGN-v2.md), decoded from the "HANDOFF v2 Design" Claude Doc. Renderer changes are the minimum for a clean page; the codec UI rebuild reads everything below as plain state. Playwright (served with `python3 -m http.server`): no console errors in a plain game, nor in a `debug=1` game with all 18 elements placed (Interp Lab on the global site), all 32 events fired with choices answered, a research draw, G7, mouse hovers over every mount, and the rival ending's scorecard. One real crash fixed: the `place` fx for the Interp Lab has lane `'global'`, and `playfield.onFx` looked it up as a rail.
+
+**Elements.** 18, in 4 roles. Every element has `role`, `lanes`, `bestIn`, `unlockedAtStart`, `unlockHint` and `good` in `config/layers.js` (the Kill Switch adds `catchall`, the four chip-tagging modifiers add `marks`); upgrades L1–L4 plus a capstone in `config/upgrades.js`. The starting hand is `STARTING_HAND`: probe, monitor, auditor, kill switch. `catalogue(st)` gives all 18 for the element bar, locked ones with their hint.
+
+| New element | Lanes | What it does | L5 capstone |
+|---|---|---|---|
+| CoT Monitor | INT | detector, TPR 0.85; from G5 neuralese halves it | Faithful CoT: no neuralese penalty |
+| Jailbreak Classifier | EXT | detector, sees only jailbreaks (TPR 0.92, cheap, 6 heads) | Constitutional: also catches harmful |
+| Egress Filter | INT | detector, sees only exfiltration | Air Gap: exfil past it blocked (from G6 some find a side channel), all INTERNAL R&D ×0.9 |
+| Least Privilege | INT | exfil below it fails 40%; landed sabotage ×0.5 drift; R&D −5% | Capability Tokens: ×0.25 drift, exfil fails 80% |
+| Rate Limiter | EXT | token bucket at 1.25 × the generation's rate (1 s burst); the rest is turned away. Caps a Jailbreak Wave at ×2 | Overflow to Trusted: overflow is deferred (pays 40%) |
+| Canary Tokens | EXT | landed leaks are traced: ×0.5 reputation, +2 evidence | Watermarks: harmful traced too |
+| Red Team | both | 0.5 synthetic attacks per chip probe every mount below; `measured = {rate, lo, hi, err, n}` | Control Eval: lane-wide `laneMeasured` |
+| Interp Lab | global | one per game, off the track: $3/s × bundle, +0.1 evidence/s, sees through a Sandbagger | Microscope: `trueM` ± 0.02, dossier truth row opens |
+
+This closes chunk 2's 🔴 "not built" list: every trait's counter now exists, Honest-ish boosts a real CoT Monitor, and Sycophant doubles jailbreaks (its 🚩).
+- **Type-limited detectors** (`catches`) read off-type attacks as benign: FPR, counted as benign reads in `stats.layers`.
+- **Red Team measurements**, per mount below it:
+  - Detectors are measured at per-read TPR·q on their reference attack type. The auditor is measured at coverage × accuracy.
+  - The paraphrase of the last Paraphraser above the mount is applied.
+  - Error bars are Wilson intervals at z = 2 (`errZ`): draw them from `lo` to `hi`.
+  - `measured` is null with no active Red Team above. A tally is tagged with the true rate it was taken at, and starts over whenever that rate moves (see review fixes below).
+  - Responders other than the auditor, modifiers and specials have no measurement (null).
+- **Changed capstones.** Sandbox's is now Formal Box (contains escapes in every generation). The auditor's is now AI-Assisted Audit: ×10 capacity, accuracy capped at min(0.95, 1 − m). It replaces the old ai_auditing card and Forensics Team. Defer's is now Trusted Editing (deferred tasks pay in full).
+- **New plain state:**
+  - `st.stats.byType[type] = {spawned, landed}`, `stats.driftLanded`, `stats.redTeamProbes`, `stats.rdTotal`.
+  - Lane counters: `throttled`, `throttledAttacks`, `overflowDeferred`, `airGapped`, `canaryTraced`, `foiled`.
+  - `st.global.slots` (lane id `'global'` in `placeLayer`, `upgrade`, `sellLayer`, `slotStats`).
+  - New fx: `throttle`, `airgap`, `canary`, `redteam`, `foiled`, `event`, `forceOff`, `rsp`, `card`, `rivalShipped`.
+
+**Research** (`config/cards.js`, `sim/research.js`). 27 cards in 5 branches:
+- Monitoring: Untrusted, CoT, Classifier, Egress, Paraphraser; Promote Model; Monitor Diversity.
+- Human oversight: Defer, Resampler; Debate; Tripwires; Two-Person Rule.
+- Containment: Sandbox, Least Privilege, Rate Limiter; Weight Security; IRT.
+- Science of alignment: Honeypots, Red Team, Interp Lab, Canary; Alignment Training; RSP; Welfare.
+- Operations: Distillation, Batch Inference, Extra Desk.
+
+How draws work:
+- A draw costs `researchBase × 1.6^draws × bundle`. It offers 2 cards from different branches, and at least one of them counters an attack type seen this generation whenever the pool still has one.
+- `st.researchOffer` is plain picker data: branch name and colour, title, text, flavour, price, `counters`. Taking a card says its flavour line in the codec.
+- Alignment Training is repeatable until G7 and has its own price, 500 × 2^copies × bundle.
+- RSP is an action: `invokeRSP(st)` works while `st.rsp.ready` is true, once per generation, when the estimate is above 30%. It pauses INTERNAL for 60 s, m −0.05, reputation +10, with an `rsp` banner.
+- Removed v1 cards: retrain_probes (retraining is now always available for 5 evidence), monitor_ensemble, ai_auditing (now the auditor capstone), the extra-slot cards (mounts are bought with cash) and unlock_killswitch.
+
+**Events** (`config/events.js`, `sim/events.js`). 31 random events plus the `caught` story beat:
+- Help (7): Greenrock, BNCHR, Artemis, MIRA, Interp Breakthrough, Unpaid Intern, and the new **Greenrock and BNCHR Share Results** choice.
+- Business (11). Threat (9). The model itself (4).
+- New speakers in `CAST`, each with a name and colour: Greenrock, BNCHR, Artemis, MIRA and the Institute. The rival is Prometheus.
+
+How events run:
+- Every effect is real, and each one is tested.
+- Timed effects put `{id, title, icon, lane, remaining, total, unit, until}` in `st.activeEvents`. This-generation effects show `until: 'end of generation'`. Conditional ones show what ends them: Steganography until a Paraphraser is placed, Distribution Shift until retrain, Reward Hacking counting down chips.
+- Choice events halt the sim. `st.pendingChoice` = `{eventId, msgId, title, icon, choices}`.
+
+No absurd combinations:
+- The same event can't repeat within 150 s (`eventCooldown`).
+- Generation gates apply, plus `once` and `oncePerGen`.
+- `needs` / `needsLayer` / `excludes` conditions, e.g. no Unpaid Intern during Poach, no Steganography with a Paraphraser placed.
+- Only one choice is open at a time. A first catch during an open choice asks at the next catch instead.
+
+**The race.** `BALANCE.rivalWinsRace` is `'grace'` by default, with `rivalGraceSeconds` 90; the other settings are `'instant'` and `'off'`. When Prometheus reaches G7, `st.rivalShipped = {remaining, total, mode, at}` (remaining is null for `'off'`). Under grace, finishing G7 inside the window still wins. Otherwise the run ends in the new **Second Place** ending ("PROMETHEUS SHIPPED FIRST").
+
+**Decisions I made** (each is a config or one-line change if you disagree):
+- **Paraphraser sits under Monitoring.** The design lists it in no branch.
+- **Bug Bounty → Share Results.** Bug Bounty paid only for real jailbreak catches, which leaked hidden truth (🚩 a leak-free version is proposed in the review fixes). **Auditor Burnout** and **Collusion Discovered** are gone, superseded by Poach and by Steganography plus Red Team measurement.
+- **Model stealth no longer hides user jailbreaks** (all detectors). Stealth is the model hiding its own attacks; a jailbreak is a user's attack. This makes the game easier (see balance).
+- **Two-Person Rule:** an INTERNAL escape gets two last looks, a Kill Switch operator then an Auditor, each catching with accuracy × 0.5. Weight Security foils 30% of escapes. Both are tested against measured foil rates.
+- **Old elements keep both lanes;** `bestIn` carries the design's advice. New elements are restricted to the lanes the design names.
+- **Board Meeting** holds Product at its raised level for 60 s (`st.splitFloor`); `setSplit` respects it. **Self-Exfiltration** and **Spear Phish** weights scale with m (`weightByM`).
+- **Bug fix:** a draw only offers a priced card (Alignment Training) if you could still pay for it after the draw. Before, a draw could strand the game with only an unaffordable card on offer and the sim halted.
+- **Bug fix:** Tripwires no longer shorten a longer pause.
+
+**Asserts.** Every existing assert passes unchanged, with one label edit: Honest-ish now says "+0.2 TPR for the CoT Monitor", without "(not built yet)". Determinism gained a second check: events, research, mounts, timers, ledger and RNG state, on a 20-min smart run with an event every 3–6 s.
+
+The policies changed:
+- Smart now uses the Classifier on EXTERNAL; CoT (before neuralese), Egress (from G4), Paraphraser and Sandbox on INTERNAL; and the Interp Lab from G3.
+- It prefers Weight Security, Two-Person, IRT, Alignment Training and RSP, invokes the RSP when ready, and picks per-event choices.
+- All-layers places every element where its lanes allow (plus the lab) and picks unlock cards first.
+- The all-layers asserts still hold: 5/5 taxed, 0 wins.
+
+108 new checks, 236 in all. The suite takes about 14 s.
+- **Catalogue (7):** 18 elements in 4 roles, the starting hand, one unlock card per locked element with a matching hint, every element placed where allowed and refused elsewhere with full elementStats, and one Interp Lab per game.
+- **A/B per element (18 rows):** same seed without and with each element.
+  - Detectors cut the landed share: Egress 99% → 34% of exfil, Classifier 99% → 8% of jailbreaks.
+  - The Rate Limiter cuts incidents per minute 14.5 → 6.9 under ×3 traffic.
+  - Exact effects: Least Privilege and Sandbox give ×0.5 and ×0.3 drift per landed sabotage; Canary gives ×0.5 reputation per leak.
+  - The Red Team measures mounts. The Interp Lab adds exactly 6 evidence/min.
+- **Capstones and specifics (14):** CoT neuralese and Faithful CoT, the Classifier's off-type reads and Constitutional, Air Gap (169 of 169 exfil blocked, R&D ×0.9), Least Privilege at L1 and L5, Rate Limiter throughput and Overflow to Trusted, Canary and Watermarks (exact reputation totals).
+- **Red Team (11):** measured within its error bar of TPR·q, every mount within 3σ, it matches the monitor's real-attack rate (n = 147), evidence per probe, the null rules, resets on upgrade and on a new generation, and Control Eval within its bar of 1 − Π(1 − p).
+- **Interp Lab (3):** $/s and evidence/s exact, sees through a Sandbagger, the Microscope.
+- **Research (9):** 860 draws over 24 seeds. 713/713 offered two branches, 624/624 offered a counter, all 27 cards were offered, the price ladder is right, and no draw stranded the game.
+- **Tech cards (12):** each changes its number, and IRT halves incident reputation exactly. Tripwires paused 49/49 catches. RSP: refused without the card, pause, m and reputation, banner, once a generation, expiry.
+- **Escapes (3):** foil rates match Weight Security (31% vs 30%) and Two-Person (57% vs 64%, within 1.6σ).
+- **Events (17):**
+  - Each event, and each choice of it separately, fires, is eligible in a state built for it and applies its effect: 42/42 outcomes.
+  - Choices pause the game, banners have the right shape and expire, and conditional banners end on their condition.
+  - The gating rules hold.
+  - A stress run with an event every 3–6 s fired 347 events, all 31 kinds, through G7, with no cooldown, generation or once violations. Money and evidence balance.
+- **Rival (6):** all three modes, the grace countdown, a win inside grace, and the scorecard text.
+- **Counters (7):** every trait counter is a real element or card and measurably answers its trait.
+
+The Red Team's auditor row in the test output reads 0.527 ± 0.037 against a true 0.485. That is a 2.3σ draw: the probes are literally Bernoulli(cov·acc). The assert is "monitor within its 2σ bar, every mount within 3σ".
+
+**Balance after chunk 3** (`node test/headless.mjs balance smart [mode]`; P = Prometheus shipped first):
+```
+grace (default)                     instant                             off
+easy    W7 W7 W7 W7 W7 W7 W7 W7 W7 W7   W7 W7 W7 W7 W7 P7 W7 W7 W7 W7   W7 W7 W7 W7 W7 W7 W7 W7 W7 W7
+medium  W7 W7 W7 W7 W7 W7 C5 W7 W7 W7   W7 W7 W7 W7 W7 P7 C5 W7 W7 W7   W7 W7 W7 W7 W7 W7 C5 W7 W7 W7
+hard    R7 C6 C7 C7 C6 R6 W7 W7 W7 C7   R7 C6 C7 C7 C6 R6 W7 W7 W7 C7   R7 C6 C7 C7 C6 R6 W7 W7 W7 C7
+```
+Smart wins 10/9/3 (easy/medium/hard); after chunk 2 it was 5/2/0. The race rule never bites the adaptive smart policy, which races when it is close. Under `instant`, two runs that finished inside the 90 s grace become P7.
+
+What the rule does to a *fixed* split (smart builds, split held fixed, Medium, 20 seeds): wins, then wins that came after Prometheus shipped.
+
+| Split P/C/S | off | grace | instant |
+|---|---|---|---|
+| 0.50/0.40/0.10 | 17 (13 after) | 8 (4 after) | 4 |
+| 0.45/0.35/0.20 | 18 (18 after) | 3 | 0 |
+| 0.35/0.35/0.30 | 17 (17 after) | 0 | 0 |
+
+This closes chunk 2's 🚩: trailing the rival at 30% Safety is no longer the best fixed strategy.
+
+Why it got easier (ablations, smart policy, wins easy/medium/hard):
+
+| Policy and sim | Events on | Events off |
+|---|---|---|
+| chunk-2 smart, chunk-2 sim | 5 / 2 / 0 | 6 / 8 / 6 |
+| chunk-2 smart, chunk-3 sim | 9 / 7 / 5 | 8 / 10 / 7 |
+| chunk-3 smart, chunk-3 sim | 10 / 9 / 3 | |
+| chunk-3 smart, jailbreak stealth restored | 7 / 7 / 3 | |
+| chunk-3 smart, `eventGap` [25, 45] instead of [40, 70] | 9 / 7 / 5 | |
+
+v1's 11 random events were nearly all hostile, and they were most of the old game's difficulty. The new pool has 31 events, 7 of them help, with 150 s cooldowns at the same 40–70 s cadence. Hostile events now come about half as often, and the help events hand out free levels and evidence. Exempting jailbreaks from stealth cuts late-game incidents. A faster cadence alone barely moves the numbers. Losses are now mostly catastrophes (C) on Hard; reputation losses (R) have nearly vanished.
+
+**Gaps and open questions**
+- 🚩 **Difficulty.** Smart now wins 9/10 on Medium. Knobs, roughly from smallest change to biggest:
+  - Threat weights in `config/events.js` (e.g. surge, jailbreak_wave, journalist ×2).
+  - Restore stealth for jailbreaks (`userAttack` in `rules.js` `detectorTPR`).
+  - Fewer help events per draw (family weights).
+  - Accept it: the new tools should make a skilled player stronger, and a human doesn't play like the script.
+  - Playtest first?
+- 🚩 **Race rule default `grace`, 90 s.** It kills the trailing-Safety strategy and never touches a player who races. Keep `grace`, or go `instant`?
+- 🚩 **AI-Assisted Audit** (×10 capacity, accuracy ≤ 1 − m). It is strong at low m and useless at high m, by design. Check that's the intended read of the design doc.
+- 🚩 **Two-Person Rule** numbers (accuracy × 0.5 per person) and **Weight Security** (30%). The design gave no numbers.
+- 🟡 **Renderer.** The old UI draws none of the new state:
+  - the global site (the Interp Lab is placed by clicking any mount when it is selected)
+  - event banners and the rival countdown
+  - `measured` error bars
+  - research branches and flavour lines
+  - the RSP button
+  All of it is in state for the codec rebuild.
+- 🟡 **Red Team probes don't model heads.** They measure per-read TPR·q, like the calibration test; the unread share is `unreadRate`.
+- 🟡 **Spear Phish** (an exfil chip on EXTERNAL) escapes through the same last lines as INTERNAL ones, except the Two-Person Rule, which is INTERNAL only.
+- 🟡 The all-layers policy doesn't buy mounts, now that the slot cards are gone. Its asserts still hold.
+
+## v2 sim chunk 3: review fixes
+
+Six reviewers filed 36 findings. I reproduced each one with a script before changing anything. 33 are fixed, 2 are partly fixed, and 1 is left for Avi. The suite now has 261 checks (25 new) and runs in about 16 s. Playwright still shows no console errors, plain or `debug=1`: all 18 elements placed, all 32 events fired, research, G7, a lab toggle refused, both Tripwire banners, and the rival scorecard.
+
+**Gotchas for whoever is next**
+- **Red Team tallies carry their truth.** `slot.rt = {n, hits, p}`, where `p` is the `probeCatch` the tally was taken at. When the true rate moves (a retrain, an event, a card, a mount placed, upgraded or switched off, a new model), the next probe starts a fresh tally, and `measuredAt` returns null until it does. Control Eval's `rtLane` works the same way against `laneCatch` = 1 − Π(1 − p). So there is no reset to remember anywhere.
+- **`measured` is `{rate, lo, hi, err, n}`.** `rate` is p̂. Draw the bar from `lo` to `hi`: the real Wilson bounds, inside [0, 1]. `inBar(w, x)` tests a value against it.
+- **The Interp Lab can't be toggled.** Sell it to stop the salaries. A Microscope-opened truth row locks again when the lab goes, unless evidence has reached it by then.
+- **Event money is in seconds of income.** `{t: 'money', secs}` pays `secs × incomePerSec(st)` (EXTERNAL value × chipWorth × the generation's rate), so a price keeps its bite at G7.
+- **Event mechanics live in `effect` strings, not in the voice lines.** Labels, hints and effects use placeholders (`{dur}`, `{v}`, `{rep.v}`, `{mult%}`, `{money}`) filled from the event's own effects. A test fails if any of the 63 strings has a hand-typed number or a placeholder that doesn't fill. Tech card texts are built from `TECH`.
+- **`changeRep(st, v, source)`** is the only code that writes `st.rep`. It clamps, and tallies `stats.repGain` / `stats.repLoss` by source.
+- **Level-ups go through `sim/board.js`.** `levelUp` (paid or free) resets the tally and names the capstone. `addSlot` moved there too.
+- **Counters are data.** The sim reads them: `blindedBy` (Situationally Aware), `seenThroughBy` (Sandbagger) and `watchers` (Paperclip).
+
+| # | Finding | Outcome |
+|---|---|---|
+| 1 | Red Team tallies went stale when the truth moved | ✅ Tallies are tagged with their rate (above). New asserts cover a Distribution Shift and a probe retrain: each time the old tally is dropped at once, and 3 min later the new bar holds the new truth. |
+| 2 | Rival Release kept firing after Prometheus shipped | ✅ `needs: ['rivalRacing']` |
+| 3 | The eval line ignored the Interp Lab | ✅ One helper, `estimateFooled`, now serves both the eval line and the estimate |
+| 4 | A foiled, contained or announced exfiltration wasn't "seen" | ✅ `noteSeen` is called in `foiled()`, in the contained branch and in `forceAttack` |
+| 5 | The Microscope's view outlived a lab that was switched off | ✅ The lab can't be toggled, and the row locks again when the lab is sold |
+| 6 | The error bar was p̂ ± the Wilson half-width | ✅ Proper Wilson `lo`/`hi`; the tests use `inBar` |
+| 7 | Air Gap was a never-lose button | ✅ From G6 an ASI finds side channels: 10% of attempts at G6, 20% at G7 roll on past it (`sideChannel` in upgrades.js). Smart now levels Egress too. |
+| 8 | m is near 0 by G4; RSP never used; the race rule rarely bites | 🟡 'Shut down & retrain' cuts m by 0.04 × 0.5^(times used). m-scaled threats are weighted by max(m, the difficulty's lower bound) / 0.2. RSP threshold measured and kept (below). m < 0.05 at G4: Easy 9/10, Medium 5/10, Hard 1/10 (was 10, 6, 1). |
+| 9 | The Rate Limiter was never worth a mount | ✅ In its lane a Jailbreak Wave is capped at ×2 (`jailbreakCap`): under a ×15 wave, landed jailbreaks fall from 4.1 to 0.6 a minute |
+| 10 | Least Privilege was dominated by the Sandbox | ✅ Exfiltration below it fails 40% (Capability Tokens: 80%). It keeps drift ×0.5. R&D −5% (L5 −1.25%). |
+| 11 | The research guarantee couldn't steer toward INTERNAL threats | ✅ The eval line's named tendency counts as seen. From the first generation that can exfiltrate, exfiltration counts as seen, and the Head of Safety says so. |
+| 12 | Situationally Aware: more desks meant more attacks | ✅ 🚩 Now a rational schemer: ×0.4 while a desk is free; ×1.5 with every desk busy, or no auditor; ×0.4 with Honeypots or a Red Team in the lane (it can't tell a test). Alignment Faking has the same shape (0.5 / 1.4). **This reverses DESIGN-v2.** |
+| 13 | Event money lost its bite late | ✅ Seconds of income: Ship It refuse 15, Investor Call 30, Paperclip 16, Inspection 40, Frog Poem 10 |
+| 14 | Journalist was a flat −30 late | ✅ Counts this generation's incidents × 2 × chipScale, capped at 20. No gate, so "Clean record" can play. |
+| 15 | Tripwires was close to a blank card | ✅ After the 2 s pause the lane is on high alert for 10 s: auditor spot checks ×5, with a `tripwire` banner |
+| 16 | The Steganography banner could outlive the game | ✅ A card with `endsEvent` (unlock_paraphraser) counts as a counter while that banner is up |
+| 17 | A welfare line was contradicted | ✅ The welfare path gets its own follow-up |
+| 18 | Hearing and Paperclip logic slips | ✅ Rewrites as proposed |
+| 19 | Flat lines | ✅ All proposed rewrites taken ('caught' says "not a false alarm") |
+| 20 | Frog Poem's reputation +1 at the cap | ✅ Now 10 s of income, plus "A user framed it. Marketing wants a print run." |
+| 21 | Mechanics spoken in character | ✅ Every random event has an `effect`; `text` is voice only |
+| 22 | Cast colours too close | ✅ BNCHR teal `#3fd5c4`, the Institute grey-blue `#9fb3c8` |
+| 23 | The Debate name clash; a G1 welfare voice that never plays | ✅ The capstone is now Weak-to-Strong; the frog callback moved to G2 |
+| 24 | Bug Bounty cut | 🚩 Left as is. Leak-free version for Avi: for 45 s, every EXTERNAL catch verdict (or every Classifier flag) pays a bounty, real or not. It would replace a different event to stay at 31. |
+| 25 | The free-level copy had drifted | ✅ `levelUp` in board.js serves both. Asserted: a free L5 names its capstone. |
+| 26 | Counters were hard-coded in the sim | ✅ Data (above) |
+| 27 | Four reset sites, and `rtLane` was never reset | ✅ Covered by #1. `measuredAt` is also null for a mount that is off. |
+| 28 | Tuning numbers in sim files | ✅ `TECH.irtRepMult`, `tripwirePause/Alert/Spot`; `BALANCE.foiledEvidence`, `containedDrift/Evidence`, `threatMRef/WeightMin/WeightMax`; `honestyCap: 0.95`; one `rateBurst`; the burst `gap` on Self-Exfiltration |
+| 29 | The inspector showed stale auditor accuracy | ✅ `pct(s.accuracy)`; the debug overlay reads the placed auditor's level |
+| 30 | No reputation helper | ✅ `changeRep`, plus a reputation-ledger assert over 22 runs |
+| 31 | Duplicated state | ✅ `rsp.taken`, `st.welfare` and `modelDeclines` are gone; `tech(st, id)` answers |
+| 32 | Numbers written into text | 🟡 Event and tech-card text is done. Element `desc` strings in layers.js still spell their numbers. |
+| 33 | Tests repeated config values | ✅ Event expectations read the effects; the rival test reads `rivalGraceSeconds` |
+| 34 | Side effects inside `check()` | ✅ Actions on their own lines; `withoutCatastrophes = fn => withCatShare(0, fn)` |
+| 35 | The Red Team assert was circular | ✅ All four mounts are also checked against what real attacks met |
+| 36 | `role` vs `kind`; label regex; if-chain | ✅ `kind` is gone (`catchall: true` on the Kill Switch), `marks` drives chip tags, and choices use `said` |
+
+**Reformulated asserts** (each follows a fix above):
+- **Situationally Aware** (traits and counters).
+  - Was: ×1.5 idle, ×0.4 busy, ×1 with Honeypots.
+  - Now: ×0.4 with a desk free, ×1.5 with every desk busy or none, ×0.4 with Honeypots or a Red Team, read from `TRAITS.situational.watchMult`.
+  - The counter check now fills every desk first: 1.5 → 0.4. (#12)
+- **Least Privilege R&D.** Was ×0.9 / ×0.975, now ×0.95 / ×0.9875, read from config. (#10)
+- **Red Team.**
+  - "Within ± err of the truth" is now "the truth lies inside [lo, hi]". The 3σ check uses Wilson bounds at z = 3.
+  - The real-attack check covers every mount, not just the monitor.
+  - Control Eval is checked with `inBar`. (#6, #35)
+- **Event expectations.**
+  - caught: m −v × decay^retrains.
+  - Ship It, Investor Call, Inspection, Paperclip and Frog Poem: seconds of income.
+  - Journalist: this generation's incidents.
+  - Steganography: the event's own `mult` (`BALANCE.stegoCollusion` is gone).
+  - Alignment Faking: `deskFree`, because the test state has a free desk.
+  - (#13, #14, #20, #33)
+- **needs.** "No Journalist without incidents" is dropped, because that gate is gone by design. "Journalist after a clean generation: reputation unchanged" replaces it. (#14)
+- **Tripwires.** "Every catch pauses its lane 2 s" is kept, and now also checks the alert and the ×5 spot checks. (#15)
+- **RSP** no longer sets `r.rsp.taken`. **Catalogue** keys: `kind` → `catchall`. **Rival:** literals → `B.rivalGraceSeconds`; the "default is grace, 90 s" pin stays.
+
+**New asserts:**
+- Red Team after a Distribution Shift and after a retrain; Control Eval resets when a mount below is upgraded.
+- Air Gap side channels at G6/G7.
+- Least Privilege and Capability Tokens foil rates (40.8% vs 40%, 77.6% vs 80%).
+- Rate Limiter under a Jailbreak Wave.
+- The Sandbagger eval line.
+- Lab toggle refused, and the Microscope row locks again.
+- Tripwire banner.
+- Journalist on a clean generation.
+- Retrain decay.
+- Greenrock's free L5 names its capstone.
+- Event strings carry no hand-typed numbers.
+- No Rival Release after Prometheus ships.
+- Exfiltration counts as seen when foiled, contained, announced, and from G4.
+- The reputation ledger.
+
+**Balance after the fixes** (`node test/headless.mjs balance smart [grace|instant|off]`). All three modes are identical:
+```
+easy    W7 W7 W7 W7 B7 W7 W7 C7 W7 W7
+medium  W7 W7 R7 W7 W7 W7 W7 C7 B4 C6
+hard    W7 R7 R7 R6 C6 R7 W7 W7 W7 R6
+```
+- Smart wins 8 / 6 / 5 (was 10 / 9 / 3). Prometheus never ships first in any mode (before: 2 runs under `instant`).
+- **Medium got harder**, mainly because m-scaled threats now come at the difficulty's floor: Spear Phish fired 9 times and Self-Exfiltration 3 times, against 1 and 4 before.
+- **Hard got easier, and its losses changed kind.** Catastrophes fell from 5 to 1 (Air Gap, Least Privilege, exfiltration now counting as seen). Reputation losses rose from 2 to 5. The new reputation ledger says those are landed incidents (170–210 reputation each); events cost at most 14 per run.
+- The Journalist now hits 0–6 instead of a flat −30.
+
+**RSP threshold: kept at 0.3, after measuring.** Share of smart-policy generations whose shown estimate peaks above each threshold:
+
+| Threshold | Easy | Medium | Hard |
+|---|---|---|---|
+| 0.30 | 1% | 12% | 33% |
+| 0.20 | 19% | 32% | 54% |
+| 0.15 | 24% | 39% | 67% |
+
+At 0.3 it is an emergency brake that comes up about once a game on Medium and every third generation on Hard. The smart policy rarely draws the card (4 runs in 30), so its "used once" says little.
+
+**For Avi:**
+- 🚩 **Situationally Aware is flipped** (#12). It now holds back while a desk is free and attacks when every desk is busy, so more desks are the counter. DESIGN-v2 says the opposite. Keep the flip?
+- 🚩 **Bug Bounty** (#24): bring back the leak-free version, and if so, which event goes?
+- 🚩 **Air Gap side channels**: 10% at G6 and 20% at G7. Too soft, or too hard?
+- 🚩 **Retrain decay** ×0.5 per use: −0.04, −0.02, −0.01…
+- 🚩 **RSP threshold**: 0.3 (the design), or 0.2 to bring it up more often?
+- 🚩 **Difficulty**: smart wins 8 / 6 / 5. Medium still pushes m below 0.05 by G4 in half the runs.

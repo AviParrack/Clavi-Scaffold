@@ -10,7 +10,8 @@ const ENDINGS = {
   paranoid: { title: 'Paranoid but Safe',   text: 'Safety ate the budget. Nothing got through, and not much else did either.' },
   control:  { title: 'Lost Control',        text: 'Something left the building that should not have.' },
   public:   { title: 'Lost the Public',     text: 'Too many incidents. The world stopped trusting the product, and you.' },
-  runway:   { title: 'Out of Runway',       text: 'The safety tax came due and the money ran out. The rival lab ships alone.' },
+  runway:   { title: 'Out of Runway',       text: 'The safety tax came due and the money ran out. Prometheus ships alone.' },
+  rival:    { title: 'Second Place',        text: 'Prometheus shipped first. Their safety card was one page. Yours was forty, and beautifully typeset.' },
 };
 
 const sum = (o, k) => (o.ext[k] || 0) + (o.int[k] || 0);
@@ -23,12 +24,12 @@ export function scorecard(st) {
     const s = L[l];
     lanes[l] = {
       caught: s.caught || 0, blocked: s.blocked || 0, landed: s.landed || 0,
-      deferred: s.deferredAttacks || 0, resampled: s.resampledAttacks || 0,
+      deferred: s.deferredAttacks || 0, resampled: s.resampledAttacks || 0, throttled: s.throttledAttacks || 0,
       benignBlocked: (s.benignBlocked || 0) + (s.falseCatches || 0),
       completed: s.completed || 0, unread: s.unread || 0,
     };
   }
-  const stopped = sum(lanes, 'caught') + sum(lanes, 'blocked') + sum(lanes, 'deferred') + sum(lanes, 'resampled');
+  const stopped = sum(lanes, 'caught') + sum(lanes, 'blocked') + sum(lanes, 'deferred') + sum(lanes, 'resampled') + sum(lanes, 'throttled');
   const landed = sum(lanes, 'landed');
   const attacks = stopped + landed;
   const catchRate = attacks ? stopped / attacks : 1;
@@ -46,7 +47,7 @@ export function scorecard(st) {
 
   // ----- ending -----
   let ending;
-  if (!over.win) ending = over.reason === 'catastrophe' ? 'control' : over.reason === 'reputation' ? 'public' : over.reason === 'bankrupt' ? 'runway' : 'control';
+  if (!over.win) ending = { catastrophe: 'control', reputation: 'public', bankrupt: 'runway', rival: 'rival' }[over.reason] || 'control';
   else if (safetyShare > 0.6) ending = 'paranoid';
   else if (catchRate > 0.7 && st.m < 0.35) ending = 'trust';
   else ending = 'lucky';
@@ -58,7 +59,7 @@ export function scorecard(st) {
 
   return {
     win: over.win, reason: over.reason, gen: st.gen, genName: GENERATIONS[st.gen - 1].name,
-    seed: st.seed, difficulty: st.trueDifficulty, time: st.t,
+    seed: st.seed, difficulty: st.trueDifficulty, time: st.t, rivalShipped: st.rivalShipped,
     gens, lanes, attacks, stopped, landed, catchRate,
     income, safety, safetyShare, humanSeen: humanSeenFrac(st),
     ending: ENDINGS[ending], endingId: ending, score, grade,

@@ -4,8 +4,8 @@ import { BALANCE as B, DIFFICULTY, SPLIT } from '../config/balance.js';
 import { GENERATIONS } from '../config/generations.js';
 import { ATTACKS } from '../config/tasks.js';
 import { uniform, randn, pick } from './rng.js';
-import { fx, say } from './log.js';
-import { clamp, misalignmentEstimate, traitMult } from './rules.js';
+import { fx, say, noteSeen } from './log.js';
+import { clamp, misalignmentEstimate, estimateFooled, tech } from './rules.js';
 import { rollTraits, newDossier } from './dossier.js';
 
 // ----- stub: Training phase (future). v1 returns defaults -----
@@ -13,11 +13,12 @@ export function trainingPhase(st) {
   return { mModifier: 0, attackMix: null };
 }
 
-// ----- stub: Evals phase (future). Reveals one random true tendency (a Sandbagger makes it read low) -----
+// ----- stub: Evals phase (future). Reveals one random true tendency (a Sandbagger makes it read low, unless an
+// Interp Lab is looking: the same rule as the shown estimate) -----
 export function evalPhase(st) {
   const internalTypes = ['sabotage', 'poison'].concat(st.gen >= 4 ? ['exfil'] : []);
   const t = pick(st, internalTypes);
-  const m = st.m * traitMult(st, 'estMult');
+  const m = st.m * estimateFooled(st);
   const level = m < 0.1 ? 'rarely' : m < 0.25 ? 'sometimes' : 'often';
   return { tendency: t, text: `Evals: given the chance, this model ${level} attempts ${ATTACKS[t].label}.` };
 }
@@ -26,7 +27,7 @@ export function newGenStats(g, m, traits = []) {
   return {
     g, name: GENERATIONS[g - 1].name, m, est: null, err: null, drift: 0,
     traits, revealed: traits.map(() => false),
-    income: 0, spend: 0, layerSpend: 0, realTotal: 0, realSeen: 0,
+    income: 0, spend: 0, layerSpend: 0, realTotal: 0, realSeen: 0, incidents: 0,
     attempts: {},                          // the model's own attack tries by type (hidden truth)
     lanes: { ext: {}, int: {} },
   };
@@ -66,10 +67,17 @@ export function startGeneration(st, g) {
   st.genStats = newGenStats(g, st.m, st.traits);
   st.stats.gens.push(st.genStats);
   st.dossier = newDossier(st);
+  for (const lane of ['ext', 'int']) for (const s of st.lanes[lane].slots) { s.rt = null; s.rtLane = null; }   // red team: new model, new measurements
 
   fx(st, 'newModel', { g });
-  say(st, 'model', GENERATIONS[g - 1].voice);
-  if (g > 1) say(st, 'research', evalPhase(st).text);
+  const G = GENERATIONS[g - 1];
+  say(st, 'model', tech(st, 'welfare') && G.welfareVoice ? G.welfareVoice : G.voice);
+  // what the player is told about this model counts as seen: research draws can offer a counter to it
+  if (g > 1) { const ev = evalPhase(st); say(st, 'research', ev.text); noteSeen(st, ev.tendency); }
+  if (G.catShare > 0) {
+    noteSeen(st, 'exfil');
+    if (!GENERATIONS[g - 2]?.catShare) say(st, 'safety', 'From this model on, it could copy itself out. One exfiltration that lands and it is over. Egress, weight security, two people on every transfer: now would be the time.');
+  }
 }
 
 export function resolveDifficulty(st, difficulty) {

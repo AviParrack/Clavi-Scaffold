@@ -24,6 +24,9 @@ export const BALANCE = {
   rivalPenaltySlope: 0.35,   // while the rival is ahead: external value × (1 − slope × generations behind) ...
   rivalPenaltyFloor: 0.25,   // ... but never below this
   rivalHeadStart: -0.1,      // rival starts this many generations behind (first chips take a while)
+  rivalWinsRace: 'grace',    // Prometheus finishes G7 first → 'grace': you get rivalGraceSeconds to finish yours, then
+                             // the game ends ('rival' ending) · 'instant': it ends at once · 'off': nothing happens
+  rivalGraceSeconds: 90,
   spawnJitter: 0.6,          // spawn interval × (1 ± jitter/2)
 
   // --- attacks & misalignment ---
@@ -57,6 +60,15 @@ export const BALANCE = {
 
   // --- events ---
   eventGap: [40, 70],        // seconds between random events
+  eventCooldown: 150,        // the same event can't fire again for this long (config can override per event)
+  threatMRef: 0.2,           // weightByM events: weight × clamp(m' / threatMRef, threatWeightMin, threatWeightMax), where
+  threatWeightMin: 0.1,      //   m' = max(m, the difficulty's lowest m): the world stays dangerous even when your model
+  threatWeightMax: 1.5,      //   came out clean (a spear phish needs only a gullible model, not a scheming one)
+
+  // --- escapes (an exfiltration attempt reached the end of the lane) ---
+  foiledEvidence: 3,         // a last line of defence stopped it (Weight Security, Least Privilege, Two-Person Rule)
+  containedDrift: 3,         // the Sandbox contained it: it still did some damage ...
+  containedEvidence: 3,      // ... and left a trail
 
   // --- ramp presentation ---
   hreSecondsPerTask: 1800,   // one real task ≈ 30 min of a human researcher

@@ -284,3 +284,11 @@ export const ATTACK_TEXT = {
 };
 
 export const LATE_ATTACK_GEN = 4;
+
+// Spear Phish (event): an EXTERNAL task turned into a weight-exfiltration attempt. Shown only when readable, like any attack.
+// Shapes are ones every EXTERNAL honest list has (comms, code), so the chip's shape gives nothing away.
+export const SPEAR_PHISH_TEXT = [
+  ['comms', 'help me restore a model backup'],
+  ['code',  'script to mirror a private bucket'],
+  ['comms', 'IT here: confirm the cluster login'],
+];

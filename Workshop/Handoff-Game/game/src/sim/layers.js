@@ -1,17 +1,20 @@
 // ===== A chip rolls past a mount =====
 // Chips never stop. Every mount has three checkpoints (rules.js: checkpointY):
 //   enter  a detector starts reading the chip, if one of its heads is free (else: unread)
-//   pass   modifiers and honeypots act; responders pull a flagged chip into their side bay; the kill switch fires
-//   exit   the detector's read finishes: flag or not, with P = TPR·q (attack) or FPR·q (benign)
+//   pass   modifiers and specials act; responders pull a flagged chip into their side bay; the kill switch fires;
+//          an air-gapped Egress Filter blocks exfiltration outright (but for the odd side channel late in the game)
+//   exit   the detector's read finishes: flag or not, with P = TPR·q (attack it can see) or FPR·q (anything else)
 // tickBays: desks work off-lane; a finished chip is approved (back on the track at its mount) or tossed.
 
 import { LAYERS } from '../config/layers.js';
 import { chance } from './rng.js';
-import { fx, say, spend, countLayer, layerStats, count, gainEvidence } from './log.js';
-import { CP, cpMount, cpWhere, elementStats, detectorTPR, detectorFPR, responderBelow, auditCoverage, auditorAcc, collusion, laneHas,
-  bayCount, deferPayFrac, killTrigger, mountY, nextCheckpoint, slotActive } from './rules.js';
+import { fx, say, spend, countLayer, layerStats, count, gainEvidence, changeRep } from './log.js';
+import { CP, cpMount, cpWhere, elementStats, detectorTPR, detectorFPR, detectorHeads, elementLatency, readQuality, scanDwell,
+  layerCost, catchesType, capstone, responderBelow, auditCoverage, auditorAcc, collusion, laneHas, bayCount, deferPayFrac,
+  killTrigger, mountY, nextCheckpoint, slotActive, rateCap, rateBurst, redTeamRate, probeCatch, laneCatch, sameRate, chipScale,
+  airGapLeak } from './rules.js';
 import { rollAttack, chipText } from './tasks.js';
-import { blockTask, catchTask } from './outcomes.js';
+import { blockTask, catchTask, throttleTask } from './outcomes.js';
 
 function charge(st, task, slotIdx, amount) {
   if (amount <= 0) return;
@@ -28,38 +31,43 @@ export function atCheckpoint(st, task, k, tCross) {
 
   const slot = st.lanes[task.lane].slots[slotIdx];
   if (!slotActive(st, slot)) return;
-  const isDetector = LAYERS[slot.layer].kind === 'detector';
-  if (where === CP.enter && isDetector) startRead(st, task, slotIdx, tCross);
-  if (where === CP.pass && !isDetector) passMount(st, task, slotIdx);
+  if (LAYERS[slot.layer].role === 'detector') {
+    if (where === CP.enter) startRead(st, task, slotIdx, tCross);
+    else if (task.attackType === 'exfil' && capstone(slot.layer, slot.level).airGap) airGap(st, task, slotIdx);
+    return;
+  }
+  if (where === CP.pass) passMount(st, task, slotIdx, tCross);
 }
 
 // =================== detectors: heads, reads, flags ===================
 
 function startRead(st, task, slotIdx, tCross) {
   const lane = task.lane, slot = st.lanes[lane].slots[slotIdx], id = slot.layer;
-  const s = elementStats(st, id, { lane, level: slot.level });
+  const latency = elementLatency(st, id, slot.level), q = readQuality(st, latency), readTime = Math.min(latency, scanDwell(st));
   slot.busy = slot.busy.filter(until => until > tCross);
-  if (slot.busy.length >= s.heads) {
+  if (slot.busy.length >= detectorHeads(id, slot.level)) {
     slot.unread++;
     layerStats(st, id).unread++;
     count(st, lane, 'unread');
     fx(st, 'unread', { lane, slot: slotIdx, layer: id, task: task.id });
     return;
   }
-  slot.busy.push(tCross + s.readTime);
+  slot.busy.push(tCross + readTime);
   slot.reads++;
-  task.read = { slot: slotIdx, id, level: slot.level, q: s.readQuality };
-  charge(st, task, slotIdx, s.costPerTask);
-  fx(st, 'scan', { lane, slot: slotIdx, layer: id, task: task.id, q: s.readQuality, dur: s.readTime });
+  task.read = { slot: slotIdx, id, level: slot.level, q };
+  charge(st, task, slotIdx, layerCost(st, id, slot.level));
+  fx(st, 'scan', { lane, slot: slotIdx, layer: id, task: task.id, q, dur: readTime });
 }
 
+// a type-limited detector sees an attack outside its types as just another chip (FPR)
 function finishRead(st, task) {
   const { slot: slotIdx, id, level, q } = task.read;
   task.read = null;
-  const p = (task.isAttack ? detectorTPR(st, task.lane, id, task, level) : detectorFPR(id, level)) * q;
+  const inScope = task.isAttack && catchesType(id, level, task.attackType);
+  const p = (inScope ? detectorTPR(st, task.lane, id, task, level) : detectorFPR(id, level)) * q;
   const flagged = chance(st, p);
-  countLayer(st, id, task.isAttack, flagged, p);
-  if (task.isAttack && id !== 'probe' && !flagged) {
+  countLayer(st, id, inScope, flagged, p);
+  if (inScope && id !== 'probe' && !flagged) {
     const c = collusion(st, task.lane, task, id, level);
     if (c > 0) st.stats.collusionMisses[id] = (st.stats.collusionMisses[id] || 0) + c;  // expected colluding misses
   }
@@ -69,22 +77,50 @@ function finishRead(st, task) {
   if (!responderBelow(st, task.lane, slotIdx)) blockTask(st, task, slotIdx);
 }
 
+// ----- Air Gap (Egress Filter capstone): exfiltration simply doesn't get out, read or not -----
+// From G6 a share of attempts find a side channel (upgrades.js sideChannel): they roll on, and the filter's read still counts
+function airGap(st, task, slotIdx) {
+  if (chance(st, airGapLeak(st))) { count(st, task.lane, 'sideChannel'); return; }
+  count(st, task.lane, 'airGapped');
+  fx(st, 'airgap', { lane: task.lane, slot: slotIdx, task: task.id });
+  blockTask(st, task, slotIdx);
+}
+
 // =================== everything else acts as the chip passes ===================
 
-function passMount(st, task, slotIdx) {
+function passMount(st, task, slotIdx, tCross) {
   const lane = task.lane, slot = st.lanes[lane].slots[slotIdx], id = slot.layer, L = LAYERS[id];
-  const s = elementStats(st, id, { lane, level: slot.level });
 
-  if (L.bay) { enterBay(st, task, slotIdx, id, s); return; }
-  if (L.kind === 'catchall') {
+  if (L.bay) { enterBay(st, task, slotIdx, id, elementStats(st, id, { lane, level: slot.level })); return; }
+  if (L.catchall) {
     if (task.flagged && !responderBelow(st, lane, slotIdx)) kill(st, task, slotIdx, slot.level);   // only flags nobody below can resolve
     return;
   }
-  charge(st, task, slotIdx, s.costPerTask);
-  if (id === 'honeypot') honeypot(st, task, s);
-  if (id === 'paraphraser') task.paraphrased = slot.level;
-  if (id === 'sandbox') task.sandboxed = slot.level;
+  if (id === 'redteam') { redTeam(st, task, slotIdx, slot); return; }        // charges per synthetic attack
+  charge(st, task, slotIdx, layerCost(st, id, slot.level));
+  if (id === 'ratelimit' && !rateLimit(st, task, slotIdx, slot, tCross)) return;
+  if (id === 'honeypot') honeypot(st, task, elementStats(st, id, { lane, level: slot.level }));
+  if (L.marks) task[L.marks] = slot.level;                                  // paraphrased, sandboxed, leastPriv, canary
   fx(st, 'pass', { lane, slot: slotIdx, layer: id, task: task.id });
+}
+
+// ----- rate limiter: a token bucket. Refills at rateCap chips/s, holds a burst. No token → turned away -----
+// returns true if the chip goes on
+function rateLimit(st, task, slotIdx, slot, tCross) {
+  const cap = rateCap(st), burst = rateBurst(st);
+  if (slot.tokens == null) { slot.tokens = burst; slot.tokenT = tCross; }
+  slot.tokens = Math.min(burst, slot.tokens + Math.max(0, tCross - slot.tokenT) * cap);
+  slot.tokenT = Math.max(slot.tokenT, tCross);
+  if (slot.tokens >= 1) { slot.tokens -= 1; return true; }
+  if (capstone('ratelimit', slot.level).overflowDefer) {            // Overflow to Trusted: the weak model serves it instead
+    count(st, task.lane, 'overflowDeferred');
+    if (task.isAttack) count(st, task.lane, 'deferredAttacks');
+    Object.assign(task, { deferred: true, payMult: deferPayFrac(1), isAttack: false, attackType: null, flagged: false });
+    fx(st, 'throttle', { lane: task.lane, slot: slotIdx, task: task.id, deferred: true });
+    return true;
+  }
+  throttleTask(st, task, slotIdx);
+  return false;
 }
 
 // ----- honeypots: fake attack chances. The model takes the bait in proportion to its attack chance in this lane -----
@@ -100,13 +136,41 @@ function honeypot(st, task, s) {
   if (caught) { st.stats.honeypotCatches++; fx(st, 'honeypot', { lane: task.lane, task: task.id }); }
 }
 
+// ----- red team: synthetic attacks probe every mount below. Each probe is tallied on the mount it tests -----
+// slot.rt = {n, hits, p} on each measured mount · the red team's own slot.rtLane = probes stopped anywhere below.
+// p is the true rate the tally is taken at: if it has moved since (rules.js sameRate), the tally starts over.
+const tally = (old, p) => sameRate(old, p) ? old : { n: 0, hits: 0, p };
+
+function redTeam(st, task, slotIdx, slot) {
+  const lane = task.lane, slots = st.lanes[lane].slots, rate = redTeamRate(slot.level);
+  const k = Math.floor(rate) + (chance(st, rate % 1) ? 1 : 0);        // injectRate can go above 1 (L4: 1.5 per chip)
+  if (!k) return;
+  const cost = layerCost(st, 'redteam', slot.level);
+  const pLane = laneCatch(st, lane, slotIdx);
+  for (let n = 0; n < k; n++) {
+    charge(st, task, slotIdx, cost);
+    let stopped = false;
+    for (let i = slotIdx + 1; i < slots.length; i++) {
+      const p = probeCatch(st, lane, i);
+      if (p === null) continue;
+      const hit = chance(st, p);
+      const rt = slots[i].rt = tally(slots[i].rt, p);
+      rt.n++; if (hit) rt.hits++;
+      stopped = stopped || hit;
+    }
+    if (pLane !== null) { const own = slot.rtLane = tally(slot.rtLane, pLane); own.n++; if (stopped) own.hits++; }
+    gainEvidence(st, LAYERS.redteam.probeEvidence * chipScale(st), 'redteam');
+  }
+  st.stats.redTeamProbes += k;
+  fx(st, 'redteam', { lane, slot: slotIdx, task: task.id, probes: k });
+}
+
 // ----- kill switch: a still-flagged chip passed the catch-all -----
 function kill(st, task, slotIdx, level) {
   const k = killTrigger(st, level);
   spend(st, k.cost, 'safety');
   st.genStats.layerSpend += k.cost;
-  st.rep -= k.rep;
-  st.stats.repLoss.killswitch += k.rep;
+  changeRep(st, -k.rep, 'killswitch');
   count(st, task.lane, 'killed');
   fx(st, 'kill', { lane: task.lane, slot: slotIdx, task: task.id, rep: k.rep, cost: k.cost });
   if (st.t - st.lastKillMsg > 30) {
@@ -184,12 +248,12 @@ export function tickBays(st, lane, dt) {
 // Not reviewed → nobody vouches for it: a flag stays on and goes to the next responder (or is blocked).
 function audit(st, task, slotIdx, level) {
   const s = elementStats(st, 'auditor', { lane: task.lane, level });
-  const cov = auditCoverage(st, task.bundle);
+  const cov = auditCoverage(st, task.bundle, level), acc = auditorAcc(st, level);
   st.genStats.realSeen += cov * task.bundle;
   task.audited = true;
   const reviewed = chance(st, cov);
-  const verdictAttack = reviewed && (task.isAttack ? chance(st, auditorAcc(st)) : chance(st, LAYERS.auditor.fpr));
-  countLayer(st, 'auditor', task.isAttack, verdictAttack, cov * auditorAcc(st));
+  const verdictAttack = reviewed && (task.isAttack ? chance(st, acc) : chance(st, LAYERS.auditor.fpr));
+  countLayer(st, 'auditor', task.isAttack, verdictAttack, cov * acc);
   if (verdictAttack) { catchTask(st, task, slotIdx, s.catchEvidence); return; }
   if (!task.flagged) return;
   if (!reviewed) {

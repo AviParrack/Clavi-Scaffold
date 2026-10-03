@@ -53,8 +53,9 @@ export function createPlayfield(canvas) {
   // ---------- fx from the sim ----------
   function onFx(e, st) {
     const pal = PALETTES[genDef(st).palette];
-    const cx = e.lane ? laneCx(e.lane) : V.W / 2;
-    const sy = e.slot != null && e.slot >= 0 && e.lane ? slotPx(st, e.lane, e.slot) : null;
+    const rail = V.lanes[e.lane] ? e.lane : null;            // 'global' (Interp Lab) has no rail: centre of the field
+    const cx = rail ? laneCx(rail) : V.W / 2;
+    const sy = e.slot != null && e.slot >= 0 && rail ? slotPx(st, rail, e.slot) : null;
     switch (e.type) {
       case 'cost':   fxr.accumulate(`c${e.lane}${e.slot}`, V.lanes[e.lane].x + V.lanes[e.lane].w + 52, sy, -e.amount, '#ff8a8a'); break;
       case 'pay':    fxr.accumulate(`p${e.lane}`, cx + V.chipW / 2 - 10, V.bottom + 14, e.amount, pal.fg); break;

@@ -16,6 +16,6 @@ Each style writes a gridless VTT PNG, a gridded PNG, a GM PNG (key + A.. / 1.. c
 | `bm.py` | Engine: floors, walls, doors, props, grid, exports, `check_grid` |
 | `wc.py` | Watercolor style: washes, ink, finishing pass |
 | `pearl_tier.py` | First map. Lore on it is placeholder, not canon |
-| `airship.py` | The party's airship, top deck + underdeck, with key |
+| `airship.py` | The party's airship, top deck + interior, traced on Avi's original ship map (same grid) |
 
 New map: copy `pearl_tier.py`, change `build()` and `KEY`. Coordinates are in 5 ft squares, x east, y south. Ground setting details in `/mnt/project-files/Spectrum/Palette-Gazetteer.pdf` (built from Avi's own sources).

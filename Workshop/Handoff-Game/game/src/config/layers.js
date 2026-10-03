@@ -1,7 +1,10 @@
 // ===== Safety layers. $ figures are per task at G1 and scale with bundle size. =====
-// kind: detector (may flag) | responder (acts on flagged) | modifier (changes tasks below) | special
+// kind: detector (may flag) | responder (acts on flagged) | modifier (changes tasks below) | special | catchall
 // cost: charged per task passing (auditor: per audited task, resampler: per resample, defer: free)
-// latency: seconds the chip is held (responders only hold when they act)
+// latency: seconds the chip is held in the tier (bay layers: seconds a desk works on it, off the lane)
+// bay: responder works in a side bay with `desks` desks; chips behind keep flowing
+//   onFull: 'block' (bay full → chip blocked) | 'wave' (bay full → chip waved through, flag stays on)
+// Per-level stats and capstones live in config/upgrades.js.
 
 export const LAYERS = {
   probe: {
@@ -16,8 +19,9 @@ export const LAYERS = {
   },
   auditor: {
     name: 'Human Auditor', tag: 'AUD', kind: 'responder', buy: 800, cost: 25, latency: 3.0,
-    fpr: 0.01,
-    desc: 'Reviews flagged tasks, spot-checks the rest. Slow, fixed capacity in real tasks: big bundles mostly go unread (flag passes on).',
+    fpr: 0.01, spotCheck: 0.01,
+    bay: true, desks: 1, onFull: 'block',
+    desc: 'Pulls flagged tasks to a desk for review and spot-checks the rest when a desk is free. Big bundles mostly go unread (flag passes on). Full desks: blocked.',
   },
   untrusted: {
     name: 'Untrusted Monitor', tag: 'UM', kind: 'detector', buy: 600, cost: 3, latency: 0.2,
@@ -31,11 +35,13 @@ export const LAYERS = {
   },
   defer: {
     name: 'Defer to Trusted', tag: 'DEF', kind: 'responder', buy: 400, cost: 0, latency: 0.5,
-    desc: 'Flagged tasks are redone by the weak trusted model: pays 40%, zero risk.',
+    bay: true, desks: 2, onFull: 'wave',
+    desc: 'Flagged tasks are redone by the weak trusted model in a side bay: pays 40%, zero risk. Full bay: waved through.',
   },
   resampler: {
     name: 'Resampler', tag: 'RES', kind: 'responder', buy: 500, cost: 5, latency: 0.5,
-    desc: 'Flagged task is re-rolled. The attack chance is rolled again.',
+    bay: true, desks: 2, onFull: 'wave',
+    desc: 'Flagged task is re-rolled in a side bay. The attack chance is rolled again. Full bay: waved through.',
   },
   paraphraser: {
     name: 'Paraphraser', tag: 'PAR', kind: 'modifier', buy: 400, cost: 2, latency: 0.2,
@@ -47,6 +53,11 @@ export const LAYERS = {
     harmMult: 0.3, catastropheLand: 0.3, worksUntilGen: 5,
     desc: 'Attacks that land do 30% harm. Cannot contain escapes from G6 on.',
   },
+  killswitch: {
+    name: 'Kill Switch', tag: 'KILL', kind: 'catchall', buy: 300, cost: 0, latency: 0,
+    triggerRep: 2, triggerCost: 30,
+    desc: 'Catch-all. Any task still flagged when it gets here, with no responder left below, is killed. Each trigger costs reputation and money.',
+  },
 };
 
-export const STARTING_HAND = ['probe', 'monitor', 'auditor'];
+export const STARTING_HAND = ['probe', 'monitor', 'auditor', 'killswitch'];

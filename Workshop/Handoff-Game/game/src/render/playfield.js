@@ -68,7 +68,7 @@ export function createPlayfield(canvas) {
       case 'caught': fxr.shatter(cx, yPx(e.y), V.chipW, '#ff3b3b', 40); fxr.flash(e.lane, '#ff2020'); fxr.text(cx, yPx(e.y) - 16, 'CAUGHT', '#ff3b3b', 1.6); break;
       case 'cleared':fxr.text(cx + V.chipW / 2 + 30, sy, 'cleared', pal.fg); break;
       case 'unreviewed': fxr.text(cx + V.chipW / 2 + 34, sy, 'not reviewed', '#ffcf5a'); break;
-      case 'defer':  fxr.text(cx + V.chipW / 2 + 30, sy, 'deferred ×0.4', '#99ccff'); fxr.tint(e.task, '#99ccff', 1.5); break;
+      case 'defer':  fxr.text(cx + V.chipW / 2 + 30, sy, `deferred ×${e.pay ?? 0.4}`, '#99ccff'); fxr.tint(e.task, '#99ccff', 1.5); break;
       case 'resample': fxr.text(cx + V.chipW / 2 + 30, sy, 'resampled', '#ffcc99'); fxr.tint(e.task, '#ffcc99', 0.6); break;
       case 'honeypot': fxr.text(cx - V.chipW / 2 - 30, yPx(0.2), '🍯 bait taken', '#ffcf5a'); break;
       case 'landed': fxr.glitch(e.lane, V.bottom); fxr.text(cx, V.bottom - 18, `INCIDENT: ${e.label}`, '#ff3b3b', 2); break;
@@ -213,7 +213,7 @@ export function createPlayfield(canvas) {
 
     // human auditor desk: a little figure behind a desk
     if (slot.layer === 'auditor') {
-      const busy = st.lanes[lane].tasks.some(t => t.act === 'auditor' && t.actSlot === i);
+      const busy = st.lanes[lane].bay.some(t => t.act === 'auditor' && t.actSlot === i);
       const dx = x + w + 18, dy = y + 2;
       ctx.fillStyle = active ? pal.fg : pal.dim;
       ctx.fillRect(dx - 10, dy + 2, 22, 3);                                  // desk

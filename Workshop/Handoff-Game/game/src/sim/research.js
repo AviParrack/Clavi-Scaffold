@@ -6,7 +6,8 @@ import { LAYERS } from '../config/layers.js';
 import { GENERATIONS } from '../config/generations.js';
 import { pick, rand } from './rng.js';
 import { spend, say, fx } from './log.js';
-import { researchPrice } from './rules.js';
+import { researchPrice, tierY } from './rules.js';
+import { newSlot } from './state.js';
 
 export const CARD_BY_ID = Object.fromEntries(CARDS.map(c => [c.id, c]));
 
@@ -61,13 +62,12 @@ function applyCard(st, c) {
 export function addSlot(st, lane) {
   const L = st.lanes[lane];
   if (L.slots.length >= B.maxSlots) return false;
-  L.slots.push({ layer: null, on: true, forcedOffUntil: 0 });
+  L.slots.push(newSlot());
   // tiers moved: re-index which tier each chip visits next
   const n = L.slots.length;
-  const tierY = i => B.tierTop + (i + 0.5) * (B.tierBottom - B.tierTop) / n;
   for (const t of L.tasks) {
     if (t.act) continue;
-    let i = 0; while (i < n && tierY(i) <= t.y) i++;
+    let i = 0; while (i < n && tierY(n, i) <= t.y) i++;
     t.tierIdx = i;
   }
   return true;

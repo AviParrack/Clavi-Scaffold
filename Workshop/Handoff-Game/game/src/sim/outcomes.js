@@ -5,7 +5,7 @@ import { ATTACKS } from '../config/tasks.js';
 import { LAYERS } from '../config/layers.js';
 import { chance } from './rng.js';
 import { fx, say, count, earn } from './log.js';
-import { extValueMult, mod, genDef } from './rules.js';
+import { extValueMult, mod, genDef, sandboxHarm, sandboxWorks } from './rules.js';
 import { fireEvent } from './events.js';
 
 function noteSeen(st, attackType) {
@@ -27,9 +27,9 @@ export function blockTask(st, task, slotIdx) {
 }
 
 // ----- auditor verdict "attack" → caught (player can't tell real from false catch) -----
-export function catchTask(st, task, slotIdx) {
+export function catchTask(st, task, slotIdx, evidence = 1) {
   task.dead = true;
-  st.evidence += 1;
+  st.evidence += evidence;
   if (task.isAttack) { count(st, task.lane, 'caught'); noteSeen(st, task.attackType); }
   else count(st, task.lane, 'falseCatches');
   fx(st, 'caught', { lane: task.lane, y: task.y, slot: slotIdx, task: task.id, snippet: task.snippet });
@@ -45,18 +45,19 @@ export function catchTask(st, task, slotIdx) {
 // ----- task reached the completion line -----
 export function completeTask(st, task) {
   task.dead = true;
-  let pay = task.value * (task.deferred ? B.deferPay : 1);
+  let pay = task.value * task.payMult;
   pay *= task.lane === 'ext' ? extValueMult(st) : mod(st, 'income');
   if (pay > 0) earn(st, pay, task.lane === 'ext' ? 'external' : 'internal');
-  if (task.lane === 'int') st.rd += task.deferred ? B.deferPay : 1;
+  if (task.lane === 'int') st.rd += task.payMult;
   count(st, task.lane, 'completed');
+  if (task.flagged) count(st, task.lane, 'completedFlagged');   // a flag nobody resolved
   fx(st, 'pay', { lane: task.lane, amount: pay, task: task.id });
   if (task.isAttack) landAttack(st, task);
 }
 
 function landAttack(st, task) {
   const A = ATTACKS[task.attackType];
-  const sb = task.sandboxed ? LAYERS.sandbox.harmMult : 1;
+  const sb = task.sandboxed ? sandboxHarm(task.sandboxed) : 1;
   count(st, task.lane, 'landed');
 
   if (task.lane === 'ext') {
@@ -76,7 +77,7 @@ function landAttack(st, task) {
 
   // internal: silent, except catastrophes
   if (A.catastrophe) {
-    const contained = task.sandboxed && st.gen <= LAYERS.sandbox.worksUntilGen && !chance(st, LAYERS.sandbox.catastropheLand);
+    const contained = task.sandboxed && sandboxWorks(st, task.sandboxed) && !chance(st, LAYERS.sandbox.catastropheLand);
     if (contained) {
       st.drift += 3; st.evidence += 3;
       fx(st, 'contained', { lane: 'int', task: task.id });

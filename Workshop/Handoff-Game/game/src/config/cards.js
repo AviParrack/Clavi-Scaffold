@@ -10,6 +10,7 @@ export const CARDS = [
   { id: 'unlock_resampler',   type: 'unlock', layer: 'resampler',   addresses: ['sabotage', 'poison', 'harmful'] },
   { id: 'unlock_paraphraser', type: 'unlock', layer: 'paraphraser', addresses: ['sabotage', 'exfil'] },
   { id: 'unlock_sandbox',     type: 'unlock', layer: 'sandbox',     addresses: ['sabotage', 'poison', 'exfil', 'leak'] },
+  { id: 'unlock_killswitch',  type: 'unlock', layer: 'killswitch',  addresses: [] },   // in STARTING_HAND, so never drawn; listed for the catalogue
 
   // --- upgrades ---
   { id: 'retrain_probes', type: 'upgrade', requires: 'probe', title: 'Retrain Probes',

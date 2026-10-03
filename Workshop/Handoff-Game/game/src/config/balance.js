@@ -36,7 +36,6 @@ export const BALANCE = {
   readableAttack: 0.5,       // chance an attack snippet reads as suspicious, × (1 - stealth)^2
 
   // --- auditing ---
-  spotCheck: 0.15,           // chance auditor reviews an unflagged task (only with spare capacity)
   auditorCapacity: 5,        // real tasks covered by one audit
   retrainEvidence: 5,
 
@@ -44,8 +43,10 @@ export const BALANCE = {
   chipGap: 0.065,
   tierTop: 0.16,
   tierBottom: 0.84,
-  startSlots: 4,
-  maxSlots: 7,
+  startSlots: 6,
+  maxSlots: 10,
+  slotBase: 600,             // $ for the 7th slot (× bundle)
+  slotMult: 1.6,             // each further slot costs this much more: 600, 960, 1536, 2458
 
   // --- events ---
   eventGap: [40, 70],        // seconds between random events

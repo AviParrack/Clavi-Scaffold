@@ -3,12 +3,14 @@
 //         node test/headless.mjs run all 7       (one verbose run: policy, seed)
 //         node test/headless.mjs balance smart   (win/loss table across difficulties)
 
-import { createState, step, placeLayer, sellLayer, drawResearch, pickResearch, choose, retrainProbes, debugUnlockAll } from '../src/sim/sim.js';
+import { createState, step, placeLayer, sellLayer, drawResearch, pickResearch, choose, retrainProbes, debugUnlockAll, buySlot, upgrade } from '../src/sim/sim.js';
 import { scorecard } from '../src/sim/scorecard.js';
 import { LAYERS } from '../src/config/layers.js';
+import { UPGRADES, MAX_LEVEL } from '../src/config/upgrades.js';
+import { BALANCE as B } from '../src/config/balance.js';
 import { GENERATIONS } from '../src/config/generations.js';
 import { CARD_BY_ID } from '../src/sim/research.js';
-import { rivalAhead, playerProgress } from '../src/sim/rules.js';
+import { rivalAhead, playerProgress, elementStats, slotPrice, upgradePrice, killTrigger } from '../src/sim/rules.js';
 import { big, pct } from '../src/util/format.js';
 
 const DT = 0.05;
@@ -34,13 +36,22 @@ function want(st) {
   const late = st.gen >= 3;
   const respExt = has('defer') && (late || !has('auditor')) ? 'defer' : 'auditor';
   const respInt = has('defer') && late ? 'defer' : 'auditor';
-  const ext = ['probe', 'monitor', has('untrusted') ? 'untrusted' : null, respExt];
-  const int = [has('paraphraser') ? 'paraphraser' : null, has('untrusted') ? 'untrusted' : 'probe', st.gen >= 4 && has('sandbox') && st.gen <= 5 ? 'sandbox' : 'probe', respInt];
-  // extra slots: more detectors in the internal lane, a resampler above the final responder
+  const ext = ['probe', 'monitor', has('untrusted') ? 'untrusted' : null];
+  const int = [has('paraphraser') ? 'paraphraser' : null, has('untrusted') ? 'untrusted' : 'probe', st.gen >= 4 && has('sandbox') && st.gen <= 5 ? 'sandbox' : 'probe'];
+  // spare slots: more detectors in the internal lane, a resampler above the final responder
   const extraInt = [has('untrusted') ? 'untrusted' : 'probe', has('honeypot') ? 'honeypot' : 'probe', has('resampler') ? 'resampler' : 'probe'];
-  for (let i = 4; i < st.lanes.int.slots.length; i++) int.splice(int.length - 1, 0, extraInt[i - 4]);
-  for (let i = 4; i < st.lanes.ext.slots.length; i++) ext.splice(ext.length - 1, 0, 'probe');
+  for (let i = 0; int.length < st.lanes.int.slots.length - 2; i++) int.push(extraInt[i] || null);
+  while (ext.length < st.lanes.ext.slots.length - 2) ext.push(null);
+  // bottom two tiers: responder, then the kill switch as catch-all
+  ext.push(respExt, 'killswitch'); int.push(respInt, 'killswitch');
   return { ext, int };
+}
+const UPGRADE_FIRST = ['auditor', 'defer', 'untrusted', 'monitor', 'probe', 'killswitch'];
+function smartSpend(st) {
+  for (const id of UPGRADE_FIRST) for (const lane of ['ext', 'int']) st.lanes[lane].slots.forEach((s, i) => {
+    if (s.layer === id && s.level < MAX_LEVEL && st.money > 4 * upgradePrice(st, id, s.level)) upgrade(st, lane, i);
+  });
+  if (st.gen >= 3 && slotPrice(st, 'int') !== null && st.money > 6 * slotPrice(st, 'int')) buySlot(st, 'int');
 }
 function smartPolicy(st) {
   if (st.pendingChoice) choose(st, st.pendingChoice.eventId === 'caught' ? 0 : st.money > 2000 * GENERATIONS[st.gen - 1].bundle ? 1 : 0);
@@ -59,10 +70,11 @@ function smartPolicy(st) {
     });
   }
   if (st.probe.trainedGen < st.gen) retrainProbes(st);
+  smartSpend(st);
   if (st.money > 1.5 * (1000 * Math.pow(1.6, st.researchCount) * GENERATIONS[st.gen - 1].bundle)) drawResearch(st);
 }
 
-const ORDER = ['probe', 'monitor', 'untrusted', 'paraphraser', 'honeypot', 'sandbox', 'resampler', 'defer', 'auditor'];
+const ORDER = ['probe', 'monitor', 'untrusted', 'paraphraser', 'honeypot', 'sandbox', 'resampler', 'defer', 'auditor', 'killswitch'];
 
 function act(st, policy) {
   if (policy.fn) return policy.fn(st);
@@ -100,6 +112,7 @@ export function run(policyName, seed, opts = {}) {
   let rivalAheadT = 0;
   while (!st.over && st.t < maxT) {
     act(st, policy);
+    if (opts.each) opts.each(st);
     step(st, DT);
     if (rivalAhead(st)) rivalAheadT += DT;
     if (opts.lockGen) st.rd = 0;
@@ -121,6 +134,11 @@ function confusion(st) {
   return rows.join('\n') || '    (no layers)';
 }
 
+const BAY_KEYS = ['pulled', 'approved', 'tossed', 'waved', 'bayFull', 'killed', 'completedFlagged', 'timeouts'];
+function bayLine(st) {
+  return ['ext', 'int'].map(l => `${l}: ` + BAY_KEYS.map(k => `${k} ${st.stats.lanes[l][k] || 0}`).join(' ')).join('  |  ');
+}
+
 function summary(name, seed, r) {
   const { st, card } = r;
   const outcome = card.win ? 'WIN' : `LOSS (${card.reason})`;
@@ -128,6 +146,7 @@ function summary(name, seed, r) {
   console.log(`    money ${big(st.money)}  income ${big(card.income)}  safety spend ${big(card.safety)} (${pct(card.safetyShare)})  rep ${st.rep.toFixed(1)}`);
   console.log(`    attacks ${card.attacks}: stopped ${card.stopped}, landed ${card.landed}   true m by gen: ${card.gens.map(g => g.m.toFixed(2)).join(' ')}`);
   console.log(`    rival ${st.rival.toFixed(2)} vs you ${r.progress.toFixed(2)}, rival ahead ${r.rivalAheadT.toFixed(0)}s   ending: ${card.ending.title} (${card.grade})`);
+  console.log(`    ${bayLine(st)}`);
 }
 
 // =================== tests ===================
@@ -207,6 +226,132 @@ function testDeterminism() {
   check('same seed → same money, rep, m', a.st.money === b.st.money && a.st.rep === b.st.rep && a.st.m === b.st.m, `$${a.st.money.toFixed(2)} vs $${b.st.money.toFixed(2)}`);
 }
 
+// =================== v2: slots, bays, upgrades, kill switch ===================
+
+// lab conditions: G1 forever, no events, unlimited money, all layers unlocked
+const lab = extra => st => { st.money = 1e9; debugUnlockAll(st); st.nextEventAt = Infinity; if (extra) extra(st); };
+const labOpts = (setup, each, maxT = 300) => ({ maxT, lockGen: true, immortal: true, setup: lab(setup), each });
+
+// test harness: flag chips the moment they spawn (no detector involved), so bays and the kill switch see traffic
+const flagAtSpawn = (which = () => true) => st => {
+  for (const l of ['ext', 'int']) for (const t of st.lanes[l].tasks) if (!t.seenByHarness) { t.seenByHarness = true; if (which(t)) t.flagged = true; }
+};
+
+function testSlots() {
+  console.log('\n▶ Deep stack: 6 slots to start, buy up to 10, price escalates');
+  const st = createState({ seed: 7, tutorial: false });
+  st.money = 1e9;
+  check(`lanes start with ${B.startSlots} slots`, st.lanes.ext.slots.length === 6 && st.lanes.int.slots.length === 6);
+  const prices = [];
+  while (slotPrice(st, 'ext') !== null) { prices.push(slotPrice(st, 'ext')); buySlot(st, 'ext'); }
+  console.log(`    slot prices: ${prices.map(p => '$' + p.toFixed(0)).join(' → ')}`);
+  check('slot price strictly escalates', prices.every((p, i) => i === 0 || p > prices[i - 1]), prices.length + ' slots bought');
+  check(`stops at ${B.maxSlots}`, st.lanes.ext.slots.length === B.maxSlots && !buySlot(st, 'ext').ok);
+}
+
+function testBays() {
+  console.log('\n▶ Side bays: a full bay never stalls the lane (every chip flagged at spawn)');
+  // EXTERNAL: Defer at the bottom (bay full → wave). INTERNAL: Human Auditor (bay full → block).
+  // G1 traffic never fills 2 Defer desks at 0.5 s each, so this test stretches Defer's desk time to 4 s.
+  let maxBay = { ext: 0, int: 0 };
+  const deferLatency = LAYERS.defer.latency;
+  LAYERS.defer.latency = 4;
+  const r = run({ build: [] }, 11, labOpts(
+    st => { placeLayer(st, 'ext', 5, 'defer'); placeLayer(st, 'int', 5, 'auditor'); },
+    st => { flagAtSpawn()(st); for (const l of ['ext', 'int']) maxBay[l] = Math.max(maxBay[l], st.lanes[l].bay.length); },
+  ));
+  LAYERS.defer.latency = deferLatency;
+  const st = r.st;
+  console.log(`    ${bayLine(st)}`);
+  for (const [lane, id] of [['ext', 'defer'], ['int', 'auditor']]) {
+    const s = st.stats.lanes[lane], desks = elementStats(st, id, { level: 1 }).desks;
+    const inFlight = st.lanes[lane].tasks.length + st.lanes[lane].bay.length;
+    const resolved = (s.completed || 0) + (s.blocked || 0) + (s.benignBlocked || 0) + (s.caught || 0) + (s.falseCatches || 0);
+    check(`${lane} ${id}: bay filled up (onFull=${LAYERS[id].onFull})`, (s.bayFull || 0) > 0, `${s.bayFull} full-bay arrivals, max ${maxBay[lane]}/${desks} desks used`);
+    check(`${lane} ${id}: never more chips at desks than desks`, maxBay[lane] <= desks);
+    check(`${lane} ${id}: no timeouts (lane never backed up to the top)`, !(s.timeouts > 0), `timeouts ${s.timeouts || 0}`);
+    check(`${lane} ${id}: every spawned chip resolved or in flight`, resolved + inFlight === s.spawned, `${resolved} + ${inFlight} in flight = ${s.spawned} spawned`);
+  }
+  check('ext defer: full bay waves chips through', (st.stats.lanes.ext.waved || 0) > 0);
+  check('int auditor: full bay blocks chips', (st.stats.lanes.int.tossed || 0) > 0);
+}
+
+function testUpgrades() {
+  console.log('\n▶ Upgrades: catch rate rises as configured (G1, m=1, 30 min, probe & monitor at L3)');
+  const stealth = 1 - GENERATIONS[0].stealth / 2, LV = 3;
+  for (const id of ['probe', 'monitor']) {
+    const base = id === 'probe' ? LAYERS.probe.tpr : GENERATIONS[0].tmTPR;
+    const U = UPGRADES[id];
+    const expT = Math.min(0.99, base * U.tprMult[LV - 1]) * stealth, expF = LAYERS[id].fpr * U.fprMult[LV - 1];
+    const r = run({ build: [] }, 42, labOpts(st => {
+      st.m = 1;
+      for (const l of ['ext', 'int']) { placeLayer(st, l, 0, id); for (let k = 1; k < LV; k++) upgrade(st, l, 0); }
+    }, null, 1800));
+    const c = r.st.stats.layers[id];
+    const tpr = c.attackFlagged / c.attackSeen, fpr = c.benignFlagged / c.benignSeen;
+    const l1 = elementStats(r.st, id, { level: 1 }), l3 = elementStats(r.st, id, { level: LV });
+    const tolT = 3 * Math.sqrt(expT * (1 - expT) / c.attackSeen) + 0.01;
+    const tolF = 3 * Math.sqrt(expF * (1 - expF) / c.benignSeen) + 0.005;
+    console.log(`    ${id}: L1 catch ${l1.catch.toFixed(3)} fa ${l1.falseAlarm.toFixed(3)}  →  L${LV} catch ${l3.catch.toFixed(3)} fa ${l3.falseAlarm.toFixed(3)}   measured TPR ${tpr.toFixed(3)} FPR ${fpr.toFixed(3)}`);
+    check(`${id} placed at L${LV}`, r.st.lanes.ext.slots[0].level === LV);
+    check(`${id} elementStats L${LV} catch = config ${expT.toFixed(3)}`, Math.abs(l3.catch - expT) < 1e-9);
+    check(`${id} L${LV} catch > L1 catch`, l3.catch > l1.catch && l3.falseAlarm < l1.falseAlarm);
+    check(`${id} measured TPR ${tpr.toFixed(3)} ≈ L${LV} config`, Math.abs(tpr - expT) < tolT, `n=${c.attackSeen}, tol ±${tolT.toFixed(3)}`);
+    check(`${id} measured FPR ${fpr.toFixed(3)} ≈ L${LV} config ${expF.toFixed(3)}`, Math.abs(fpr - expF) < tolF, `n=${c.benignSeen}`);
+  }
+  const st = createState({ seed: 3, tutorial: false });
+  st.money = 1e9;
+  placeLayer(st, 'int', 0, 'auditor');
+  const desks = [], spot = [];
+  for (let l = 1; l <= MAX_LEVEL; l++) { const s = elementStats(st, 'auditor', { level: l }); desks.push(s.desks); spot.push(s.spotCheck); }
+  console.log(`    auditor desks by level ${desks.join(' ')}   spot check ${spot.map(x => (100 * x).toFixed(0) + '%').join(' ')}`);
+  check('auditor desks +1 per level to L4', desks.slice(0, 4).every((d, i) => d === 1 + i));
+  check('auditor spot check 1% → 4%', spot.slice(0, 4).map(x => Math.round(100 * x)).join() === '1,2,3,4');
+  for (let k = 0; k < MAX_LEVEL - 1; k++) upgrade(st, 'int', 0);
+  check('upgrade stops at L5 (capstone)', st.lanes.int.slots[0].level === MAX_LEVEL && !upgrade(st, 'int', 0).ok);
+}
+
+function testKillSwitch() {
+  console.log('\n▶ Kill switch: blocks every still-flagged chip that reaches it (half the chips flagged at spawn)');
+  const halfFlag = flagAtSpawn(t => t.id % 2 === 0);
+  const withKS = run({ build: [] }, 5, labOpts(st => placeLayer(st, 'ext', 5, 'killswitch'), halfFlag));
+  const without = run({ build: [] }, 5, labOpts(null, halfFlag));
+  const a = withKS.st.stats.lanes.ext, b = without.st.stats.lanes.ext;
+  const trig = killTrigger(withKS.st, 1);
+  console.log(`    with kill switch:    ${bayLine(withKS.st).split('  |  ')[0]}`);
+  console.log(`    without kill switch: ${bayLine(without.st).split('  |  ')[0]}`);
+  check('no flagged chip completes past an armed kill switch', !(a.completedFlagged > 0) && a.killed > 0, `killed ${a.killed}, flagged completions ${a.completedFlagged || 0}`);
+  check('unflagged chips pass the kill switch', a.completed > 0, `completed ${a.completed}`);
+  check('without a kill switch the same flags slip through', b.completedFlagged > 0, `flagged completions ${b.completedFlagged}`);
+  const rep = withKS.st.stats.repLoss.killswitch;
+  check('each trigger costs the configured reputation', Math.abs(rep - a.killed * trig.rep) < 1e-6, `${a.killed} × ${trig.rep} = ${rep.toFixed(1)}`);
+  const above = run({ build: [] }, 5, labOpts(st => { placeLayer(st, 'ext', 3, 'killswitch'); placeLayer(st, 'ext', 5, 'defer'); }, halfFlag)).st.stats.lanes.ext;
+  check('kill switch above a responder leaves the flag to the responder', !(above.killed > 0) && above.pulled > 0, `killed ${above.killed || 0}, pulled into Defer ${above.pulled}`);
+}
+
+function testMoneyV2() {
+  console.log('\n▶ Money conservation with v2 actions (slots, upgrades, sells, kill switch triggers)');
+  const results = [];
+  for (const seed of [1, 2, 3]) {
+    const r = run({ fn: st => {
+      smartPolicy(st);
+      if (Math.floor(st.t) % 60 === 0 && st.t % 1 < DT) {        // once a minute: buy a slot, upgrade, sell one
+        buySlot(st, 'ext');
+        st.lanes.ext.slots.forEach((s, i) => { if (s.layer) upgrade(st, 'ext', i); });
+        const last = st.lanes.int.slots.findIndex(s => s.layer === 'probe');
+        if (last >= 0) sellLayer(st, 'int', last);
+      }
+    } }, seed, { maxT: 900 });
+    console.log(`    seed ${seed}: ${r.card.win ? 'WIN' : r.card.reason} at G${r.st.gen}, slots ext ${r.st.lanes.ext.slots.length} int ${r.st.lanes.int.slots.length}, levels ${r.st.lanes.ext.slots.map(s => s.layer ? s.level : '·').join('')}`);
+    results.push([`v2 economy/${seed}`, r]);
+  }
+  for (const [name, r] of results) {
+    const L = r.st.ledger, cats = Object.values(L.byCat).reduce((a, b) => a + b, 0);
+    check(`${name}: categories sum to income − spend`, Math.abs(cats - (L.income - L.spend)) <= 1e-6 * Math.max(1, L.income));
+  }
+  return results;
+}
+
 // =================== main ===================
 
 const [, , cmd, pol, seedArg] = process.argv;
@@ -229,7 +374,11 @@ else if (cmd === 'run') {
   const t0 = Date.now();
   testCalibration();
   testDeterminism();
-  const results = testPolicies();
+  testSlots();
+  testBays();
+  testUpgrades();
+  testKillSwitch();
+  const results = testPolicies().concat(testMoneyV2());
   testMoney(results);
   console.log(`\n${failures ? '❌ ' + failures + ' FAILED' : '✅ ALL PASSED'}  (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
   process.exit(failures ? 1 : 0);

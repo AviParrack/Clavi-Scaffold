@@ -28,14 +28,14 @@ node test/headless.mjs run smart 3     # one verbose run: policy, seed
 node test/headless.mjs balance smart   # win/loss table across difficulties
 ```
 
-Asserts: detector TPR/FPR match config, same seed → same run, no-layers loses before G4 on Medium, all-layers never wins and goes bankrupt or falls behind the rival in ≥ 4/5 seeds, money is conserved.
+Asserts: detector TPR/FPR match config, same seed → same run, slot prices escalate and stop at 10, a full bay never stalls the lane, upgrades raise the catch rate as configured, the kill switch blocks unresolved flags, no-layers loses before G4 on Medium, all-layers never wins and goes bankrupt or falls behind the rival in ≥ 4/5 seeds, money is conserved.
 
 ## Layout
 
 ```
 game/
   index.html, style.css
-  src/config/   balance, generations, layers, cards, events, tasks   ← balancing = edit numbers here
+  src/config/   balance, generations, layers, upgrades, cards, events, tasks   ← balancing = edit numbers here
   src/sim/      pure sim: createState, step(dt), actions, seeded RNG  ← no DOM
   src/render/   canvas playfield, effects, HUD, codec, portraits, audio, debug  ← only reads state
   src/main.js   loop + input

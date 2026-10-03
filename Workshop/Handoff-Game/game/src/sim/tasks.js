@@ -47,7 +47,8 @@ export function makeTask(st, lane) {
     isAttack: !!attackType, attackType,        // hidden truth
     flagged: false,                            // visible
     y: 0, tierIdx: 0, act: null, actSlot: -1, hold: 0, holdMax: 0,
-    paraphrased: false, sandboxed: false, deferred: false, audited: false, resampled: 0,
+    paraphrased: 0, sandboxed: 0, deferred: false, audited: false, resampled: 0,   // paraphrased/sandboxed hold the layer's level
+    payMult: 1, inBay: false, waved: 0, actLevel: 1,
     dead: false, born: st.t,
   };
 }

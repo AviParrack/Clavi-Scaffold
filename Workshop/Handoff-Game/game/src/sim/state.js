@@ -6,9 +6,12 @@ import { TUTORIAL } from '../config/events.js';
 import { say } from './log.js';
 import { startGeneration, resolveDifficulty, newGenStats } from './phases.js';
 
+export const newSlot = () => ({ layer: null, level: 1, on: true, forcedOffUntil: 0 });
+
 const laneState = () => ({
-  slots: Array.from({ length: B.startSlots }, () => ({ layer: null, on: true, forcedOffUntil: 0 })),
+  slots: Array.from({ length: B.startSlots }, () => newSlot()),
   tasks: [],
+  bay: [],          // chips pulled off the lane by bay layers (auditor, defer, resampler)
   spawnT: 1,
   pausedUntil: 0,
 });
@@ -37,12 +40,12 @@ export function createState({ seed = 1, difficulty = 'medium', tutorial = true }
     codec: [], codecId: 0, fx: [], fxId: 0,
     seenAttackTypes: [], firstCatchThisGen: false,
     incidents: 0, landedSabotage: 0,
-    catchMsgs: 0, lastCatchMsg: -99, lastIncidentMsg: -99,
+    catchMsgs: 0, lastCatchMsg: -99, lastIncidentMsg: -99, lastKillMsg: -99,
 
     // stats
     stats: {
       lanes: { ext: {}, int: {} }, layers: {}, gens: [],
-      collusionMisses: {}, repLoss: { incidents: 0, timeouts: 0, events: 0 }, honeypotsRun: 0, honeypotCatches: 0, honeypotCollusion: 0,
+      collusionMisses: {}, repLoss: { incidents: 0, timeouts: 0, events: 0, killswitch: 0 }, honeypotsRun: 0, honeypotCatches: 0, honeypotCollusion: 0,
     },
     genStats: newGenStats(1, 0),
   };

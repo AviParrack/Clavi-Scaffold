@@ -9,14 +9,15 @@ import { LAYERS } from '../config/layers.js';
 import { GENERATIONS } from '../config/generations.js';
 import { createState } from './state.js';
 import { makeTask } from './tasks.js';
-import { enterLayer, finishLayer } from './layers.js';
+import { enterLayer, finishLayer, tickBays } from './layers.js';
 import { completeTask, timeoutTask, gameOver } from './outcomes.js';
 import { tickEvents, fireEvent, choose } from './events.js';
 import { drawResearch, pickResearch, retrainProbes, addSlot } from './research.js';
 import { startGeneration, closeGenStats } from './phases.js';
 import { uniform } from './rng.js';
-import { spend, earn, fx } from './log.js';
-import { genDef, mod, slotActive, tierY, buyPrice } from './rules.js';
+import { spend, earn, fx, say } from './log.js';
+import { genDef, mod, slotActive, tierY, buyPrice, upgradePrice, investedPrice, slotPrice, capstone } from './rules.js';
+import { MAX_LEVEL } from '../config/upgrades.js';
 
 export { createState, fireEvent, choose, drawResearch, pickResearch, retrainProbes };
 
@@ -34,6 +35,8 @@ export function step(st, dt) {
 
   for (const lane of ['ext', 'int']) {
     spawnLane(st, lane, dt);
+    tickBays(st, lane, dt);
+    if (st.over) return;
     moveLane(st, lane, dt);
     if (st.over) return;
   }
@@ -64,8 +67,9 @@ function spawnLane(st, lane, dt) {
 }
 
 // =================== movement through tiers ===================
-// Chips roll down at constant speed, stop at active layers for their latency,
+// Chips roll down at constant speed, stop at inline layers for their latency,
 // and can't overlap: a held chip backs up everything above it (visible queue).
+// Bay layers pull the chip off the lane instead (see tickBays), so nobody waits behind it.
 
 function moveLane(st, lane, dt) {
   const L = st.lanes[lane];
@@ -95,6 +99,7 @@ function moveLane(st, lane, dt) {
       if (slotActive(st, L.slots[slotIdx])) enterLayer(st, task, slotIdx);
       if (st.over) return;
     }
+    if (task.inBay) continue;
     if (!task.act && !task.dead) task.y = Math.max(task.y, target);
 
     // --- completion line ---
@@ -104,7 +109,7 @@ function moveLane(st, lane, dt) {
     }
     if (!task.dead) aheadY = task.y;
   }
-  L.tasks = L.tasks.filter(t => !t.dead);
+  L.tasks = L.tasks.filter(t => !t.dead && !t.inBay);
 }
 
 // =================== generation phase ===================
@@ -139,7 +144,7 @@ export function placeLayer(st, lane, slotIdx, id) {
   if (st.money < price) return { ok: false, msg: 'not enough money' };
   spend(st, price, 'safety');
   st.genStats.layerSpend += price;
-  Object.assign(slot, { layer: id, on: true, forcedOffUntil: 0 });
+  Object.assign(slot, { layer: id, level: 1, on: true, forcedOffUntil: 0 });
   fx(st, 'place', { lane, slot: slotIdx, layer: id });
   return { ok: true };
 }
@@ -155,9 +160,39 @@ export function toggleLayer(st, lane, slotIdx) {
 export function sellLayer(st, lane, slotIdx) {
   const slot = st.lanes[lane]?.slots[slotIdx];
   if (!slot?.layer) return { ok: false, msg: 'empty slot' };
-  earn(st, buyPrice(st, slot.layer) * B.sellRefund, 'refund');
+  earn(st, investedPrice(st, slot.layer, slot.level) * B.sellRefund, 'refund');
   fx(st, 'sell', { lane, slot: slotIdx, layer: slot.layer });
   slot.layer = null;
+  slot.level = 1;
+  return { ok: true };
+}
+
+// ----- one more tier slot, bought with cash (escalating price, up to BALANCE.maxSlots) -----
+export function buySlot(st, lane) {
+  if (!st.lanes[lane]) return { ok: false, msg: 'no such lane' };
+  const price = slotPrice(st, lane);
+  if (price === null) return { ok: false, msg: 'lane is full' };
+  if (st.money < price) return { ok: false, msg: 'not enough money' };
+  spend(st, price, 'safety');
+  st.genStats.layerSpend += price;
+  addSlot(st, lane);
+  fx(st, 'slot', { lane, n: st.lanes[lane].slots.length, price });
+  return { ok: true };
+}
+
+// ----- raise a placed element one level (L5 = capstone) -----
+export function upgrade(st, lane, slotIdx) {
+  const slot = st.lanes[lane]?.slots[slotIdx];
+  if (!slot?.layer) return { ok: false, msg: 'empty slot' };
+  if (slot.level >= MAX_LEVEL) return { ok: false, msg: 'already max level' };
+  const price = upgradePrice(st, slot.layer, slot.level);
+  if (st.money < price) return { ok: false, msg: 'not enough money' };
+  spend(st, price, 'safety');
+  st.genStats.layerSpend += price;
+  slot.level++;
+  fx(st, 'upgrade', { lane, slot: slotIdx, layer: slot.layer, level: slot.level });
+  const cap = capstone(slot.layer, slot.level);
+  if (cap.name) say(st, 'research', `${LAYERS[slot.layer].name} capstone: ${cap.name}. ${cap.text}`);
   return { ok: true };
 }
 

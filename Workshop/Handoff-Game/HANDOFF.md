@@ -1,36 +1,31 @@
 # HANDOFF game: state of play
 
-*Updated 2026-10-05 (v3 in progress). The v2 notes below still describe the live code.*
+*Updated 2026-10-05 (v3 designed, not yet built). The v2 notes below still describe the live code.*
 
 ## v3: where it is (2026-10-05)
 
-Avi played v2. He found it too easy: doing nothing on Hard reached G3, and he won Hard 96/100 with a wall of cheap probes plus auditors.
-His full feedback is in [design/AVI-FEEDBACK-v3.md](design/AVI-FEEDBACK-v3.md), verbatim, with Claude's reading under each follow-up.
+Avi played v2 and found it too easy (did nothing on Hard and reached G3; won Hard 96/100 with a probe wall). His feedback is verbatim in [design/AVI-FEEDBACK-v3.md](design/AVI-FEEDBACK-v3.md).
 
 **Done**
-- 🟢 **Dev mode.** Use the `#dev` link or the DEV MODE switch on the start screen. Everything is unlocked, with 10 mounts per lane and a big bank. Published.
-- 🟢 **Content.** Joke model names, round-start chats and trait tells are in `game/src/config/content/models.js`.
-- 🟡 **Chip text.** It now lives in `content/tasks/g1..g7.js`, keyed by lane flavour (consumer, research, enterprise, government, cyber). It is being expanded to ~250 honest tasks per generation. Check it with `node test/content-check.mjs`.
+- 🟢 Dev mode (`#dev` or the start-screen switch), joke names, chats and trait tells (`config/content/models.js`), ~250 honest tasks per generation (`content/tasks/g1..g7.js`, check with `node test/content-check.mjs`).
+- 🟢 **[design/DESIGN-v3.md](design/DESIGN-v3.md), revision 2**: rules (§1), balance walkthrough (§2), systems (§3), training (§4), campaign (§5), content (§6), build plan with file ownership (§7), 🚩 8 decisions for Avi (§8), and the review log of all 62 critic items (Appendix A).
+- 🟢 **[design/balance-v3.mjs](design/balance-v3.mjs)**, the numeric model. `node balance-v3.mjs zoo 400` (also `table hazard pressure shock arc cards forbid sets slope levers evidence des plot worked trace`). All 18 targets pass: `human` wins 74 / 36 / 15% (Easy / Medium / Hard), `smart` 99 / 87 / 54%, doing nothing dies in G1, the AFK tutorial rail dies by G2.
+- 🟢 **[design/train-check-v3.mjs](design/train-check-v3.mjs)** checks the training physics (bumper escape ≥ 95%, noise-only out-of-basin 6% at G4, rails hold).
 
-**In progress**
-- 🟡 **design/DESIGN-v3.md** (a design workflow writes it), covering:
-  - the balance math and difficulty targets;
-  - a policy zoo with per-element relevance tests;
-  - research as a steady pick-1-of-3;
-  - extra lanes;
-  - the auditor capacity model, where overflow ships unreviewed;
-  - correlated detector misses with a diversity bonus;
-  - visible internal consequences;
-  - the training minigame;
-  - the campaign flow.
+**Next:** 🚩 Avi answers §8 (or the defaults stand); the walkthrough for him is the Claude Doc "HANDOFF v3: how the balance works" (https://claude.ai/code/artifact/0de3f0d5-86b1-4519-bd3d-ecbb7f53e149). Then the build: sim-systems 1a (lane-id refactor, no behaviour change) → 1b → 1c; content, portraits and `src/train/` in parallel; then ui-integration and QA (§7).
 
-**Next:** the v3 build (sim systems, portraits, the training minigame in `game/src/train/`, UI integration, and wiring the content in), then a balance walkthrough for Avi.
+**v3 gotchas**
+- Targets are set on the `human` *population* (each run draws a player), not on `smart`. The win surface is steep: ~4 pts per 0.01 TPR, ~19 pts per 10% income. Never tune at < 400 seeds.
+- Lane ids stay `ext`/`int` for the G1 lanes; new ones are `ext2` (Enterprise G3), `ext3` (Gov G5), `int2` (Cyber **G6**, matches the content flavours). `st.lanes` stays an object.
+- The model includes traits and the rival; parity mode in the sim turns only events off.
+- Forbid test: the core is Probe, TM, UM, Classifier, Auditor, Kill Switch and the collusion answers. Most INTERNAL add-ons, Defer and Debate are on a rework list (Δ within 2·SE). Not a cut list yet.
+- The training prize (s ≥ 0.8) is information only: it reveals a trait. A bigger prize made the arcade game decide the run.
+- Model bug fixed: a banked research card could raise a level past L4 (NaN reputation). Levels clamp at 4 and banked offers are re-filtered at pick time.
 
-**Gotchas**
-- The content files are **not wired in yet**. The sim still reads `config/tasktext.js`, and the new shape is `X[g][flavour]`.
-- `?debug=1` gives the debug keys with a normal opening, so `test/ui-shot.mjs` depends on it. Only dev mode unlocks everything.
-- The published artifact can't read query strings; only a plain `#hash` reaches the page.
-- Publish with `file_path` set to `game/index.html`, `root` set to `game/`, and every `src/**/*.js` file plus `style.css` in `files`.
+**General gotchas**
+- The content files are **not wired in yet**: the sim still reads `config/tasktext.js`; the new shape is `X[g][flavour]`.
+- `?debug=1` gives debug keys with a normal opening (ui-shot depends on it). Only dev mode unlocks everything. The published artifact can't read query strings; only a `#hash` reaches the page.
+- Publish with `file_path` = `game/index.html`, `root` = `game/`, and every `src/**/*.js` plus `style.css` in `files`.
 
 ## Where it is
 

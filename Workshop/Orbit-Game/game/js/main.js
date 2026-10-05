@@ -60,8 +60,8 @@
 
   const touch = {};
   document.querySelectorAll('[data-touch]').forEach((b) => {
-    const k = b.dataset.touch, hold = !['map', 'spawn'].includes(k);
-    const on = (e) => { e.preventDefault(); if (hold) touch[k] = true; else if (k === 'map') Render.cam.map = !Render.cam.map; else pressed.push('KeyF'); };
+    const k = b.dataset.touch, hold = !['map', 'spawn', 'use'].includes(k);
+    const on = (e) => { e.preventDefault(); if (hold) touch[k] = true; else if (k === 'map') Render.cam.map = !Render.cam.map; else pressed.push(k === 'use' ? 'KeyE' : 'KeyF'); };
     const off = (e) => { e.preventDefault(); touch[k] = false; };
     b.addEventListener('pointerdown', on);
     for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, off);

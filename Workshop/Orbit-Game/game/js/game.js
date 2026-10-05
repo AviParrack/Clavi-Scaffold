@@ -119,6 +119,7 @@ const Game = (() => {
     place(g, spawn && SPAWNS[spawn] ? spawn : defaultSpawn());
     each(g, 'ready');
     refresh(g);
+    g.prompts = gatherPrompts(g);
     log(g, `new game  seed ${seed}  spawn ${g.spawn}${g.dev ? '  DEV' : ''}${saved ? '  (save loaded)' : ''}`);
     return g;
   }
@@ -241,7 +242,7 @@ const Game = (() => {
     if (code === 'KeyT' && g.dev) {
       const id = SPAWN_ORDER[(SPAWN_ORDER.indexOf(g.spawn) + 1) % SPAWN_ORDER.length];
       g.mode = 'ship'; g.astro.on = false;
-      g.sh = Physics.newShip(g.S); place(g, id); each(g, 'ready'); refresh(g);
+      g.sh = Physics.newShip(g.S); place(g, id); each(g, 'ready'); refresh(g); g.prompts = gatherPrompts(g);
       toast(g, SPAWNS[id].name.toUpperCase());
     }
   }
@@ -554,7 +555,7 @@ const Game = (() => {
     let packFull = false;
     for (const p of g.pickups) {
       p.age += simDt;
-      for (let s = 0; s < nSub; s++) {
+      for (let s = 0; s < nSub && !p.kinematic; s++) {        // kinematic: a module moves it (EVA chunks riding the beam home)
         if (p.rest) {
           const [bx, by, bvx, bvy] = World.bodyState(g.w, p.rest.b, g.t);
           p.x = bx + p.rest.lx; p.y = by + p.rest.ly; p.vx = bvx; p.vy = bvy;
@@ -781,10 +782,15 @@ const Game = (() => {
     if (ctrl.left < 0) emit(0, 2, Math.PI / 2);
   }
 
+  // a popup near a moving rock rides along with it, so words said on Kiwi stay on Kiwi
   function popup(g, text, col = '#ffd166', x, y, size = 26) {
     const at = g.mode === 'eva' && g.astro.on ? g.astro : g.sh;
-    g.popups.push({ text, col, x: x ?? at.x, y: y ?? at.y, t0: g.real, size });
+    const p = { text, col, x: x ?? at.x, y: y ?? at.y, t0: g.real, size };
+    const nb = nearestBody(g, p.x, p.y);
+    if (nb && nb.alt < 60 && nb.b.par) p.ride = { b: nb.b, lx: p.x - nb.bx, ly: p.y - nb.by };
+    g.popups.push(p);
     if (g.popups.length > 30) g.popups.shift();
+    return p;
   }
   // key: a toast with the same key replaces the waiting one (rapid Tab presses, warp clicks)
   function toast(g, text, col = '#ffe2b0', key = null) {
@@ -798,6 +804,7 @@ const Game = (() => {
     for (const p of g.particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
     g.particles = g.particles.filter((p) => p.life > 0).slice(-900);
     g.popups = g.popups.filter((p) => g.real - p.t0 < 1.4);
+    for (const p of g.popups) if (p.ride) { const [bx, by] = World.bodyState(g.w, p.ride.b, g.t); p.x = bx + p.ride.lx; p.y = by + p.ride.ly; }
     g.shake = Math.max(0, g.shake - dt * 2.5);
     if (g.toasts.length) { const t0 = g.toasts[0]; if (t0.t0 == null) t0.t0 = g.real; else if (g.real - t0.t0 > 2.4) g.toasts.shift(); }
   }

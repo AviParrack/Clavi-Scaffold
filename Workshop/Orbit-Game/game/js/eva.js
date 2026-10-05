@@ -37,7 +37,7 @@ const EVA = (() => {
   const CHUNK_V = 8;                          // dug chunks ride back up the beam at this speed [m/s]
   const BEAM_PAST = 0.75;                     // the beam stops this far past the cursor: you dig what you point at [m]
   const SCAN_R = [4, 25, Infinity];           // gem scanner reach by S.scanner level [m]
-  const ZOOM = 24, MIN_PX = 22;               // EVA camera [px/m]; smallest on-screen astronaut [px]
+  const ZOOM = 32, MIN_PX = 22;               // EVA camera [px/m]; smallest on-screen astronaut [px]
   const MINE_KG = 40;                         // job: ore hauled into the pack
 
   const INK = '#1b1433';

@@ -199,8 +199,8 @@ const Render = (() => {
     ctx.restore();
 
     if (cam.zoom >= 0.9) Terrain.of(b);                           // build the grid once it is worth seeing
+    if (b.id === 'ceres') drawPad(x, y, b);                       // under the terrain overlay, so holes dug beneath it show
     Terrain.draw(ctx, b, x, y, cam.zoom, view, g.real);
-    if (b.id === 'ceres') drawPad(x, y, b);
     if (b.id === 'ceres' && cam.zoom < 0.35) drawFace(g, x, y, b);
   }
 
@@ -525,7 +525,13 @@ const Render = (() => {
     });
 
     ctx.font = `500 16px ${FONT}`;
-    outlinedText(Game.hint(g), W / 2, H - 44, '#fff4dc');
+    const hint = Game.hint(g), hw = W - 580;                      // long hints wrap onto a second line, clear of the warp bar
+    if (ctx.measureText(hint).width <= hw) outlinedText(hint, W / 2, H - 44, '#fff4dc');
+    else {
+      let cut = hint.lastIndexOf(' ', Math.ceil(hint.length / 2) + 6); if (cut < 1) cut = Math.ceil(hint.length / 2);
+      outlinedText(fit(hint.slice(0, cut), hw), W / 2, H - 66, '#fff4dc');
+      outlinedText(fit(hint.slice(cut + 1), hw), W / 2, H - 44, '#fff4dc');
+    }
     ctx.font = `400 12.5px ${FONT}`; ctx.fillStyle = '#b9addf';
     const ctl = Game.first(g, 'controls') ||
       'W engine · Shift fine · A/D spin · S stop spin · arrows nudge · X ion · Tab target · , . warp · M map · wheel zoom · P pause';

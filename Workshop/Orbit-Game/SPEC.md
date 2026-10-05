@@ -112,9 +112,11 @@ Errors thrown in hooks are caught, shown in a red bar, and the game keeps runnin
 - Goods: `addCargo(g, item, qty)` → added, `removeCargo`, `addPack`, `unloadPack(g)` (pack → hold), `kgOf(bag)`,
   `spawnPickup(g, {x, y, vx, vy, item, qty})`. Pickups fall, settle, get magnetised to the astronaut within 3 m
   (→ pack), and scooped by the ship within radius + 1.2 m + `S.tractor` (→ hold). Items: see `CONFIG.items`.
+  `p.kinematic = true` skips gravity, magnet and terrain for a pickup a module moves itself (collection still runs).
 - Nav: `navTargets(g)`, `navTarget(g)`, `refresh(g)`.
 - Jobs: `addGoals([{id, order, text, reward, test(g)}])`, `goal(g, id)` (pays `reward`, toasts, saves).
-- Feedback: `popup(g, text, col, x, y, size)` (world-anchored comic word), `toast(g, text, col, key)` (big banner, queued),
+- Feedback: `popup(g, text, col, x, y, size)` → the popup (world-anchored comic word; within 60 m of a moon it rides along with it),
+  `toast(g, text, col, key)` (big banner, queued),
   `burst(g, kind, x, y, n, {vx, vy, speed, dir, spread, life, col, size})` kinds `boom puff smoke dust spark flash ion` or any (dot),
   `log(g, msg)`, `g.shake` (0..1 screen shake).
 - Save: `save(g)`, `wipeSave()`. Core saves money, cargo, pack, jobs, ship tanks, and each module's `save(g)`.
@@ -131,8 +133,13 @@ Errors thrown in hooks are caught, shown in a red bar, and the game keeps runnin
 - `Econ.grant(g, upgradeId)` installs an upgrade for free (wreck blueprints) → its name, or null if owned/unknown.
   `Econ.randomBlueprint(g, rand)` → an upgrade id the player does not own (or null). `Econ.CATALOG` = `[{id, name, cat, price, desc}]`.
 - Without Econ: stations refuel and repair for free and there is no shop.
+- Also exported (as built): `buy, canBuy, priceOf, equip, setFuel, setIonFuel, bestFuel, firePulse, previewS, metrics, twrOn,
+  quote, restockRcs, sell, holdValue, hubStation, ENGINES, FUELS, ION_FUELS, ORION, PAD_DEPOT`. Station fields it reads:
+  `buy {item | kind | '*': mult, 0 = refuses}`, `fuelMult, repairMult, priceMult, tabs, kind, keeper, blurb`.
+  The stats hook sets `S.engine, engineName, fuelId, fuelDens, tankVol, ionFuelId, orionCount, massParts`.
 
-**Stations** (stations.js): `Stations.list(g)` → `[{id, name, kind, r, state(t)}]`, `Stations.dockedAt(g)` → station or null.
+**Stations** (stations.js): `Stations.list(g)` → `[{id, name, kind, r, state(t)}]`, `Stations.dockedAt(g)` → station or null,
+`Stations.byId, dock(g, id, instant), pirateFree(g, x, y)` (260 m bubble around Rust's), `portInfo`. Spawns `hub` (default), `outpost`, `rusts`.
 
 **EVA** (eva.js): `EVA.isOut(g)`; everything else is in `g.mode`, `g.astro`, `g.pack`.
 
@@ -155,7 +162,7 @@ they stay visible when zoomed out (`Math.max(size, 6 * kit.px())`). Ship is 9 m 
 Core: **W** engine, **Shift** fine, **A/D** spin, **S** stop spin, **arrows** RCS nudge, **X** ion drive, **Tab** / click target,
 **, .** warp, **P/Esc** pause, **R R** tow home (R after a crash), **T** next spawn (dev), **M** map, **+/- wheel** zoom.
 Economy: **N** nuclear pulse (Orion), **Esc** closes the shop (consume it while `g.ui`), dev **K** +$5000.
-Stations: **F** dock / open shop (interaction). Wrecks: **F** salvage (interaction).
+Stations: **F** dock / open shop (interaction), **H** target the nearest station (again: cycle). Wrecks: **F** salvage (interaction).
 EVA: **E** step out (landed) / board (near ship) (interaction). On foot (`g.mode === 'eva'`): **A/D** walk, **W or Space** jump, hold for
 jetpack, **mouse** aim, **left mouse** mining laser (also hurts bugs/pirates), **F** interactions.
 Combat: **Space** fire guns (ship mode only; read `inp.keys.has('Space')` in `frame`), left mouse fires the turret if fitted (consume in `onMouse` only then).

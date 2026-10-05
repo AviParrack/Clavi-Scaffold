@@ -53,13 +53,15 @@ readable names. Units: metres, seconds, tonnes (ship), kg (cargo), dollars. Log 
 `g.money` · `g.cargo` `{item: qty}` (ship hold, mass counts) · `g.pack` `{item: qty}` (astronaut backpack)
 `g.astro` `{on, x, y, vx, vy, ang, hp, hpMax, r}` astronaut (eva module drives it; others read it)
 `g.mod[id]` your module's state (create it in `init`) · `g.ui` non-null while a DOM panel is open (sim pauses)
-`g.ref` reference body · `g.orb` orbit elements vs `g.ref` · `g.pred` path preview · `g.nearDist` clearance
+`g.ref` reference body · `g.orb` orbit elements vs `g.ref` · `g.pred` path preview · `g.nearDist` clearance ·
+`g.rockTTC` seconds until the first closing rubble rock (Infinity if none; the preview ignores rubble)
 `g.navId` / `g.approach` nav target and closest approach · `g.done` finished jobs · `g.warp`, `g.warpMax`, `g.warpWhy`
 
 Bodies: `ceres` (R 300, fixed), `dorito` (34, a 780), `kiwi` (52, a 1150), `seed` (11, Kiwi's moon, a 170),
 `potato` = Big Potato (70, a 1750), `glimmer` (26, a 2350). Bodies ride circular rails and **never rotate**,
 so body-local coordinates are just `world - bodyCentre`. `World.bodyState(g.w, b, t)` → `[x, y, vx, vy]`.
-Rubble rocks (`w.rocks`) are on rails, no gravity. Stable parking orbits: Ceres any r > 320; Kiwi ~88 m
+Gravity is point-mass outside each body's deepest valley `b.Rc` and a uniform core inside it (g ∝ r);
+`World.phi(b, r)` is the matching potential. Rubble rocks (`w.rocks`) are on rails, no gravity. Stable parking orbits: Ceres any r > 320; Kiwi ~88 m
 (rubble at 118-145, Seed at 170); Potato ~100 m (rubble 115-190); Glimmer ~55 m.
 
 ## Hooks (all optional; every hook gets `g` first)
@@ -111,7 +113,8 @@ Errors thrown in hooks are caught, shown in a red bar, and the game keeps runnin
   set `seen = true` to draw a buried gem (scanner).
 - Goods: `addCargo(g, item, qty)` → added, `removeCargo`, `addPack`, `unloadPack(g)` (pack → hold), `kgOf(bag)`,
   `spawnPickup(g, {x, y, vx, vy, item, qty})`. Pickups fall, settle, get magnetised to the astronaut within 3 m
-  (→ pack), and scooped by the ship within radius + 1.2 m + `S.tractor` (→ hold). Items: see `CONFIG.items`.
+  (→ pack; gems may overfill it by 4 kg), and scooped by the ship within radius + 1.2 m + `S.tractor` (→ hold, not while
+  the astronaut is out). Items: see `CONFIG.items`.
   `p.kinematic = true` skips gravity, magnet and terrain for a pickup a module moves itself (collection still runs).
 - Nav: `navTargets(g)`, `navTarget(g)`, `refresh(g)`.
 - Jobs: `addGoals([{id, order, text, reward, test(g)}])`, `goal(g, id)` (pays `reward`, toasts, saves).
@@ -119,9 +122,15 @@ Errors thrown in hooks are caught, shown in a red bar, and the game keeps runnin
   `toast(g, text, col, key)` (big banner, queued),
   `burst(g, kind, x, y, n, {vx, vy, speed, dir, spread, life, col, size})` kinds `boom puff smoke dust spark flash ion` or any (dot),
   `log(g, msg)`, `g.shake` (0..1 screen shake).
-- Save: `save(g)`, `wipeSave()`. Core saves money, cargo, pack, jobs, ship tanks, and each module's `save(g)`.
-- Warp: `warpStep`, `setWarp`. Caps: thrusters → 1x (resets), ion burning → `S.warpBurnMax`, < 40 m from rock → 4x,
-  impact < 20 s → 1x (resets), plus module `warpLimit`s.
+- Save: `save(g)`, `wipeSave()`. Core saves money, cargo, pack, jobs, ship tanks, each module's `save(g)`, the flight
+  state (`t`, ship, status, landed spot, dock station id; restored only for the same seed and no `?spawn=`) and per-body
+  dug cells and taken gems (`Terrain.snapshot/restore`). Dead at save time means the crash tow happens on load.
+  `Game.create(seed, spawn, {fresh, noSave})`: `fresh` skips reading the save, `noSave` never writes (?fresh=1, ?mods=).
+  Saves run every 30 s, on jobs, on death and on respawn. The `respawn` hook gets `(g, why, oldTanks)`.
+- Warp: `warpStep`, `setWarp`. Caps: thrusters → 1x (resets), ion burning → `S.warpBurnMax`, a rock closing within
+  20 s or anything within 8 m → 4x, a rock within 5 s → 1x (resets), impact < 20 s → 1x (resets), plus module
+  `warpLimit`s. At most 256 physics steps per frame (slow frames let sim time slip).
+- RCS: an empty tank leaves a reaction wheel at 15 % torque (no propellant). Rock and wreck hits are capped at 45 hull.
 
 ## Cross-module APIs (feature-detect: `typeof Econ !== 'undefined'`; every module must still work when the others are off)
 

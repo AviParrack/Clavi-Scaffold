@@ -7,6 +7,7 @@
 const Physics = (() => {
 
   const Wd = typeof World !== 'undefined' ? World : require('./world.js');
+  const WHEEL = 0.15;             // reaction wheel torque as a fraction of RCS torque (works with the RCS tank empty)
 
   // ---------------- ship state ----------------
   //  { x, y, vx, vy, ang, omega, fuel [t], xe [t ion propellant], rcs, hull, cargoKg }    ang: nose, CCW from +x
@@ -31,12 +32,10 @@ const Physics = (() => {
 
     // -------- rotation: RCS torque --------
     let alpha = 0;
-    if (sh.rcs > 0) {
-      const aMax = S.rotAccel * boost;
-      if (ctrl.rot) alpha = ctrl.rot * aMax;
-      else if (ctrl.kill && Math.abs(sh.omega) > 1e-4) alpha = -Math.sign(sh.omega) * Math.min(aMax, Math.abs(sh.omega) / dt);
-      if (alpha) { out.rot = Math.abs(alpha) / aMax; sh.rcs = Math.max(0, sh.rcs - S.rcsRotUse * out.rot * dt); }
-    }
+    const jets = sh.rcs > 0, aMax = S.rotAccel * boost * (jets ? 1 : WHEEL);      // empty RCS: a slow reaction wheel, no propellant
+    if (ctrl.rot) alpha = ctrl.rot * aMax;
+    else if (ctrl.kill && Math.abs(sh.omega) > 1e-4) alpha = -Math.sign(sh.omega) * Math.min(aMax, Math.abs(sh.omega) / dt);
+    if (alpha && jets) { out.rot = Math.abs(alpha) / aMax; sh.rcs = Math.max(0, sh.rcs - S.rcsRotUse * out.rot * dt); }
     sh.omega += alpha * dt;
     sh.ang += sh.omega * dt;
 

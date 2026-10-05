@@ -254,7 +254,13 @@ safely('ship salvage', () => {
   park(g, 'esa4', 20); H.run(g, 1, {});
   check('20 m out: no salvage prompt', !prompt(g, /Salvage/));
   check('...and start() refuses (drifted away)', !Wrecks.start(g, 'esa4', 'ship') && !m.job && toasted(g, /DRIFTED AWAY/));
-  check('within 40 m of an unsalvaged derelict warp caps at 4x', g.warpMax === 4 && /near ESA/.test(g.warpWhy), `${g.warpMax}x ${g.warpWhy}`);
+  check('parked 20 m off a derelict, nothing closing: warp is not capped by it', !/ESA/.test(g.warpWhy), `${g.warpMax}x ${g.warpWhy}`);
+  park(g, 'esa4', 30, -2); H.run(g, 1, {});
+  check('closing on a derelict at 2 m/s: warp caps at 4x ("ahead")', g.warpMax <= 4 && /ESA.*ahead/.test(g.warpWhy), `${g.warpMax}x ${g.warpWhy}`);
+  park(g, 'esa4', 10, -2); g.navId = null; H.run(g, 1, {});
+  const hz = Game.hint(g);
+  check('...and an untargeted wreck a few seconds out gets a dodge hint', /dead ahead/.test(hz), hz);
+  park(g, 'esa4', 20, 0);
 
   park(g, 'esa4', 8, 3); H.run(g, 1, {});
   const slow = prompt(g, /Slow under 2 m\/s/);

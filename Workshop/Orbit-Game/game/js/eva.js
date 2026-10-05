@@ -652,7 +652,7 @@ const EVA = (() => {
     const m = st(g), A = g.astro, S = g.S;
     if (g.ui) return null;
     if (!isOut(g)) {
-      if (canStepOut(g)) return { pri: g.done.mine === undefined ? 30 : 12, text: `Press E to step out onto ${g.landedOn.name} and dig with your laser.` };
+      if (canStepOut(g)) return { pri: g.done.mine === undefined ? 30 : Game.kgOf(g.cargo) > 0 ? 8 : 12, text: `Press E to step out onto ${g.landedOn.name} and dig with your laser.` };
       return null;
     }
     if (g.status === 'dead') return null;
@@ -958,7 +958,7 @@ const EVA = (() => {
   });
   on = Game.mods.includes(mod);
   if (on) Game.addGoals([
-    { id: 'mine', order: 30, reward: 75, text: `Step out (E) and laser ${MINE_KG} kg of ore into your pack`,
+    { id: 'mine', order: 30, reward: 75, text: `Laser ${MINE_KG} kg of ore on foot (E)`,
       test: (g) => !!(g.mod.eva && g.mod.eva.hauled >= MINE_KG) },
     { id: 'gem', order: 65, reward: 150, text: 'Bag a gem on foot (buried ones sparkle up close)',
       test: (g) => !!(g.mod.eva && g.mod.eva.gems > 0) },

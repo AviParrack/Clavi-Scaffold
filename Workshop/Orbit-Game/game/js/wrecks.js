@@ -533,7 +533,7 @@ const Wrecks = (() => {
     sh.vx -= (1 + e) * vn * nx; sh.vy -= (1 + e) * vn * ny;
     sh.omega += (Math.random() - 0.5) * Math.min(2, -vn);
     Game.burst(g, 'spark', x + nx * wr.hitR, y + ny * wr.hitR, 6, { vx, vy, speed: 3, life: 0.4 });
-    if (-vn > BUMP_V) Game.hurtShip(g, (g.S.bumpDamage || 6) * -vn, 'CLANG!');
+    if (-vn > BUMP_V) Game.hurtShip(g, Math.min(45, (g.S.bumpDamage || 6) * -vn), 'CLANG!');   // capped like rubble: a dent, not a one-shot
     else Game.popup(g, 'bonk', '#ffd166', sh.x, sh.y, 18);
   }
 
@@ -596,14 +596,33 @@ const Wrecks = (() => {
     Game.burst(g, 'puff', px, py, 4, { vx, vy, speed: 5, dir: wr.ang(g.t) + side * Math.PI / 2, spread: 0.35, life: 0.35 });
   }
 
+  // [gap to the hull, seconds until contact (Infinity unless closing)]
+  function closing(g, wr) {
+    const [x, y, vx, vy] = wr.state(g.t), sh = g.sh, dx = sh.x - x, dy = sh.y - y, d = Math.hypot(dx, dy) || 1e-9;
+    const vr = ((sh.vx - vx) * dx + (sh.vy - vy) * dy) / d, gap = d - wr.hitR - g.S.radius;
+    return [gap, vr < -0.05 ? Math.max(0, gap) / -vr : Infinity];
+  }
+  function oncoming(g) {                                            // the soonest orbital wreck on a collision course
+    let best = null;
+    for (const wr of list(g)) {
+      if (!wr.orbital) continue;
+      const [gap, ttc] = closing(g, wr);
+      if (gap < 400 && ttc < 20 && (!best || ttc < best.ttc)) best = { wr, gap, ttc };
+    }
+    return best;
+  }
+
   function warpLimit(g) {
     const m = g.mod.wrecks;
     if (!m) return null;
     if (m.job) return { max: 4, why: 'salvaging' };
     if (g.status !== 'flying' || g.mode !== 'ship') return null;
+    const on = oncoming(g);
+    if (on && on.ttc < 5) return { max: 1, why: `${on.wr.name} ahead`, reset: true, toast: 'WRECK AHEAD' };
+    if (on) return { max: 4, why: `${on.wr.name} ahead` };
     for (const wr of list(g)) {
       if (!wr.orbital || m.salvaged[wr.id]) continue;
-      if (info(g, wr).d < NEAR_WARP) return { max: 4, why: `near ${wr.name}` };
+      if (info(g, wr).d < NEAR_WARP / 3) return { max: 4, why: `near ${wr.name}` };
     }
     return null;
   }
@@ -655,6 +674,9 @@ const Wrecks = (() => {
     if (m.job) return { pri: 64, text: jobHint(g, m.job) };
     if (g.astro && g.astro.on) return footHint(g, m);
     if (g.mode !== 'ship' || g.status === 'dead') return null;
+    const on = g.status === 'flying' && oncoming(g);
+    if (on && on.ttc < 10 && on.wr.id !== (g.navId || '').replace('wreck:', ''))
+      return { pri: 83, text: `${isSeen(g, on.wr.id) ? on.wr.name : 'A wreck'} dead ahead: contact in ${on.ttc.toFixed(0)} s! Dodge with the arrow keys or a sideways burn.` };
     const here = g.status === 'landed' && g.landedOn ? landedHint(g, m) : g.status === 'flying' ? flyHint(g, m) : null;
     return here || targetHint(g, m);
   }
@@ -705,10 +727,10 @@ const Wrecks = (() => {
     }
     if (!wr || q.d >= HINT_R) return null;
     const name = wr.name;
-    if (tg !== wr) return { pri: 38, text: `Wreck nearby: ${name}. Tab (or click it) to target it, then match speed at the teal TGT markers.` };
+    if (tg !== wr) return { pri: 38, text: `Wreck nearby: ${name}. Tab (or click it) to target it, then match speed: nose on the ⊗ BRAKE marker and burn.` };
     if (q.d < SALVAGE_R && q.v < SALVAGE_V) return { pri: 48, text: `In range and slow: press F to salvage ${name}!` };
-    if (q.v >= SALVAGE_V) return { pri: 46, text: `Relative speed ${q.v.toFixed(1)} m/s: point at the teal X (target retrograde) and burn until it reads under ${SALVAGE_V}.` };
-    return { pri: 44, text: `Speed matched. Close in: ${q.d.toFixed(0)} m to go (salvage within ${SALVAGE_R} m). Point at ${name}, tap W, brake at the teal X.` };
+    if (q.v >= SALVAGE_V) return { pri: 46, text: `Relative speed ${q.v.toFixed(1)} m/s: point the nose at the ⊗ BRAKE marker and burn until it reads under ${SALVAGE_V}.` };
+    return { pri: 44, text: `Speed matched. Close in: ${q.d.toFixed(0)} m to go (salvage within ${SALVAGE_R} m). Point at ${name}, tap W, then brake at the ⊗ BRAKE marker.` };
   }
 
   // a wreck you just targeted: its physics fact for a few seconds, then how to get there
@@ -728,7 +750,7 @@ const Wrecks = (() => {
   function chase(g, wr) {
     const ap = g.approach, o = g.orb, host = wr.hostBody, shrink = 'watch the closest-approach diamond shrink.';
     if (ap && ap.tg.id === 'wreck:' + wr.id && ap.i >= 0 && ap.d < 60)
-      return `Closest approach ${Game.fmtDist(ap.d)} in ${Math.max(0, ap.t - g.t).toFixed(0)} s. Coast there (warp is fine), then brake at the TGT marker.`;
+      return `Closest approach ${Game.fmtDist(ap.d)} in ${Math.max(0, ap.t - g.t).toFixed(0)} s. Coast there (warp is fine), then brake at the ⊗ BRAKE marker.`;
     if (host === g.ref && o && o.E < 0) {
       if ((wr.dir || 1) * o.h < 0) return `${wr.name} goes round ${host.name} the other way! Climb a little, then burn retrograde through zero to flip your orbit.`;
       const rp = o.a * (1 - o.e), ra = o.a * (1 + o.e);

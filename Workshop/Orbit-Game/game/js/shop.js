@@ -281,10 +281,20 @@ const Shop = (() => {
 
   function ship() {
     const ec = E();
-    return section('Engines & drives', 'Owned engines swap for free here at the Hub. Thrust lifts you off rocks; Isp stretches your fuel.',
+    return affordable() + section('Engines & drives', 'Owned engines swap for free here at the Hub. Thrust lifts you off rocks; Isp stretches your fuel.',
                    Object.keys(ec.ENGINES).map(engineCard).join('') + ionCard() + (ec.orionTab(ST) === 'ship' ? orionCard() : ''))
       + section('Tank, hull & hold', 'Bigger is better until it is heavier. Watch the Δv and lift numbers.', ['tank', 'cargo', 'hull', 'armor'].map(lineCard).join(''))
       + section('Handling & tools', '', ['rcs', 'tractor', 'scanner'].map(lineCard).join(''));
+  }
+  // the cheapest next tiers you can pay for right now, so the first upgrade is never below the fold
+  function affordable() {
+    const ec = E(), g = G, next = (id) => { const L = ec.LINES.find((l) => l.id === id); return L && L.tiers[ec.tierIndex(g, id)]; };
+    const ids = ['rcs', 'tank', 'hull', 'armor', 'cargo', 'tractor', 'scanner']
+      .filter((id) => next(id) && ec.priceOf(g, next(id).id, ST) <= g.money)
+      .sort((a, b) => ec.priceOf(g, next(a).id, ST) - ec.priceOf(g, next(b).id, ST)).slice(0, 3);
+    if (!ids.length) return '';
+    return section('Affordable now', g.done.upgrade === undefined ? 'Your first upgrade also pays a job bonus. RCS plus is a fine pick: more turning before the tank runs dry.' : '',
+                   ids.map(lineCard).join(''));
   }
   function suit() {
     return section('Spacesuit', 'Worn by you, not the ship, so these add no ship mass.', ['pack', 'o2', 'jet', 'suit', 'laser'].map(lineCard).join(''));

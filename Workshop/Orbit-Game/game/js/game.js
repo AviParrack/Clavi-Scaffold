@@ -206,6 +206,10 @@ const Game = (() => {
     }
     g.fired = fired; g.stepsLastFrame = n;
     if (g.ionOn && g.sh.xe <= 0) { g.ionOn = false; toast(g, 'ION TANK EMPTY', '#ff9f1c'); }
+    const rcsF = g.sh.rcs / Math.max(1e-9, g.S.rcs);
+    const rcsLvl = rcsF <= 0 ? 2 : rcsF < 0.2 ? 1 : 0;                            // warn once at 20 %, once more at empty
+    if (rcsLvl > (g.rcsWarned || 0) && g.status !== 'dead') toast(g, rcsLvl === 2 ? 'RCS EMPTY: SLOW REACTION WHEEL ONLY' : 'RCS LOW', '#ff9f1c', 'rcs');
+    if (rcsLvl > (g.rcsWarned || 0) || rcsF > 0.3) g.rcsWarned = rcsLvl;
 
     if (n) {
       if (fired.main) spawnExhaust(g, fired.main);
@@ -246,7 +250,8 @@ const Game = (() => {
     if (code === 'Tab') cycleNav(g);
     if (code === 'KeyX' && g.mode === 'ship') toggleIon(g);
     if (code === 'KeyR') {
-      if (g.status === 'dead') respawn(g, 'crash');
+      if (g.status === 'docked') toast(g, 'ALREADY DOCKED: NO TOW NEEDED', '#ffd166', 'tow');
+      else if (g.status === 'dead') respawn(g, 'crash');
       else if (g.real - g.towAsk < 2.5) respawn(g, 'tow');
       else { g.towAsk = g.real; toast(g, 'PRESS R AGAIN: TOW TO BASE (CARGO LOST, FEE + REFILL)', '#ffd166'); }
     }
@@ -294,7 +299,8 @@ const Game = (() => {
     const caps = [];
     if (ctrl.main || ctrl.rot || ctrl.kill || ctrl.fwd || ctrl.left) caps.push({ max: 1, why: 'thrusters firing', reset: true });
     if (ctrl.ion) caps.push({ max: g.S.warpBurnMax, why: 'ion drive burning' });
-    if (g.status === 'flying' && g.nearDist < 40) caps.push({ max: SIM.nearWarp, why: 'close to rocks' });
+    if (g.status === 'flying' && (g.nearDist < 8 || g.rockTTC < 20)) caps.push({ max: SIM.nearWarp, why: 'close to rocks' });
+    if (g.rockTTC < 5) caps.push({ max: 1, why: 'rock ahead', reset: true, toast: 'ROCK AHEAD' });
     if (g.status === 'flying' && g.pred && g.pred.impact && g.pred.impact.t - g.t < SIM.impactWarnT)
       caps.push({ max: 1, why: 'impact ahead', reset: true, toast: 'IMPACT AHEAD' });
     for (const m of mods) { const c = call(g, m, 'warpLimit'); if (c) caps.push(c); }
@@ -384,7 +390,7 @@ const Game = (() => {
       sh.vx -= (1 + S.bounce) * vn * nx; sh.vy -= (1 + S.bounce) * vn * ny;
       sh.x = rx + nx * (hitR + 0.05); sh.y = ry + ny * (hitR + 0.05);
       sh.omega += (Math.random() - 0.5) * Math.min(3, Math.abs(vn));
-      hurtShip(g, S.bumpDamage * -vn, ['CLANK!', 'BONK!', 'THUD!'][Math.floor(Math.random() * 3)]);
+      hurtShip(g, Math.min(45, S.bumpDamage * -vn), ['CLANK!', 'BONK!', 'THUD!'][Math.floor(Math.random() * 3)]);   // capped: rubble dents, it does not one-shot
       return;
     }
   }
@@ -609,7 +615,7 @@ const Game = (() => {
         const n = addPack(g, p.item, p.qty);
         if (n) { p.qty -= n; gain(g, p.item, n); }
         if (p.qty > 0) packFull = true;
-      } else if (g.status !== 'dead' && Math.hypot(sh.x - p.x, sh.y - p.y) < shipR) {
+      } else if (g.status !== 'dead' && !A.on && Math.hypot(sh.x - p.x, sh.y - p.y) < shipR) {   // on foot, the pack gets it
         const n = addCargo(g, p.item, p.qty);
         if (n) { p.qty -= n; gain(g, p.item, n); }
       }
@@ -648,8 +654,14 @@ const Game = (() => {
       const dx = sh.x - st[b.idx][0], dy = sh.y - st[b.idx][1];
       near = Math.min(near, Math.hypot(dx, dy) - World.surfaceR(b, Math.atan2(dy, dx)) - g.S.radius);
     }
-    for (const rk of w.rocks) { const [rx, ry] = World.rockState(w, rk, t); near = Math.min(near, Math.hypot(sh.x - rx, sh.y - ry) - rk.r - g.S.radius); }
-    g.nearDist = near;
+    let ttc = Infinity, ttcGap = Infinity;                                      // the preview ignores rubble: time to the first closing rock
+    for (const rk of w.rocks) {
+      const [rx, ry, rvx, rvy] = World.rockState(w, rk, t), dx = sh.x - rx, dy = sh.y - ry, d = Math.hypot(dx, dy) || 1e-9, gap = d - rk.r - g.S.radius;
+      near = Math.min(near, gap);
+      const vr = ((sh.vx - rvx) * dx + (sh.vy - rvy) * dy) / d;
+      if (vr < -0.05 && gap / -vr < ttc) { ttc = Math.max(0, gap) / -vr; ttcGap = gap; }
+    }
+    g.nearDist = near; g.rockTTC = g.status === 'flying' && ttcGap < 400 ? ttc : Infinity;
     g.maxCeresR = Math.max(g.maxCeresR, Math.hypot(sh.x - st[0][0], sh.y - st[0][1]));
 
     // -------- nav target: closest approach along the predicted path --------
@@ -718,7 +730,7 @@ const Game = (() => {
     const gl = GOALS.find((x) => x.id === id);
     g.done[id] = g.t;
     if (gl && gl.reward) g.money += gl.reward;
-    toast(g, gl ? `JOB DONE: ${gl.text.toUpperCase()}${gl.reward ? `  +$${gl.reward}` : ''}` : id.toUpperCase(), '#8ff0b0');
+    toast(g, gl ? `JOB DONE: ${gl.text.replace(/\s*\([^)]*\)/g, '').toUpperCase()}${gl.reward ? `  +$${gl.reward}` : ''}` : id.toUpperCase(), '#8ff0b0');
     log(g, `GOAL ${id}${gl && gl.reward ? ` +$${gl.reward}` : ''}`);
     each(g, 'goal', id);
     save(g);
@@ -880,8 +892,10 @@ const Game = (() => {
     const cands = [];
     if (g.pred && g.pred.impact && g.status === 'flying' && g.everFlew) {
       const dt = g.pred.impact.t - g.t;
-      cands.push({ pri: 80, text: `Path hits ${g.pred.impact.body.name} in ${dt.toFixed(0)} s. ${dt > 8 ? 'Burn sideways to miss it, or slow under 2.5 m/s to land.' : 'Slow down!'}` });
+      cands.push({ pri: 80, text: `Path hits ${g.pred.impact.body.name} in ${dt.toFixed(0)} s. ${dt > 8 ? 'To land, point the nose at the ⊗ BRAKE marker and burn until under 2.5 m/s. To miss it, burn sideways.' : 'Brake now: nose on ⊗ BRAKE, hold W!'}` });
     }
+    if (g.rockTTC < 8 && g.mode === 'ship') cands.push({ pri: 82, text: `Rock ahead: contact in ${g.rockTTC.toFixed(0)} s. Dodge with the arrow keys or a short sideways burn.` });
+    if (g.sh.rcs <= 0 && g.mode === 'ship' && g.status !== 'dead') cands.push({ pri: 75, text: 'RCS empty: only the slow reaction wheel turns you, and the arrow keys do nothing. Dock or use a pad depot to restock.' });
     if (Math.abs(g.sh.omega) > 1.2 && g.mode === 'ship' && g.status !== 'dead') cands.push({ pri: 70, text: 'You are spinning fast. Tap the opposite way, or hold S to stop it.' });
     for (const m of mods) {
       const r = call(g, m, 'hint');

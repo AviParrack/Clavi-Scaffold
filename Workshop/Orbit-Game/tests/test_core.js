@@ -109,7 +109,13 @@ function dropOn(bodyId, speed, th = 1.0) {
   const g = fresh('belt');
   g.warpIdx = CONFIG.sim.warps.length - 1;
   H.run(g, 3, {});
-  check('warp is capped near the rubble', g.warp <= CONFIG.sim.nearWarp || g.nearDist >= 40, `warp ${g.warp}x, clearance ${g.nearDist.toFixed(0)} m, ${g.warpWhy}`);
+  check('co-orbiting the rubble: warp only caps when a rock is closing', g.warp === 64 || g.rockTTC < 20 || g.nearDist < 8, `warp ${g.warp}x, clearance ${g.nearDist.toFixed(0)} m, ttc ${g.rockTTC.toFixed(0)} s, ${g.warpWhy}`);
+  const rk = g.w.rocks.find((r) => r.r > 3), [rx, ry, rvx, rvy] = World.rockState(g.w, rk, g.t), D = rk.r + g.S.radius + 30;
+  Object.assign(g.sh, { x: rx + D, y: ry, vx: rvx - 2, vy: rvy });
+  g.warpIdx = CONFIG.sim.warps.length - 1; Game.refresh(g); H.run(g, 1, {});
+  check('a rock closing at 2 m/s caps warp to 4x', g.warp <= CONFIG.sim.nearWarp && /rock/.test(g.warpWhy), `warp ${g.warp}x, ttc ${g.rockTTC.toFixed(1)} s, ${g.warpWhy}`);
+  Object.assign(g.sh, { x: rx + rk.r + g.S.radius + 6, y: ry, vx: rvx - 2, vy: rvy }); Game.refresh(g); H.run(g, 1, {});
+  check('...and to 1x with a hint a few seconds out', g.warp === 1 && /Rock ahead/.test(Game.hint(g)), `warp ${g.warp}x: ${Game.hint(g)}`);
   H.run(g, 1, { keys: ['KeyA'] });
   check('firing thrusters drops warp to 1x and resets the pick', g.warp === 1 && g.warpIdx === 0, `warp ${g.warp}x`);
   const g2 = fresh('orbit'); Object.assign(g2.sh, { x: 0, y: 1300, vx: 0, vy: 0 }); g2.everFlew = true;   // far out, falling
@@ -244,6 +250,14 @@ function dropOn(bodyId, speed, th = 1.0) {
   check('ion drive: on in flight, switched off once not flying', on && !q.ionOn);
   const q2 = fresh('pad'); q2.S.ionThrust = 0.25; q2.sh.xe = 0.4; Game.toggleIon(q2);
   check('ion drive will not start on the pad', !q2.ionOn);
+
+  // empty RCS: a slow reaction wheel still turns you (no soft-lock), and the hint says why it is slow
+  const e = fresh('orbit'); e.sh.rcs = 0; H.run(e, 60, { keys: ['KeyA'] });
+  const w1 = e.sh.omega, full = fresh('orbit'); H.run(full, 60, { keys: ['KeyA'] });
+  check('RCS empty: reaction wheel turns at ~15% torque, uses nothing', w1 > 0 && Math.abs(w1 / full.sh.omega - 0.15) < 0.03 && e.sh.rcs === 0 && /RCS empty/.test(Game.hint(e)),
+        `omega ${w1.toFixed(3)} vs ${full.sh.omega.toFixed(3)} rad/s`);
+  const k = fresh('pad'); k.money = 900; H.run(k, 1, { pressed: ['KeyR'] }); H.run(k, 1, { pressed: ['KeyR'] });
+  check('R R on the pad still tows (not docked)', k.money < 900);
 }
 
 console.log(`\n${nPass} passed, ${nFail} failed`);

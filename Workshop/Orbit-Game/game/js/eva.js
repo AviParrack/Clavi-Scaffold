@@ -23,8 +23,9 @@ const EVA = (() => {
   const JET_SIDE = 0.6, JET_DOWN = 0.8;       // sideways / downward jet as a fraction of S.jet
   const JET_REFILL = 0.3;                     // jet seconds regained per second standing on the ground
   const CEIL_H = 40, CEIL_HILL = 0.75;        // suit governor: no orbit may reach past min(top + 40 m, 0.75 Hill radius)
-  const SNAP = 0.14;                          // ground-follow distance when walking over bumps [m]
+  const SNAP = 0.55;                          // ground-follow distance when walking over bumps and grid steps [m]
   const STEP_V = 0.3;                         // walking up a ledge adds at most this much outward speed [m/s]
+  const STEP_H = 0.6;                         // walking climbs ledges up to this tall (the dig grid is 0.5 m) [m]
   const SIDE_AFTER = 0.25;                    // A/D side jets only after this long in the air [s]
   const BOARD_R = 3;                          // board within this of the hull [m]
   const FAR_WARN = 120, FAR_MAX = 150;        // tether: warn, then recall [m from the ship]
@@ -272,6 +273,8 @@ const EVA = (() => {
       const want = c.walk * walkMax(S, b, d), dvx = ny * want - rvx, dvy = -nx * want - rvy, dv = Math.hypot(dvx, dvy);
       const k = Math.min(1, (c.walk ? WALK_ACC : STOP_ACC) * dt / Math.max(dv, 1e-9));   // friction steers the whole velocity
       rvx += dvx * k; rvy += dvy * k;
+      const vr = rvx * ux + rvy * uy;                                   // walking never pushes you off the rock: ledges are climbed in collide()
+      if (vr > 0) { rvx -= ux * vr; rvy -= uy * vr; }
       m.jet = Math.min(S.jetFuel, m.jet + JET_REFILL * dt);
     }
 
@@ -282,7 +285,7 @@ const EVA = (() => {
       if (vr < 0) { rvx -= ux * vr; rvy -= uy * vr; }
       const j = Math.min(JUMP_V, JUMP_ESC * Math.sqrt(2 * b.mu / d), kickRoom(b, d, rvx, rvy, ux, uy));
       rvx += ux * j; rvy += uy * j;
-      Object.assign(m, { jumpQ: 0, grounded: false, airT: COYOTE, jetLock: JET_DELAY });
+      Object.assign(m, { jumpQ: 0, grounded: false, airT: COYOTE, jetLock: JET_DELAY, leapt: true });
       jumped = true;
     }
 
@@ -290,11 +293,12 @@ const EVA = (() => {
     let ax = 0, ay = 0;
     m.thrust = 0; m.gov = false;
     m.jetLock = Math.max(0, m.jetLock - dt);
+    m.stepT = Math.max(0, (m.stepT || 0) - dt);
     if (!m.grounded && m.jet > 0) {
       let fx = 0, fy = 0;
       if (c.up && m.jetLock <= 0) { fx += ux; fy += uy; }
       if (c.down) { fx -= ux * JET_DOWN; fy -= uy * JET_DOWN; }
-      if (c.walk && m.airT > SIDE_AFTER) { fx += uy * c.walk * JET_SIDE; fy -= ux * c.walk * JET_SIDE; }
+      if (c.walk && m.airT > (m.leapt ? SIDE_AFTER : 0.6)) { fx += uy * c.walk * JET_SIDE; fy -= ux * c.walk * JET_SIDE; }   // walking off a ledge is no reason to fire jets
       const f = Math.hypot(fx, fy);
       if (f > 1e-6) {
         const ex = fx / f, ey = fy / f, thr = governor(b, d, rvx, rvy, ex, ey), k = Math.min(1, f) * thr;
@@ -316,13 +320,28 @@ const EVA = (() => {
     const A = g.astro, T = Terrain.of(b), s = World.bodyState(g.w, b, g.t);
     let lx = A.x - s[0], ly = A.y - s[1], rvx = A.vx - s[2], rvy = A.vy - s[3];
     const d = Math.hypot(lx, ly) || 1e-9, ux = lx / d, uy = ly / d;
-    let ground = null, impact = 0;
+    let ground = null, impact = 0, stepped = false;
     const vr0 = rvx * ux + rvy * uy, walking = m.grounded && !jumped && !m.thrust;
     const push = (h) => {
       lx += h.nx * h.depth; ly += h.ny * h.depth;
       const vn = rvx * h.nx + rvy * h.ny;
       if (vn < 0) { impact = Math.max(impact, -vn); rvx -= vn * h.nx; rvy -= vn * h.ny; }
     };
+    // -------- step up: walking into a grid ledge up to STEP_H tall climbs it instead of pushing you back --------
+    if (walking && m.ctl.walk) {
+      const fh = Terrain.collideCircle(T, lx - ux * FOOT_OFF, ly - uy * FOOT_OFF, FOOT_R), tx = uy * m.ctl.walk, ty = -ux * m.ctl.walk;
+      if (fh && fh.nx * tx + fh.ny * ty < -0.03) {
+        for (let h = 0.02; h <= STEP_H + 1e-9; h += 0.02) {
+          const qx = lx + ux * h, qy = ly + uy * h;
+          if (Terrain.collideCircle(T, qx - ux * FOOT_OFF, qy - uy * FOOT_OFF, FOOT_R)) continue;
+          if (Terrain.collideCircle(T, qx + ux * HEAD_OFF, qy + uy * HEAD_OFF, HEAD_R)) break;
+          lx = qx; ly = qy; stepped = true;
+          m.stepT = Math.min(0.4, 0.45 / Math.max(0.5, Math.abs(rvx * uy - rvy * ux)));   // float over the lip before snapping down again
+          const vr = rvx * ux + rvy * uy; if (vr > 0) { rvx -= ux * vr; rvy -= uy * vr; }   // a climb, not a launch
+          break;
+        }
+      }
+    }
     for (let it = 0; it < 2; it++) {
       const fh = Terrain.collideCircle(T, lx - ux * FOOT_OFF, ly - uy * FOOT_OFF, FOOT_R);
       if (fh) { push(fh); if (fh.nx * ux + fh.ny * uy > UPRIGHT) ground = fh; }
@@ -337,9 +356,10 @@ const EVA = (() => {
     if (walking && vr > vrCap) { rvx -= ux * (vr - vrCap); rvy -= uy * (vr - vrCap); vr = vrCap; }
 
     // -------- ground follow: walking over a crest should not launch you --------
+    if (!ground && walking && m.stepT > 0) ground = { nx: ux, ny: uy };   // just climbed a ledge: carry on over its lip
     if (!ground && walking && m.jetLock <= 0 && vr < 1.5) {
       const pr = Terrain.collideCircle(T, lx - ux * (FOOT_OFF + SNAP), ly - uy * (FOOT_OFF + SNAP), FOOT_R);
-      if (pr && pr.nx * ux + pr.ny * uy > UPRIGHT) {
+      if (pr && pr.nx * ux + pr.ny * uy > 0.2) {                       // any floor-ish contact below: grid corners tilt a lot on tiny moons
         const dn = Math.max(0, SNAP - pr.depth + 0.005);
         lx -= ux * dn; ly -= uy * dn;
         if (vr > 0) { rvx -= ux * vr; rvy -= uy * vr; }
@@ -347,7 +367,8 @@ const EVA = (() => {
       }
     }
 
-    if (ground && !m.grounded) landed(g, m, impact, s);
+    if (!ground && stepped) ground = { nx: ux, ny: uy };
+    if (ground && !m.grounded) { landed(g, m, impact, s); m.leapt = false; }
     m.grounded = !!ground;
     if (ground) {
       const wasG = m.airT === 0, gx = wasG ? m.gn[0] * 0.7 + ground.nx * 0.3 : ground.nx, gy = wasG ? m.gn[1] * 0.7 + ground.ny * 0.3 : ground.ny;

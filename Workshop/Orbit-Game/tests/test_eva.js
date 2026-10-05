@@ -99,6 +99,26 @@ function walkTest(bodyId, th, secs) {
 }
 
 
+// walking never gets stuck on the 0.5 m dig grid: every rock, a few spots, both ways
+{
+  const slow = [];
+  for (const id of ['ceres', 'kiwi', 'potato', 'dorito', 'glimmer', 'seed']) for (const th of [0.3, 2.5, 3.9]) for (const key of ['KeyA', 'KeyD']) {
+    const g = outOn(id, th), b = g.w.byId[id];
+    if (!g.astro.on) { slow.push(`${id}@${th} no EVA`); continue; }
+    let dist = 0, last = null;
+    for (let i = 0; i < 10 * 60; i++) {
+      H.run(g, 1, { keys: [key] });
+      const [lx, ly] = local(g, b), a = Math.atan2(ly, lx), r = Math.hypot(lx, ly);
+      if (last != null) dist += Math.abs(Math.atan2(Math.sin(a - last), Math.cos(a - last))) * r;
+      last = a;
+    }
+    const want = 10 * EVA.walkMax(g.S, b, b.R);
+    if (dist < 0.75 * want) slow.push(`${id}@${th} ${key} ${dist.toFixed(1)}/${want.toFixed(0)} m`);
+  }
+  check('walking climbs grid ledges on every rock (no stalls)', slow.length === 0, slow.join(', ') || '36 walks at >= 75% of walk speed');
+}
+
+
 // ---------------- 3. jump comes back down; Seed cannot be escaped ----------------
 {
   const g = outOn('ceres', Math.PI / 2), a0 = alt(g);

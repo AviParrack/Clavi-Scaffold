@@ -1,6 +1,36 @@
 # HANDOFF game: state of play
 
-*Updated 2026-10-03.*
+*Updated 2026-10-05 (v3 in progress). The v2 notes below still describe the live code.*
+
+## v3: where it is (2026-10-05)
+
+Avi played v2. He found it too easy: doing nothing on Hard reached G3, and he won Hard 96/100 with a wall of cheap probes plus auditors.
+His full feedback is in [design/AVI-FEEDBACK-v3.md](design/AVI-FEEDBACK-v3.md), verbatim, with Claude's reading under each follow-up.
+
+**Done**
+- 🟢 **Dev mode.** Use the `#dev` link or the DEV MODE switch on the start screen. Everything is unlocked, with 10 mounts per lane and a big bank. Published.
+- 🟢 **Content.** Joke model names, round-start chats and trait tells are in `game/src/config/content/models.js`.
+- 🟡 **Chip text.** It now lives in `content/tasks/g1..g7.js`, keyed by lane flavour (consumer, research, enterprise, government, cyber). It is being expanded to ~250 honest tasks per generation. Check it with `node test/content-check.mjs`.
+
+**In progress**
+- 🟡 **design/DESIGN-v3.md** (a design workflow writes it), covering:
+  - the balance math and difficulty targets;
+  - a policy zoo with per-element relevance tests;
+  - research as a steady pick-1-of-3;
+  - extra lanes;
+  - the auditor capacity model, where overflow ships unreviewed;
+  - correlated detector misses with a diversity bonus;
+  - visible internal consequences;
+  - the training minigame;
+  - the campaign flow.
+
+**Next:** the v3 build (sim systems, portraits, the training minigame in `game/src/train/`, UI integration, and wiring the content in), then a balance walkthrough for Avi.
+
+**Gotchas**
+- The content files are **not wired in yet**. The sim still reads `config/tasktext.js`, and the new shape is `X[g][flavour]`.
+- `?debug=1` gives the debug keys with a normal opening, so `test/ui-shot.mjs` depends on it. Only dev mode unlocks everything.
+- The published artifact can't read query strings; only a plain `#hash` reaches the page.
+- Publish with `file_path` set to `game/index.html`, `root` set to `game/`, and every `src/**/*.js` file plus `style.css` in `files`.
 
 ## Where it is
 

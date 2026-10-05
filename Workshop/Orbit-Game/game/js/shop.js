@@ -567,6 +567,7 @@ const Shop = (() => {
 .po-btn small { display: block; font-size: 11.5px; font-weight: 500; color: #6d5f8a; }
 .po-item .po-act .po-btn { width: 100%; }
 .po-ok { font-weight: 600; color: #2f9e5b; font-size: 14px; white-space: nowrap; }
+#po-shop table { color: ${INK}; font-family: inherit; }   /* tables skip inheritance in quirks mode (the bundle has no doctype) */
 .po-cmp { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 2px 0; }
 .po-cmp td { padding: 1.5px 0; vertical-align: baseline; } .po-cmp td:first-child { color: #6d5f8a; padding-right: 6px; }
 .po-cmp .po-was { text-align: right; color: #8a7fa6; white-space: nowrap; } .po-cmp .po-arrow { text-align: center; width: 20px; color: #8a7fa6; }
@@ -586,7 +587,7 @@ button.po-fuel { cursor: pointer; box-shadow: 2px 2px 0 ${INK}; } button.po-fuel
 .po-row-end { display: flex; justify-content: flex-end; margin: 12px 0 4px; }
 .po-warn { background: #ffe1e1; border: 2.5px solid ${INK}; border-radius: 10px; padding: 7px 12px; font-size: 14px; }
 .po-empty { background: #fffaf0; border: 2.5px dashed #b9a57e; border-radius: 12px; padding: 16px; font-size: 15px; }
-.po-table { width: 100%; border-collapse: separate; border-spacing: 0; background: #fffaf0; border: 2.5px solid ${INK}; border-radius: 12px; overflow: hidden; font-size: 14.5px; }
+.po-table { color: ${INK}; font-family: inherit; width: 100%; border-collapse: separate; border-spacing: 0; background: #fffaf0; border: 2.5px solid ${INK}; border-radius: 12px; overflow: hidden; font-size: 14.5px; }
 .po-table th { text-align: left; background: #ffe2b0; padding: 6px 10px; font-size: 13px; border-bottom: 2.5px solid ${INK}; }
 .po-table td { padding: 5px 10px; border-bottom: 1.5px dashed #e3d2ad; } .po-table tr:last-child td { border-bottom: none; }
 .po-table td:last-child { text-align: right; }

@@ -815,13 +815,14 @@ export function detectorStats(st, id, slotIdx) {
   return out;
 }
 
-// Kill Switch break-even precision (§3d): refusing an honest line costs the lane's refusal reputation plus the regen it
-// would have earned; letting an attack through costs its mean harm. EXTERNAL only (on INTERNAL a refusal costs R&D).
+// Kill Switch break-even precision p (§3d): every refusal costs the lane's refusal reputation, and an honest one also
+// the regen it would have earned; letting an attack through costs its mean harm. Refusing pays when
+// p·harm > refuse + (1 − p)·regen. EXTERNAL only (on INTERNAL a refusal costs R&D).
 export function killBreakEven(st, lane, level = 1) {
   if (sideOf(st, lane) !== 'ext') return null;
-  const D = LANE_DEFS[lane], lost = killTrigger(st, level, lane).rep + B.regenPerLine;
+  const D = LANE_DEFS[lane], refuse = killTrigger(st, level, lane).rep;
   const harm = Object.entries(D.mix).reduce((h, [t, w]) => h + w * ATTACKS[t].harm, 0) * (D.harm ?? 1);
-  return lost / (harm + lost);
+  return (refuse + B.regenPerLine) / (harm + B.regenPerLine);
 }
 export function killStats(st, id, slotIdx) {
   const s = st.lanes[id].slots[slotIdx], ops = servers(st, 'killswitch', s.level);

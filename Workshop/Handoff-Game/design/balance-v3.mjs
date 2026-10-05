@@ -48,10 +48,10 @@ const NGEN = GENS.length;
 
 // Lanes. The id is the key in st.lanes. 'ext' and 'int' are the two G1 lanes, so the v2 code keeps working.
 // vol = × lam. pay = $ per delivered line (EXTERNAL × market share). mix = share of the model's attacks by type.
-// pjb = users' jailbreaks per line. refuse = reputation per honest line the Kill Switch refuses. harm = × incident rep.
+// pjb = users' jailbreaks per line. refuse = reputation per line the Kill Switch refuses, real or not. harm = × incident rep.
 // quota = share of the lane humans must review, or the contract pays half. rd = the lane's lines pay R&D.
 const LANES = {
-  ext:  { side: 'ext', name: 'CONSUMER',   opens: 1, vol: 1.0, pay: 30, mix: { harmful: 0.75, leak: 0.25 }, pjb: 0.030, refuse: 0.25, harm: 1 },
+  ext:  { side: 'ext', name: 'CONSUMER',   opens: 1, vol: 1.0, pay: 30, mix: { harmful: 0.75, leak: 0.25 }, pjb: 0.030, refuse: 1.30, harm: 1 },
   int:  { side: 'int', name: 'R&D',        opens: 1, vol: 0.8, pay: 12, rd: true, exfilMult: 1 },
   ext2: { side: 'ext', name: 'ENTERPRISE', opens: 3, vol: 1.0, pay: 50, mix: { harmful: 0.50, leak: 0.50 }, pjb: 0.005, refuse: 0.05, harm: 1 },
   int2: { side: 'int', name: 'CYBER',      opens: 6, vol: 0.5, pay: 25, rd: false, exfilMult: 3 },
@@ -67,7 +67,7 @@ const A0 = 0.05, A1 = 0.10, INT_ATK = 1.5;
 const INT_MIX = { sabotage: 0.7, poison: 0.3 };
 const HARM = { harmful: 8, leak: 20, jailbreak: 10 };          // reputation per landed EXTERNAL incident
 const DEBT = { sabotage: 1, poison: 3 };                        // debt points per landed INTERNAL attack
-const REGEN = 0.22;                  // reputation per honest EXTERNAL line delivered (a deferred line: half). v3 retune, was 0.15
+const REGEN = 0.28;                  // reputation per honest EXTERNAL line delivered (a deferred line: half). v3 retune: 0.15 → 0.22 → 0.28
 const DEBT_M = 2.0;                  // next m += DEBT_M × debt, where debt = weighted landings ÷ INTERNAL lines
 const COLLUDE = [1.6, 1.75, 1.9, 2.05, 2.2, 2.35, 2.5];          // UM collusion c = min(0.9, κ_g·m)
 const GEN_VS = { jailbreak: 0.5, exfil: 0.5 };   // general detectors read these at this × their TPR
@@ -181,8 +181,8 @@ const RD_PAR = 0.8;
 const TRAIN = { dm0: 0.015, dm1: 0.035, debtPenalty: 2, penaltyCap: 0.15, prizeAt: 0.8 };
 
 // Difficulty: the first model's m. Narrow on purpose: variety comes from traits, not from a hidden roll.
-const DIFF = { easy: [0.18, 0.24], medium: [0.31, 0.37], hard: [0.43, 0.49] };
-const MID_M = { easy: 0.21, medium: 0.34, hard: 0.46 };
+const DIFF = { easy: [0.16, 0.22], medium: [0.31, 0.37], hard: [0.46, 0.52] };
+const MID_M = { easy: 0.19, medium: 0.34, hard: 0.49 };
 
 // ============================================================================================
 // B. SMALL HELPERS

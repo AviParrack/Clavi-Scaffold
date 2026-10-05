@@ -17,8 +17,8 @@ export const BALANCE = {
   // --- reputation ---
   startRep: 100,
   repMax: 100,
-  regenPerLine: 0.22,        // reputation per honest EXTERNAL line delivered (a deferred line: half). v3 retune: 0.15 → 0.22
-                             // pays for the events and the parity fixes (DESIGN-v3 §2.9 #17)
+  regenPerLine: 0.28,        // reputation per honest EXTERNAL line delivered (a deferred line: half). v3 retune: 0.15 → 0.22 → 0.28
+                             // pays for the events, the parity fixes (DESIGN-v3 §2.9 #17) and the Kill Switch's price (#19)
 
   // --- pacing ---
   warmup: 40,                // s: a generation ramps volume from the last model's lines/s to its own, and the model's
@@ -143,8 +143,8 @@ export const SPLIT = {
 
 // the first model's true m. Narrow on purpose: run-to-run variety comes from the traits, not from a hidden roll.
 export const DIFFICULTY = {
-  easy:   { label: 'Easy',    range: [0.18, 0.24] },
+  easy:   { label: 'Easy',    range: [0.16, 0.22] },
   medium: { label: 'Medium',  range: [0.31, 0.37] },
-  hard:   { label: 'Hard',    range: [0.43, 0.49] },
+  hard:   { label: 'Hard',    range: [0.46, 0.52] },
   unknown:{ label: 'Unknown', range: null },          // picks one of the above at random
 };

@@ -25,7 +25,7 @@ export const LANES = {                                   // keyed by side
 // pjb: users' jailbreaks per line · refuse: reputation per line the Kill Switch refuses · harm: × incident reputation
 // quota: share of the lane humans must review, or it pays half · rd: its lines pay R&D · exfilMult: × exfiltration share
 export const LANE_DEFS = {
-  ext:  { side: 'ext', flavour: 'consumer',   label: 'CONSUMER',   opens: 1, vol: 1.0, pay: 30, mix: { harmful: 0.75, leak: 0.25 }, pjb: 0.030, refuse: 0.25, harm: 1 },
+  ext:  { side: 'ext', flavour: 'consumer',   label: 'CONSUMER',   opens: 1, vol: 1.0, pay: 30, mix: { harmful: 0.75, leak: 0.25 }, pjb: 0.030, refuse: 1.30, harm: 1 },
   int:  { side: 'int', flavour: 'research',   label: 'R&D',        opens: 1, vol: 0.8, pay: 12, rd: true,  exfilMult: 1 },
   ext2: { side: 'ext', flavour: 'enterprise', label: 'ENTERPRISE', opens: 3, vol: 1.0, pay: 50, mix: { harmful: 0.50, leak: 0.50 }, pjb: 0.005, refuse: 0.05, harm: 1 },
   ext3: { side: 'ext', flavour: 'government', label: 'GOV',        opens: 5, vol: 0.5, pay: 50, mix: { harmful: 0.75, leak: 0.25 }, pjb: 0.010, refuse: 0.15, harm: 1.25, quota: 0.20 },

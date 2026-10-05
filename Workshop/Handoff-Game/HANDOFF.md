@@ -8,7 +8,7 @@ Built from [design/DESIGN-v3.md](design/DESIGN-v3.md) rev 2 after Avi found v2 t
 
 **Landed**
 - 🟢 **Sim:** phases card → play → report → training → card; research as a stream (one card per work stream, bank of 2, free reroll); contract lanes `ext2` G3 / `ext3` G5 / `int2` G6 (kit, OPEN LANE or 90 s, 60 s ramp, Government quota); flags ship, a finite Kill Switch, lab-wide levels, κ collusion; retrain (20 s dark); EGRESS ANOMALY + PULL THE PLUG; the rival as slack seconds; chip text from `config/content/tasks/gN.js`.
-- 🟢 **Balance:** `balance 400` passes all 18 targets and the shock (human 64 / 36 / 13 %, smart 91 / 79 / 53 %).
+- 🟢 **Balance:** `balance 400` passes all 18 targets and the shock (human 68 / 36 / 14 %, smart 93 / 80 / 52 %). The Kill Switch is a costly last resort: −1.3 rep per Consumer refusal, break-even 14 % (DESIGN-v3 §2.9 #19).
 - 🟢 **Training:** `src/train/` on `#train` (standalone: `train.html`); its result sets the next model's Δm.
 - 🟢 **UI:** model card scene, report, lane tabs with lamps and auto-focus, research panel, floating mount facts, stamps, §3g juice, the 10-step tutorial (its plate waits for its own codec lines), 1× forced at every card and while a lane ramps. **Content:** `config/content/v3-text.js`, Big Boss, 101 new attack texts.
 
@@ -25,10 +25,11 @@ Built from [design/DESIGN-v3.md](design/DESIGN-v3.md) rev 2 after Avi found v2 t
 - `view.slow` (tutorial) and `view.modal` (research panel) gate stepping in main.js. `view.focus[side]` is the lane a track shows; the deploy fx move it, so tests draw a frame before setting it.
 
 **Open** (ranked; the QA report has details)
-- 🟡 `Sim.endTutorial` is missing: SKIP leaves the scripted Consumer lines. state.js still says the v2 welcome (the UI skips it).
-- 🟡 Thin margins: `none` median death 124 s (target ≥ 120); human Easy 64 % (60–80).
+- 🟡 The tutorial takes ~3 minutes before the research step: the plate waits for its codec lines (28 cps). Needs a human playtest; if it drags, cut tutorial text, not the pace.
+- 🟡 Thin margins: the Medium hazard's G6 → G7 step is +11 (bar 12). Deaths moved earlier with the Kill Switch's price: human dies by G2 in 9 % of Medium runs, 19 % of Hard.
+- 🟡 Late desks may not pay: from G4, noAuditor's Medium hazard (13 / 8 / 11 / 9 %) sits below human's (15 / 17 / 12 / 23 %). Selection or Defer? Not split yet (§2.9 #19).
 - 🟡 forbid rework list: ratelimit, canary, interp, resampler, honeypot, egress, leastpriv, weight_security.
-- ⚪ Stale DESIGN-v3 numbers outside §2.9 (§2.3, §2.5–2.7, §4, §6 attack counts); design/train-check-v3.mjs can retire.
+- ⚪ DESIGN-v3 §2.5–2.7 tables are model output; the asserted numbers are the sim's `balance 400`. design/train-check-v3.mjs can retire (test/train.mjs replaces it).
 - ⚪ Training feel untested with people; drawing costs ~22 ms a frame at 1920×1080@2 in headless Chromium.
 
 ## Where it is

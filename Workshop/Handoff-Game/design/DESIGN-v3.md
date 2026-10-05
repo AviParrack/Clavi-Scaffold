@@ -80,7 +80,7 @@ You can read every line. Some honest lines are **decoys** that only look suspici
 - A flag that finds every desk busy *with flags* rolls on to the next responder. If nothing below has room, it **ships**.
 - *Your "1%" question.* One desk covers 21% of a lane at G1 and 7% at G7. Real labs review far less than 1%; the game compresses this so humans matter. The HUD shows "% of traffic reviewed by humans".
 
-**The other responders.** **Defer to Trusted** (2 s per line): the weak trusted model redoes the line; safe, but it pays less. **Kill Switch** (4 s): refuses the line; no risk, a $10 fee, and −0.25 reputation on Consumer, because users notice. **Resampler** (R&D only, 1 s): redraws the line.
+**The other responders.** **Defer to Trusted** (2 s per line): the weak trusted model redoes the line; safe, but it pays less. **Kill Switch** (4 s): refuses the line; no risk, but a $10 fee and −1.3 reputation per refusal on Consumer, because users notice. It is the blunt last resort, not a stand-in for review. **Resampler** (R&D only, 1 s): redraws the line.
 
 **Evidence and the dossier.**
 - Evidence comes from attacks a human confirms (+1 each), Honeypot catches, and Safety sweeps (1.5 per minute at the default 10% Safety).
@@ -203,7 +203,7 @@ G1 starts at the card, then the tutorial. New lanes arrive as **contracts** at G
 | Human Auditor | 1/2/3/4 desks | 8 (6 with Debate) | 800 | blocks an attack with chance α_g (+1 evidence). An honest line passes (1% are wrongly blocked). Salary $1.5/s per desk × π_g |
 | Defer to Trusted | 1/2/3/4 | 2 | 500 | the trusted model redoes it, at zero risk. Pays the Defer share × [1, 1.15, 1.3, 1.5] by level; half regen; half R&D |
 | Resampler (INTERNAL) | 2/2/3/4 | 1 | 500 | redraws the line; the redraw gets one TM-grade check |
-| Kill Switch | 1/2/3/4 operators | 4 | 300 | refuses it: $10 fee and no pay. Reputation −0.25 on Consumer, −0.05 Enterprise, −0.15 Government. On INTERNAL lanes the refused line pays no R&D |
+| Kill Switch | 1/2/3/4 operators | 4 | 300 | refuses it: $10 fee and no pay. Reputation −1.3 on Consumer, −0.05 Enterprise, −0.15 Government, for every refusal, real or not. On INTERNAL lanes the refused line pays no R&D |
 | *nobody free* | | | | **the flagged line ships** |
 
 **Modifiers and lab cards.** Lab cards are research picks with no mount and no price.
@@ -225,7 +225,7 @@ G1 starts at the card, then the tutorial. New lanes arrive as **contracts** at G
 
 | id | name | opens | volume v_ℓ | pay $/line | model attack mix | p_jb | refusal (rep) | harm × | special |
 |---|---|---|---|---|---|---|---|---|---|
-| `ext` | Consumer | G1 | 1.0 | 30 | harmful .75, leak .25 | .030 | .25 | 1 | |
+| `ext` | Consumer | G1 | 1.0 | 30 | harmful .75, leak .25 | .030 | 1.3 | 1 | |
 | `int` | R&D | G1 | 0.8 | 12 | sabotage .7, poison .3, plus exfiltration | – | – | – | the only lane that pays R&D |
 | `ext2` | Enterprise | G3 | 1.0 | 50 | harmful .5, leak .5 | .005 | .05 | 1 | |
 | `ext3` | Government | G5 | 0.5 | 50 | harmful .75, leak .25 | .010 | .15 | 1.25 | humans must review ≥ 20%, or the contract pays half |
@@ -241,7 +241,7 @@ G1 starts at the card, then the tutorial. New lanes arrive as **contracts** at G
 
 | | Easy | Medium | Hard |
 |---|---|---|---|
-| first model's m | [0.18, 0.24] | [0.31, 0.37] | [0.43, 0.49] |
+| first model's m | [0.16, 0.22] | [0.31, 0.37] | [0.46, 0.52] |
 
 ### 2.3 Equations
 
@@ -281,7 +281,7 @@ Defer and the Kill Switch handle their flags at zero risk.
 
 **(5) Reputation per EXTERNAL line.**
 - dmg = Σ_t p_t·P(land_t)·harm_t·(lane harm ×).
-- regen = 0.22·(1 − p_att)·(honest share delivered, deferred lines counting half) − refusal_ℓ × (lines killed per line).
+- regen = 0.28·(1 − p_att)·(honest share delivered, deferred lines counting half) − refusal_ℓ × (lines killed per line).
 - PI = dmg / regen.
 - Reputation starts at 100, which is also the cap.
 
@@ -545,7 +545,7 @@ Retune with these slopes, never at fewer than 400 seeds.
 
 **Win% is a coarse ruler.** The real-sim forbid uses a continuous metric (§7.5). Until it confirms, the rework list is a list, not a cut.
 - The `cards` report shows the soft cards do save something: Debate saves 7.4 rep per generation, Diversity 5.8, Faithful CoT 1.95 debt points.
-- Defer matters (−7, SE 2.4) under the harsher refusal cost in 🚩 1.
+- Defer matters (−7, SE 2.4) under the harsher refusal cost, now the default (🚩 1). On the real sim, noDefer loses 13 points (§2.9 #19).
 
 **Element arc.** Command: `arc`. Each cell is reputation saved per minute per $1000 spent (buy plus one generation of running costs). **Bold** marks that generation's top 3. The Kill Switch is left out because it is in the starting hand.
 
@@ -628,6 +628,7 @@ The model can say *plausible*, never *balanced*. The real asserts run on the rea
 | #12–#15: R&D, pay, read cost, responders per line; rdPar 0.8 | 3 | probewall Hard died by G2 −14 · probewall Medium −12 · monoTM Hard −11 |
 | #16: offers by stream | **0** | afkTutorial Easy died by G2 −5 · smart Hard win −4 |
 | #17: the retune, in both engines | **0** | monoUM Easy win +9 (the loosest cell: watch it) · smart Hard win +6 · afkTutorial Hard died by G2 −6 |
+| #19: the Kill Switch's price and the retune, in both engines | **0** | afkTutorial Easy died by G2 −6.5 · human Hard win −5.5 · human Medium win +5.2 |
 
 12. **R&D per line.** In the sim only a line that completes brings R&D. An attack stopped by an Auditor or a Kill Switch brings none, and neither does an honest line the Kill Switch refuses; a deferred line brings half. The model credited every spawned line, so a par lane finished in about 0.9·T_g and a retrain (20 s dark) cost no slack. Both engines now count R&D per completed line, and **rdPar 0.9 → 0.8** keeps a par lane at about T_g, since it loses about 20% of its R&D lines. The quick test `deployLength` checks it: T_g plus one travel, ± 5%, over 16 seeds.
 13. **Pay and regen per line.** The sim pays every line that completes, a landed attack included, and Defer pays its share. Regen comes per honest EXTERNAL line delivered (half if deferred). The model paid INTERNAL attack lines that were stopped, and spread pay per second. It now uses the same per-line pay and regen.
@@ -668,12 +669,35 @@ The model can say *plausible*, never *balanced*. The real asserts run on the rea
     - the Medium hazard runs 2 / 5 / 12 / 18 / 16 / 18 / 22%;
     - all 18 targets pass.
 
-    One side effect: a refusal now also loses 0.22 of regen, so the Kill Switch breaks even at **4.1%** precision on Consumer (it was 3.5%), 1.9% on Enterprise and 2.6% on Government (§8 decision 1).
+    One side effect: a refusal now also loses 0.22 of regen, so the Kill Switch breaks even at **4.1%** precision on Consumer (it was 3.5%), 1.9% on Enterprise and 2.6% on Government (§8 decision 1). #19 raises Consumer's to 14%.
 18. **The shock statistic.** The shock assert took the fastest of 20 seeds, which sits on a Poisson tail of about 1%.
     - When G2's par build walks into G3 on Medium, 1.3% of 300 seeds empty the bar in under 90 s (9–10 incidents in a minute across Consumer and Enterprise).
     - G3 opp −7% and TM +0.04 both left that tail at 1.0–1.3%, and seed 18 sits in it.
 
     The assert now takes the 5th percentile of 100 seeds. That is the quantile the fastest of 20 estimates, with less noise: G2 → G3 125 s, G4 → G5 162 s (`node test/headless.mjs shock`).
+19. **The Kill Switch becomes a last resort.** Moving the first random event from t = 50 s to 150 s (out of the G1 tutorial) broke one target: noAuditor won 35% on Medium, the same as human. It had passed (28 vs 36) only while that event fired at t = 50 s.
+    - **Why.** A refusal cost 0.25 rep on Consumer, so the Kill Switch broke even at 4.1% precision and refused whatever the desks would have read, nearly for free. Avi's rule is the opposite: humans are slow and sure, they only get to so much, and the rest ships. Refusing it instead should hurt.
+    - **The price.** Consumer goes to −1.3 rep per refusal, 🚩 1's alternative. Alone, at regen 0.22, it gives human 24% and noAuditor 9% on Medium. Enterprise (−0.05) and Government (−0.15) stay as they are. At −0.25 and −0.75 they moved noAuditor by 0.3 points, and those lanes already have their own costs: Enterprise's pay and Government's review quota.
+    - **The break-even.** Every refusal pays the refusal cost, real or not (the chip never says which). So refusing pays when p·harm > refuse + (1 − p)·regen, which gives p* = (refuse + regen) ÷ (harm + regen). The tooltip had (refuse + regen) ÷ (harm + refuse + regen), as if a refused attack were free. At −0.25 the two differ by 0.1 points; at −1.3 they differ by 1.5.
+    - **The retune.** Regen buys human Medium back, about 2 points per 0.01. The price and the regen together squeezed the difficulties: at regen 0.28 human won 62 / 36 / 17% (it was 64 / 35 / 14%), both ends within two points of their bands. Each difficulty's m range then spreads them again, at about 3–4 points per 0.01 of m on Easy and about 1 on Hard. #17's parity worry about a lower Easy m (afkTutorial Easy died by G2) is gone: that cell now sits at −6.5.
+
+    | knob | was | now | where |
+    |---|---|---|---|
+    | Consumer `refuse` | 0.25 | **1.3** | both engines |
+    | `regenPerLine` | 0.22 | **0.28** | both |
+    | Easy m | [0.18, 0.24] | **[0.16, 0.22]** | both, with the mid m 0.21 → 0.19 (balance-v3 `MID_M`, headless `MID_M`) |
+    | Hard m | [0.43, 0.49] | **[0.46, 0.52]** | both, with the mid m 0.46 → 0.49 |
+    | `killBreakEven` | (r + regen) ÷ (harm + r + regen) | **(r + regen) ÷ (harm + regen)** | sim (it only feeds readouts) |
+
+    The result, from `balance 400` with events on:
+    - human wins 68 / 36 / 14% and smart 93 / 80 / 52%. noAuditor wins 34 / 17 / 7% (−19 on Medium; it was 0), and noDefer 53 / 23 / 5% (−13; it was −8);
+    - the Medium hazard runs 1 / 8 / 16 / 15 / 17 / 12 / 23%. G6 → G7 is +11, against the 12-point bar;
+    - all 18 targets pass. The shock's Medium 5th percentiles: G1 → G2 321 s, G2 → G3 126 s, G4 → G5 199 s;
+    - the Kill Switch breaks even at 14.0% on Consumer, 2.3% on Enterprise and 3.1% on Government.
+
+    What it costs:
+    - **Deaths move earlier.** Human Medium dies by G2 in 9% of runs (it was 3%), and Hard in 19% (it was 5%). In G1 and early G2 there is no Defer yet, so a desk's overflow goes to the Kill Switch. All of noAuditor's deficit is there: its Medium hazard runs 10 / 43 / 49% in G1–G3.
+    - **Late desks may not pay.** From G4, noAuditor's Medium hazard (13 / 8 / 11 / 9%) sits below human's (15 / 17 / 12 / 23%). Some of that is selection: the noAuditor runs that reach G4 are its lucky ones. Some may be Defer, which takes noAuditor's flags at zero risk from G2 on, while desks cost salaries and levels. The two are not yet split. The Kill Switch no longer stands in for review; whether Defer does, from G4, is open.
 
 ---
 
@@ -788,7 +812,7 @@ A **Red Team** offer is guaranteed by the end of G2.
 | Cost | $800·π_g to buy; a salary of $1.5/s per desk × π_g, shown as $/min on the mount |
 | Tooltip | desks, capacity/min, flags/min now, load %, expected overflow B(d, A), where overflow goes ("→ Kill Switch" or "→ **SHIPS**"), and % of traffic reviewed |
 | Lane strip | "HUMANS REVIEW 34% · FLAGS 15/min · SHIPPED UNREVIEWED 2"; on Government also "QUOTA 20% · NOW 17%" (amber below quota) |
-| Other responders | the same tooltip shape. "Kill Switch: 1 operator · 15/min · −0.25 rep per refusal · worth it if ≥ 4.1% of what it kills is real" |
+| Other responders | the same tooltip shape. "Kill Switch: 1 operator · 15/min · −1.3 rep per refusal · worth it if ≥ 14% of what it kills is real" |
 
 **Acceptance.**
 - **The line-by-line case.** This is `des` in balance-v3, rebuilt as a headless assert on the real sim. Feed a forced flag stream with spot checks **on**, and require flag overflow = Erlang-B ± 3 points:
@@ -812,8 +836,8 @@ A **Red Team** offer is guaranteed by the end of G2.
 
 **FALSE ALARM.**
 - A human who reviews a flagged honest line stamps it FALSE ALARM (amber, 0.8 s). Every detector that flagged it gets a false-alarm tick.
-- A Kill Switch refusal is never checked. The chip shows "?", and the ops log reads "refused: $30, −0.25 rep".
-- The report then estimates the refusals from measured precision: "Kill Switch refused 41; your detectors' precision says ~19 were honest ($570, −4.8 rep)".
+- A Kill Switch refusal is never checked. The chip shows "?", and the ops log reads "refused: $30, −1.3 rep".
+- The report then estimates the refusals from measured precision: "Kill Switch refused 41; your detectors' precision says ~19 were honest ($570, −24.7 rep)".
 
 **The detector tooltip shows:**
 - its rated TPR and FPR for this generation, at its level and with its bonuses;
@@ -824,9 +848,9 @@ A **Red Team** offer is guaranteed by the end of G2.
 
 The v2 "CATCH" figure (coverage × accuracy, the source of the 4%) is deleted.
 
-**Kill Switch tooltip.** It shows the break-even precision: (refusal cost + lost regen) ÷ (mean harm + refusal cost + lost regen). That is ≈ 4.1% on Consumer, 1.9% on Enterprise and 2.6% on Government (§2.9 #17; it was 3.5% before a refusal also lost the line's regen). Next to it: "your flags here: 53% real".
+**Kill Switch tooltip.** It shows the break-even precision: (refusal cost + lost regen) ÷ (mean harm + lost regen), since every refusal pays the refusal cost, real or not. That is 14.0% on Consumer, 2.3% on Enterprise and 3.1% on Government (§2.9 #19; it was 4.1% / 1.9% / 2.6%). Next to it: "your flags here: 53% real".
 - On INTERNAL lanes a refusal costs R&D, so killing too much loses the race.
-- A harsher refusal is 🚩 1.
+- The refusal's price is 🚩 1.
 
 **Acceptance.**
 - On a forced G1 starter lane, measured Probe precision after 300 reviewed flags lies within ± 3 SE of p·TPR/(p·TPR + (1 − p)·FPR), over 5 seeds.
@@ -1229,9 +1253,9 @@ The build lists live in `game/test/policies.mjs`, which balance-v3.mjs and headl
 Each is a real fork where your taste matters. The build uses the **default** if you say nothing.
 
 1. 🚩 **Kill Switch.**
-   - **Default:** humans' overflow goes to the Kill Switch. L1 is 1 operator × 4 s (15 per minute), with a $10 fee and −0.25 rep per refusal on Consumer. A flag ships only when the Kill Switch is saturated too.
-   - This makes the Kill Switch break even at 4.1% precision (3.5% in the first draft; §2.9 #17). Defer then lands on the rework list (+3).
-   - *Alternative:* −1.3 rep per refusal (break-even ≈ 12%). Defer then matters (−7), but human Medium falls from 36% to 21% until it is retuned.
+   - **Default (since §2.9 #19):** a blunt, costly last resort. Humans' overflow goes to the Kill Switch. L1 is 1 operator × 4 s (15 per minute), with a $10 fee and −1.3 rep per refusal on Consumer (−0.05 Enterprise, −0.15 Government). A flag ships only when the Kill Switch is saturated too.
+   - It breaks even at 14% precision on Consumer (2.3% Enterprise, 3.1% Government). Review matters again: with no auditors, human Medium falls from 36% to 17%; with no Defer, to 23%. Most of the no-auditor loss lands in G1–G3 (its Medium hazard there is 10 / 43 / 49%).
+   - *Was:* −0.25 rep per refusal (break-even 4.1%). The Kill Switch then stood in for review: once the first event left the tutorial, noAuditor won as often as human (35 vs 35%).
    - *Or:* the Kill Switch becomes an early research card instead of part of the starting hand.
 2. 🚩 **Research shape.**
    - **Default:** the three slots are three work streams (Monitoring / Control / Lab & Interp), with ≥ 1 NEW element guaranteed. A flat 0.6 RP/s, with Safety as a small bonus (×1 to ×1.4).
@@ -1278,7 +1302,7 @@ Each is a real fork where your taste matters. The build uses the **default** if 
 | 12 | s | ✅ m ranges ±0.03; the range is shown on the G1 card; two traits per generation carry the variety |
 | 13 | s | ✅ Both sides on the meter and the reveal; hazards = round(400·debt); Alignment Sprint |
 | 14 | s | ✅ An object keyed by id makes getters unnecessary; the events text split; tasks wiring to sim-systems; headless shells out |
-| 15 | s | 🟡 INTERNAL refusals cost R&D; per-lane refusal; break-even on the tooltip. The 10–25% break-even was not adopted (−15 points human Medium untuned): 🚩 1 |
+| 15 | s | ✅ INTERNAL refusals cost R&D; per-lane refusal; break-even on the tooltip. The harsher refusal came in with the retune that followed: 14% on Consumer (§2.9 #19, 🚩 1) |
 | 16 | s | ✅ The model caps at 10 mounts; third copies of a kind are near-worthless by design (shared stealth) |
 | 17 | n | ✅ One hidden stealth score per kind replaces δ |
 | 18 | n | ⏭️ "You" as a review desk (scope). The exfiltration alarm adds the mid-wave verb now |

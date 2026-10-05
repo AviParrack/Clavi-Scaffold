@@ -2452,8 +2452,8 @@ function testReadouts() {
     && ds.tp + ds.fa > 0 && near(ds.precision, ds.tp / (ds.tp + ds.fa)) && ds.lo <= ds.precision && ds.precision <= ds.hi && !('recall' in ds));
   const ks = killStats(st, 'int', 5), be = id => killBreakEven(lab1b({ g: 5, lanes: ALL_LANES }), id);
   console.log(`    kill switch break-even: Consumer ${pct(be('ext'), 1)} · Enterprise ${pct(be('ext2'), 1)} · Government ${pct(be('ext3'), 1)} · R&D ${be('int')}`);
-  check('killStats: operators, perMin, break-even precision (Consumer 4.1%, Enterprise 1.9%, Government 2.6%; INTERNAL none)', ks.operators === 1 && ks.breakEven === null
-    && Math.abs(be('ext') - 0.041) < 0.002 && Math.abs(be('ext2') - 0.019) < 0.002 && Math.abs(be('ext3') - 0.026) < 0.002);   // regenPerLine 0.22 (DESIGN-v3 §2.9 #17)
+  check('killStats: operators, perMin, break-even precision (Consumer 14.0%, Enterprise 2.3%, Government 3.1%; INTERNAL none)', ks.operators === 1 && ks.breakEven === null
+    && Math.abs(be('ext') - 0.140) < 0.002 && Math.abs(be('ext2') - 0.023) < 0.002 && Math.abs(be('ext3') - 0.031) < 0.002);   // refuse 1.3, regenPerLine 0.28 (DESIGN-v3 §2.9 #19)
 }
 
 // ----- the G1 tutorial's scripted opening (§3h) -----
@@ -2776,7 +2776,7 @@ function zooLab(seed, g, m, open = g) {
 
 // ----- transition shock (§2.6, §7.5): walk into g + 1 with par_g; a lane new at g + 1 holds only its kit -----
 // From 100 reputation, no regen top-up: seconds until it hits 0 (capped at maxT). The model's `shock` gives the bleed.
-const MID_M = { easy: 0.21, medium: 0.34, hard: 0.46 };   // the middle of each DIFFICULTY range
+const MID_M = { easy: 0.19, medium: 0.34, hard: 0.49 };   // the middle of each DIFFICULTY range
 function shockRuns({ g, diff, from, to, maxT = 600 }) {
   const out = [];
   for (let seed = from; seed <= to; seed++) {

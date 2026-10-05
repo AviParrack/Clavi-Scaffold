@@ -4,24 +4,33 @@
 // Text is never drawn over: sweeps, washes and read heads sit under the glyphs, two lines never share a row, and
 // anything that would land on a line (alert pop, hung tag) is only drawn where the rows are free.
 // Each track draws the lane view.focus picks for its side; colours, geometry and art go by side (TRACKS, C.lane).
-// Registers: mount {lane, slot} · slot-buy {lane} · bay {lane, slot}   (lane = lane id)
+// The header is the side's tab row (DESIGN-v3 §3b): one tab per lane with its lamp (laneStatus), a telegraphed contract
+// as a ghost tab. An unfocused lane whose lamp turns red takes its track (at most once every AUTO_GAP s, never while a
+// tab click pins the track). A closed contract lane shows its kit, OPEN LANE and the deadline.
+// Juice (DESIGN-v3 §3g): caught red-handed (desk flash, stamp), a contract's tab slides in at DEPLOY, G7 burst lamps.
+// Registers: mount {lane, slot} · slot-buy {lane} · bay {lane, slot} · lane-tab {side, id, tip} · lane-open {id}
+//            · line {lane, id, text}   (lane = lane id)
 
 import { LAYERS } from '../config/layers.js';
-import { LANES, SIDES } from '../config/tasks.js';
+import { SIDES } from '../config/tasks.js';
+import { LANE_UI, CONTRACT_UI, STAMPS, DEBT_METER, BURST, RESEARCH_UI, RETRAIN_CARD } from '../config/content/v3-text.js';
 import { BALANCE as B } from '../config/balance.js';
 import { GENERATIONS } from '../config/generations.js';
 import * as R from '../sim/rules.js';
-import { money, pct } from '../util/format.js';
-import { C, F, k, epoch, fill, box, dashH, dashBox, corners, text, tw, fit, blit, hash, clamp, lerp, ease, mod } from './theme.js';
+import { money, pct, tpl } from '../util/format.js';
+import { C, F, k, epoch, fill, box, dashH, dashBox, corners, text, tw, fit, blit, hash, clamp, lerp, ease, mod, strobe, calm } from './theme.js';
 import { SPR, MICRO, sprite, icon } from './sprites.js';
 import { TRACK, TRACKS, rowCentre, mountRect, trackY } from './layout.js';
-import { animOf, cursorOf, drain, fxAge } from './view.js';
-import { specCatch, specAudit } from './derive.js';
+import { animOf, cursorOf, drain, fxAge, focusLane, AUTO_GAP } from './view.js';
+import { laneTab, laneTip } from './derive.js';
+import { sheet } from './upgrade.js';
+import * as tutorial from './tutorial.js';
 
 // =================== geometry and timing ===================
 
 const FT = TRACK.top, FB = TRACK.bottom, HOOD = TRACK.hood, BODY = TRACK.bodyW, MT = TRACK.rowTop, PITCH = TRACK.pitch;
 const ROWS = TRACK.rows, GAP = TRACK.lineGap, EDGE_Y = 528;
+const DEBT_MIN_LINES = 20;          // the debt meter shows its 90% range from this many INTERNAL lines on
 const CW = 6;                         // VT323 16 is monospace: 6 px a character
 const ASC = 13;                       // a cached line: logical px from its top to its baseline
 
@@ -29,6 +38,7 @@ const ASC = 13;                       // a cached line: logical px from its top 
 const T = {
   flag: 1.4, unread: 1.2, dead: 0.9, ghost: 0.6, slide: 0.35, stamp: 1.6, pop: 0.9, landed: 1.6, anomaly: 1.2,
   plate: 0.6, back: 0.4, dock: 1.0, lineIn: 0.15, spark: 0.4,
+  falseAlarm: 0.8, glitch: 0.3, unrev: 1.4, tabFlash: 1.2, red: 2.4, arrive: 3, slideIn: 0.5,
 };
 
 // what a placed element does to a line beside it (the engage look) and what its badge says when it has no catch rate
@@ -42,8 +52,8 @@ const WORD = { defer: 'BAY', resampler: 'BAY', killswitch: 'ARM', paraphraser: '
 const PLATE_NAME = { classifier: 'JB Classifier' };    // names longer than a plate (the hover card has the full one)
 const BAY_NAME = { auditor: 'AUDIT', defer: 'DEFER', resampler: 'RESAMPLE' };
 const BAY_REV = { auditor: 'REV', defer: 'REDO', resampler: 'ROLL' };
-const STAMP = { approve: 'APPROVED', toss: 'TOSSED', redo: 'REDONE', roll: 'REROLLED', pass: 'FLAG ON' };
-const STRIKE = { kill: 'KILLED', block: 'BLOCKED', throttle: 'TURNED AWAY', airgap: 'AIR GAP', full: 'BAY FULL' };
+const STAMP = { approve: 'CLEARED', falseAlarm: STAMPS.falseAlarm, redo: 'REDONE', roll: 'REROLLED', pass: 'FLAG ON', caught: STAMPS.caught };
+const STRIKE = { kill: `REFUSED ${STAMPS.refused}`, throttle: 'TURNED AWAY', airgap: 'AIR GAP', caught: STAMPS.caught };
 
 const laneGeo = side => {
   const T0 = TRACKS[side], bx = T0.body.x;
@@ -57,9 +67,10 @@ const laneAnim = () => ({
   dead: [],                                                     // struck or pulled lines, still flowing: see addDead()
   flags: new Map(), unread: new Map(), back: new Map(), via: new Map(), verdict: new Map(),
   plates: [], missed: null, pops: [], sparks: [], incident: null, anomaly: null,
-  tokens: [], docks: {}, desks: {}, stamps: {}, lastStamp: {}, silent: [],
+  tokens: [], docks: {}, desks: {}, stamps: {}, lastStamp: {}, chipStamps: new Map(), glitch: null, unrev: [], meterT: -1e9, red: null,
 });
-const animState = c => animOf(c.view, 'tracks', () => ({ lanes: {}, pruneAt: 0 }));    // lanes: lane id → laneAnim()
+// lanes: lane id → laneAnim() · tabs: lane id → { flash, lamp } (every lane, focused or not) · burst: the G7 warning
+const animState = c => animOf(c.view, 'tracks', () => ({ lanes: {}, pruneAt: 0, tabs: {}, burst: null }));
 const laneAnimOf = (A, lane) => A.lanes[lane] || (A.lanes[lane] = laneAnim());
 
 // =================== caches ===================
@@ -273,17 +284,14 @@ function staticLayer(side) {
 
 function paintStatic(g, side, { X, bx, by }) {
   const col = C.lane[side], ext = side === 'ext';
-  // ---------- header ----------
+  // ---------- header: the side box (the tabs are drawn live) ----------
   fill(g, X, 37, 30, 16, col.mid);
   text(g, ext ? 'EXT' : 'INT', X + 15, 48, F.k8, C.bg, 'center');
-  const w1 = text(g, LANES[side].label, X + 36, 52, F.k16, col.acc);
-  text(g, LANES[side].sub, X + 36 + w1 + 10, 52, F.v16, col.dim);
 
   // ---------- rail ----------
   fill(g, X, FT, TRACK.railW, FB - FT, C.pan);
   text(g, 'DEFENSE', X + 5, FT + 11, F.k8, col.dim);
   text(g, 'LV', X + 66, FT + 11, F.k8, col.dim);
-  text(g, 'CATCH', X + 124, FT + 11, F.k8, col.dim, 'right');
 
   // ---------- scope body: radar (EXTERNAL) or blueprint lattice (INTERNAL) ----------
   fill(g, bx, FT, BODY, FB - FT, col.field);
@@ -401,8 +409,13 @@ const greekArt = (i, col) => art('greek-' + i + col, 150, 3, g => { for (const [
 // desk verdict stamps
 const stampArt = (side, kind) => art('stamp-' + side + kind, 54, 17, g => {
   const col = C.lane[side], s = STAMP[kind];
-  const bold = c2 => { text(g, s, 27, 11, F.k8, c2, 'center'); text(g, s, 28, 11, F.k8, c2, 'center'); };
-  if (kind === 'toss') { fill(g, 0, 0, 54, 17, col.mid); box(g, 0, 0, 54, 17, col.acc); fill(g, 3, 2, 48, 1, C.bg); fill(g, 3, 14, 48, 1, C.bg); bold(C.bg); }
+  const bold = (c2, str = s, y = 11) => { text(g, str, 27, y, F.k8, c2, 'center'); text(g, str, 28, y, F.k8, c2, 'center'); };
+  if (kind === 'caught') { fill(g, 0, 0, 54, 17, col.mid); box(g, 0, 0, 54, 17, col.acc); fill(g, 3, 2, 48, 1, C.bg); fill(g, 3, 14, 48, 1, C.bg); bold(C.bg); }
+  else if (kind === 'falseAlarm') {            // amber, two lines: FALSE / ALARM
+    fill(g, 0, 0, 54, 17, C.ambD); box(g, 0, 0, 54, 17, C.ambL);
+    const [a, b] = s.split(' ');
+    text(g, a, 27, 8, F.k8, C.ambL, 'center'); text(g, b ?? '', 27, 15, F.k8, C.ambL, 'center');
+  }
   else if (kind === 'pass') { fill(g, 0, 0, 54, 17, C.rdd); box(g, 0, 0, 54, 17, C.rm); bold(C.r); }
   else { fill(g, 0, 0, 54, 17, C.bg); box(g, 0, 0, 54, 17, col.mid); box(g, 1, 1, 52, 15, col.mid); bold(col.acc); }
 });
@@ -479,9 +492,16 @@ const fadeA = (y, hh) => clamp(Math.min((y - hh - (FT + HOOD + 4)) / 8, (FB - HO
 
 export function draw(c) {
   const A = animState(c);
+  for (const side of SIDES) if (!c.st.lanes[c.view.focus[side]]) c.view.focus[side] = R.laneIds(c.st, side)[0];
   readFx(c, A);
-  for (const side of SIDES) { const lane = c.view.focus[side]; drawLane(c, lane, laneAnimOf(A, lane)); }
+  autoFocus(c, A);
+  for (const side of SIDES) {
+    const lane = c.view.focus[side];
+    tabRow(c, A, side);
+    drawLane(c, lane, laneAnimOf(A, lane));
+  }
   if (c.t > A.pruneAt) { A.pruneAt = c.t + 2; for (const a of Object.values(A.lanes)) prune(c, a); }
+  hoverTip(c);
 }
 
 function drawLane(c, lane, A) {
@@ -492,7 +512,8 @@ function drawLane(c, lane, A) {
 
   const layer = staticLayer(side);
   put(g, layer);
-  say(g, `MOUNTS ${P.n}/${B.maxSlots}`, P.X + 408, 52, F.v16, P.col.dim, 'right');
+  say(g, `${P.n}/${B.maxSlots}`, P.X + 124, FT + 12, F.v16, P.col.dim, 'right');
+  P.lastResp = lastResponderY(P);
 
   // event glow under the lines (their backings are opaque)
   if (P.events.length) { g.globalAlpha = 0.25 + 0.75 * glowPhase(c.t); put(g, glowArt(side)); g.globalAlpha = 1; }
@@ -506,6 +527,10 @@ function drawLane(c, lane, A) {
   bevelFx(P);
   bays(P);
   edge(P);
+  if (!L.open) contractPlate(P);
+  redFx(P);
+  glitchFx(P);
+  darkFx(P);
 }
 
 const glowPhase = t => 0.5 + 0.5 * Math.cos(2 * Math.PI * 1.2 * t);
@@ -513,12 +538,23 @@ const glowPhase = t => 0.5 + 0.5 * Math.cos(2 * Math.PI * 1.2 * t);
 // =================== fx → animations ===================
 
 function readFx(c, A) {
-  const { st } = c;
-  for (const e of drain(st, cursorOf(c.view, 'tracks'))) {
-    const side = R.sideOf(st, e.lane);
-    if (!side || c.view.focus[side] !== e.lane) continue;      // only a focused lane's fx reach a track ('global' never)
-    const a = laneAnimOf(A, e.lane);
-    const age = fxAge(st, e), t0 = c.t - age, n = st.lanes[e.lane].slots.length;
+  const { st } = c, list = drain(st, cursorOf(c.view, 'tracks'));
+  list.forEach((e, i) => { if (e.type === 'retrainOffer') redHanded(c, A, list.slice(0, i), e); });
+  for (const e of list) {
+    const side = R.sideOf(st, e.lane), age = fxAge(st, e), t0 = c.t - age;
+    if (e.type === 'burstWarn') { A.burst = { t: e.t, in: e.in, dur: e.dur, mult: e.mult }; continue; }   // sim s: ×3 keeps the count true
+    if (!side) continue;
+    if (e.type === 'laneOffer' && e.stage === 'arrived') {     // shown on the first play frame; a jump of several gens: the newest only
+      for (const tb of Object.values(A.tabs)) if (tb.arrive && tb.arrive.t0 == null) tb.arrive = null;
+      (A.tabs[e.lane] || (A.tabs[e.lane] = {})).arrive = { t0: null };
+    }
+    // every lane: its tab flashes on a glitch, an incident, a flag that shipped
+    if (e.type === 'glitch' || e.type === 'landed' || e.type === 'unreviewed' || e.type === 'egressAlarm') {
+      const tb = A.tabs[e.lane] || (A.tabs[e.lane] = {});
+      tb.flash = { t0, red: e.type !== 'unreviewed' };
+    }
+    if (c.view.focus[side] !== e.lane) continue;               // only a focused lane's fx reach a track ('global' never)
+    const a = laneAnimOf(A, e.lane), n = st.lanes[e.lane].slots.length;
     switch (e.type) {
       case 'flag': a.flags.set(e.task, t0); a.via.set(e.task, LAYERS[e.layer]?.tag ?? '?'); break;
       case 'unread': a.unread.set(e.task, t0); plateFx(a, e.slot, 'unread', t0, age); break;
@@ -527,30 +563,26 @@ function readFx(c, A) {
         addDead(a, e, 'pull', R.mountY(n, e.slot), t0, age);
         break;
       case 'kill': addDead(a, e, 'kill', R.mountY(n, e.slot), t0, age); plateFx(a, e.slot, 'kill', t0, age); break;
-      case 'block':
-        if (!a.dead.some(d => d.id === e.task)) addDead(a, e, 'block', e.y, t0, age);
-        plateFx(a, e.slot, 'block', t0, age);
-        break;
       case 'throttle': if (!e.deferred) addDead(a, e, 'throttle', e.y, t0, age); break;
       case 'airgap': addDead(a, e, 'airgap', R.mountY(n, e.slot), t0, age); plateFx(a, e.slot, 'catch', t0, age); break;
-      case 'toss':
-        if (e.reason === 'full') { addDead(a, e, 'full', R.mountY(n, e.slot), t0, age); a.docks[e.slot] = { kind: 'full', t0 }; }
-        else deskStamp(a, e.slot, e.task, 'toss', t0);
-        break;
       case 'waved': a.docks[e.slot] = { kind: 'waved', t0 }; break;
       case 'defer': a.verdict.set(e.task, 'redo'); break;
       case 'resample': a.verdict.set(e.task, 'roll'); break;
-      case 'unreviewed': a.verdict.set(e.task, 'pass'); break;
-      case 'approve':
-        deskStamp(a, e.slot, e.task, a.verdict.get(e.task) || (e.flagged ? 'pass' : 'approve'), t0);
+      case 'falseAlarm': a.verdict.set(e.task, 'falseAlarm'); break;
+      case 'unreviewed': if (age < T.unrev) a.unrev.push({ t0 }); break;
+      case 'approve': {
+        const v = a.verdict.get(e.task) || (e.flagged ? 'pass' : 'approve');
+        deskStamp(a, e.slot, e.task, v, t0);
+        if (v === 'falseAlarm') a.chipStamps.set(e.task, { kind: 'falseAlarm', t0 });
         a.verdict.delete(e.task); a.back.set(e.task, t0);
         break;
-      case 'caught': plateFx(a, e.slot, 'catch', t0, age); break;
+      }
+      case 'caught': plateFx(a, e.slot, 'catch', t0, age); deskStamp(a, e.slot, e.task, 'caught', t0); break;
       case 'pay': if (e.amount > 0) (side === 'ext' ? coin(a, e.amount, t0, age) : spark(a, t0, age)); break;
       case 'landed': if (age < T.landed) { a.incident = { t0, label: e.label }; a.missed = missedBy(st, e.task); } break;
       case 'foiled': case 'contained': case 'catastrophe':
         if (age < T.anomaly * 2) a.anomaly = { t0, kind: e.type, how: e.how }; break;
-      case 'silent': if (c.debug) a.silent.push({ t0, drift: e.drift }); break;
+      case 'glitch': if (age < T.glitch) a.glitch = { t0, seed: Math.floor(e.t * 977) }; a.meterT = t0; break;
       case 'honeypot': case 'canary': plateFx(a, slotOf(st, e.lane, e.type), 'bait', t0, age); break;
       case 'redteam': plateFx(a, e.slot, 'probe', t0, age); break;
       case 'place': case 'upgrade': case 'sell': case 'toggle': plateFx(a, e.slot, e.type, t0, age); break;
@@ -561,6 +593,16 @@ function readFx(c, A) {
 }
 
 const slotOf = (st, lane, id) => st.lanes[lane].slots.findIndex(s => s.layer === id);
+
+// caught red-handed (DESIGN-v3 §3g): the catch that offered Shut down & retrain (same step) takes its side's track,
+// and its desk gets the big flash before the retrain card comes up (overlays.js RETRAIN_DELAY)
+function redHanded(c, A, before, offer) {
+  const hit = offer.lane ? offer : before.reverse().find(e => e.type === 'caught' && e.t === offer.t), side = hit && R.sideOf(c.st, hit.lane);
+  if (!side) return;
+  focusLane(c.view, side, hit.lane, false);
+  laneAnimOf(A, hit.lane).red = { slot: hit.slot, t0: c.t - fxAge(c.st, offer) };
+  console.log(`[handoff] caught red-handed on ${hit.lane} (mount ${hit.slot + 1})`);
+}
 
 function plateFx(a, slot, kind, t0, age) {
   if (slot == null || slot < 0 || age > T.plate) return;
@@ -618,7 +660,8 @@ function prune(c, a) {
   for (const m of [a.via, a.verdict]) if (m.size > 600) for (const id of [...m.keys()].slice(0, m.size - 300)) m.delete(id);
   a.dead = a.dead.filter(d => c.t - d.t0 < T.dead);
   a.tokens = a.tokens.filter(tk => c.t - tk.t0 < T.slide);
-  a.silent = a.silent.filter(s => c.t - s.t0 < 1.5);
+  a.unrev = a.unrev.filter(u => c.t - u.t0 < T.unrev);
+  for (const [id, s0] of a.chipStamps) if (c.t - s0.t0 > T.falseAlarm) a.chipStamps.delete(id);
 }
 
 // =================== lines at volume (UI-PLAN §5) ===================
@@ -737,6 +780,15 @@ function body(P, lay) {
   for (const l of lay.lines) (l.dead ? drawDead(P, l) : drawLine(P, l));
   for (const l of lay.lines) if (l.eng) reticle(P, l);
   for (const p of lay.pops) sprite(g, SPR.bang, p.x, p.y, { '#': p.white ? C.wht : C.rLite, r: p.white ? C.wht : C.r }, 2);
+  // every full line can be hovered (its whole text) and clicked (the tutorial's first step)
+  for (const l of lay.lines) if (l.task && fadeA(l.y, 8) > 0.5) P.c.hit.add(P.tx - 12, l.y - 8, P.ex - P.tx + 14, 16, 'line', { lane: P.lane, id: l.task.id, text: l.task.text, flagged: l.task.flagged }, 'help');
+}
+
+// the lowest active responder on the lane (sim y): a flag past it has nowhere left to go, it ships unreviewed
+function lastResponderY(P) {
+  let y = -1;
+  P.L.slots.forEach((s, i) => { if (s.layer && R.slotActive(P.st, s) && LAYERS[s.layer].role === 'responder') y = R.mountY(P.n, i); });
+  return y;
 }
 
 // a band under a row that lets only a dim trace (UNDER) of the scope through: the sweep reads as passing behind the text
@@ -773,7 +825,7 @@ function drawBar(P, b, capA, barA) {
   g.globalAlpha = a;
   fill(g, L + 4, y - 1, 3, 3, b.flagged ? C.r : col.ddim);
   if (P.c.debug && P.c.view.truth && b.attack) fill(g, P.bx + 2, y - 3, 2, 6, C.debug);
-  const tag = microArt(compact(b.n * R.bundle(st)), lit ? col.mid : col.dim);
+  const tag = microArt(compact(b.n), lit ? col.mid : col.dim);
   blit(g, tag, ex - tag.w, y - 2);
   if (barA > 0) { g.globalAlpha = a * barA; blit(g, greekArt(b.id % 12, lit ? col.mid : col.dim), tx, y - 1); }
   else if (capA > 0) { g.globalAlpha = a * capA; say(g, 'BUNDLED TRAFFIC', tx, y + 2, F.k8, lit ? col.mid : col.dim); }
@@ -794,9 +846,11 @@ function drawLine(P, l) {
   backing(P, L, y - 8, w, 16, mixed(red ? C.rBack : C.bg, tints));
   g.globalAlpha = a;
 
-  // ---------- the ×N tag and the text that fits before it (drawn together, below) ----------
-  const N = R.bundle(st) * (1 + l.extra), tagS = N > 1 ? compact(N) : '';
-  const tagW = tagS ? 6 + tw(tagS, F.v16) : 0, lock = task.leastPriv > 0;
+  // ---------- the ×N tag (lines bunched behind this one) or UNREVIEWED, and the text that fits before it ----------
+  const ships = red && task.y > P.lastResp, chipSt = A.chipStamps.get(task.id);
+  const stampS = ships ? STAMPS.unreviewed : chipSt && t - chipSt.t0 < T.falseAlarm && t >= chipSt.t0 ? STAMPS.falseAlarm : '';
+  const N = 1 + l.extra, tagS = N > 1 && !stampS ? compact(N) : '';
+  const tagW = stampS ? tw(stampS, F.k8) + 12 : tagS ? 6 + tw(tagS, F.v16) : 0, lock = task.leastPriv > 0;
   const s = fitted(task.text, ex - tagW - 6 - tx - (lock ? 9 : 0));
   const base = red ? C.r : l.eng?.kind === 'det' ? col.mid : col.text, cw = s.length ? tw(s, F.v16) / s.length : CW;
 
@@ -804,7 +858,7 @@ function drawLine(P, l) {
   const u0 = A.unread.get(task.id);
   let pre = P.ext ? '>' : '$', preCol = col.dim;
   if (red) pre = 'bang';
-  else if (u0 != null && t - u0 < T.unread && t >= u0) { pre = '?'; preCol = mod(t * 8, 1) < 0.5 || t - u0 > 0.5 ? col.mid : col.dim; }
+  else if (u0 != null && t - u0 < T.unread && t >= u0) { pre = '?'; preCol = strobe(t, 8) || t - u0 > 0.5 ? col.mid : col.dim; }
   else if (inspected(P, task)) pre = 'check';
 
   // ---------- what the mount beside it is doing, under / around the glyphs ----------
@@ -826,7 +880,7 @@ function drawLine(P, l) {
   if (k0 === 'par') {
     const i0 = Math.min(s.length, Math.floor(l.eng.p * (s.length + 1))), i1 = Math.min(i0 + 3, s.length);
     if (i1 > i0) {
-      putInk(g, ink(s, mod(t * 14, 1) < 0.5 ? C.wht : col.lite), tx, y + 4, i0 * cw, i1 * cw);
+      putInk(g, ink(s, strobe(t, 14) ? C.wht : col.lite), tx, y + 4, i0 * cw, i1 * cw);
       fill(g, tx + i0 * cw, y - 9, (i1 - i0) * cw, 1, col.acc); fill(g, tx + i0 * cw, y + 7, (i1 - i0) * cw, 1, col.acc);
     }
     if (i0 > 0) dashes(g, tx, y + 7, i0 * cw, col.mid, 1, 1);
@@ -842,6 +896,11 @@ function drawLine(P, l) {
   else if (task.sandboxed) dashRect(g, L, y - 9, w - 1, 18, col.ddim, 3, 2);
   if (lock) sprite(g, SPR.lock, tx + s.length * cw + 3, y - 4, { '#': k0 === 'lp' ? col.acc : col.mid });
   if (k0 === 'lp') dashes(g, tx, y + 7, s.length * cw, col.dim, 1, 2);
+  if (stampS) {
+    const sw = tw(stampS, F.k8) + 8, sx = ex - sw, fa = stampS === STAMPS.falseAlarm;
+    fill(g, sx, y - 6, sw, 12, fa ? C.ambD : C.rdd); box(g, sx, y - 6, sw, 12, fa ? C.ambL : C.r);
+    say(g, stampS, sx + 4, y + 3, F.k8, fa ? C.ambL : (strobe(t, 3, 0.7) ? C.r : C.rm));
+  }
   if (P.c.debug && P.c.view.truth && task.isAttack) fill(g, P.bx + 2, y - 7, 2, 14, C.debug);
   g.globalAlpha = 1;
 }
@@ -888,7 +947,7 @@ function drawDead(P, l) {
     g.globalAlpha = 1;
     return;
   }
-  const kill = d.kind === 'kill', hot = kill ? C.r : col.acc;
+  const kill = d.kind === 'kill', hot = kill ? C.r : col.acc;     // a refusal is never checked: '?'
   backing(P, L, y - 8, w, 16, kill ? C.rBack : C.bg);
   g.globalAlpha = a;
   if (kill) {
@@ -946,11 +1005,23 @@ function plate(P, i, slot, r, hovered) {
   else if (hovered && !engaged) frame(g, r.x, r.y, r.w, r.h, col.dim);
   const heads = KIND[id] === 'det' ? R.detectorHeads(id, slot.level) : 0;
   const full = heads && busyNow(slot, st.t) >= heads;
-  const led = !active ? null : full ? (mod(t * 6, 1) < 0.5 ? col.hot : col.dim) : engaged ? col.acc : null;
+  const led = !active ? null : full ? (strobe(t, 6) ? col.hot : col.dim) : engaged ? col.acc : null;
   if (led) fill(g, X + 120, my + 3, 3, 3, led);
+  if (id === 'killswitch' && active && auditorBelow(P, i)) killAbove(P, r, t);
   // a chip that landed went past these: red stripe on each mount that read it and missed, or was too busy to read it
   const inc = A.incident;
   if (P.ext && inc && A.missed?.has(i) && t - inc.t0 < T.landed && mod(t * 2.4, 1) < 0.6) fill(g, X + 1, my + 8, 2, 26, C.r);
+}
+
+// an active Auditor below this mount: the Kill Switch takes every flag it has room for, so the humans see only the rest
+const auditorBelow = (P, i) => P.L.slots.some((s, j) => j > i && s.layer === 'auditor' && R.slotActive(P.st, s));
+function killAbove(P, r, t) {
+  const { g } = P, x0 = r.x + 3, y0 = r.y + 27, w = 120, s = '! ' + LANE_UI.killAbove + '   ';
+  fill(g, x0, y0, w, 12, C.ambDD); box(g, x0, y0, w, 12, C.amb);
+  const sw = tw(s, F.v16), off = Math.floor(mod(t * 24, sw));
+  g.save(); clipRect(g, x0 + 1, y0 + 1, w - 2, 10);
+  say(g, s, x0 + 3 - off, y0 + 10, F.v16, C.ambL); say(g, s, x0 + 3 - off + sw, y0 + 10, F.v16, C.ambL);
+  g.restore();
 }
 
 function paintPlate(g, P, slot, r, active, badge, engaged) {
@@ -980,8 +1051,11 @@ function badgeOf(P, i, slot) {
   if (st.t < slot.forcedOffUntil) return { text: 'OFF', col: col.dim, sub: Math.ceil(slot.forcedOffUntil - st.t) + 's', subCol: col.mid };
   const m = R.measuredAt(st, lane, i);
   if (m) return { text: rate(m.rate), col: col.hot, sub: '±' + Math.round(100 * m.err), subCol: col.mid };
-  if (KIND[id] === 'det') return { text: rate(specCatch(st, id, slot.level, lane)), col: col.text };
-  if (id === 'auditor') return { text: rate(specAudit(st, slot.level)), col: col.text };
+  if (KIND[id] === 'det') return { text: rate(R.ratedTPR(st, id, slot.level, lane)), col: col.text };       // rated, never measured truth
+  if (id === 'auditor') {
+    const a = R.auditStats(st, lane, i), hot = a.overflow > 0.3 ? C.r : a.load > 0.8 ? C.ambL : col.text;
+    return { text: a.flagsPerMin > 0.05 ? rate(Math.min(9.99, a.load)) : 'IDLE', col: hot, small: a.flagsPerMin <= 0.05 };
+  }
   if (id === 'redteam') {
     const lm = R.laneMeasuredAt(st, lane, i);
     if (lm) return { text: pct(lm.rate), col: col.hot, sub: 'ALL ±' + Math.round(100 * lm.err), subCol: col.mid };
@@ -1009,14 +1083,20 @@ function emptyMount(P, i, r, hovered) {
 
 // ---------- the next mount for sale, and the ones after it (locked until this one is bought) ----------
 function buyRow(P, r, hovered) {
-  const { g, st, col, lane } = P, X = r.x - 1, my = r.y - 1, price = R.slotPrice(st, lane), can = st.money >= price;
+  const { g, st, col, lane, c, t } = P, X = r.x - 1, my = r.y - 1, price = R.slotPrice(st, lane), can = st.money >= price;
+  if (c.view.research?.type === 'mount') {                 // a research MOUNT card: this lane's next mount, free
+    dashRect(g, X + 4, my + 5, 120, 32, hovered ? col.hot : C.rs, 3, 2, Math.floor(mod(t * 10, 5)));
+    say(g, '+ MOUNT', X + 12, my + 24, F.k8, C.rs);
+    say(g, 'FREE', X + 118, my + 25, F.v16, hovered ? col.hot : C.rs, 'right');
+    return;
+  }
   dashRect(g, X + 4, my + 5, 120, 32, hovered && can ? col.acc : can ? col.dim : col.ddim, 2, 2);
   say(g, '+ SLOT', X + 12, my + 24, F.k8, can ? col.mid : col.dim);
   say(g, money(price), X + 118, my + 25, F.v16, can ? col.mid : col.dim, 'right');
 }
 function futureRow(P, i, r) {
   const { g, st, col } = P, X = r.x - 1, my = r.y - 1;
-  const price = B.slotBase * Math.pow(B.slotMult, Math.max(0, i - B.startSlots)) * R.bundle(st);
+  const price = B.slotBase * Math.pow(B.slotMult, Math.max(0, i - B.startSlots)) * R.priceIndex(st);   // rules.js slotPrice, i mounts in
   dashRect(g, X + 4, my + 5, 120, 32, col.ddim, 2, 2);
   sprite(g, SPR.lock, X + 12, my + 18, { '#': col.dim });
   say(g, '+ SLOT', X + 21, my + 24, F.k8, col.dim);
@@ -1060,6 +1140,14 @@ function hoods(P, layer) {
   blit(g, fadeArt(P.side, false), bx, FB - HOOD - 4);
   putPart(g, layer, bx, FT, BODY, HOOD);
   putPart(g, layer, bx, FB - HOOD, BODY, HOOD);
+  // the intake's own label: a G7 burst on its way or running, a new lane ramping up, a closed contract
+  const bu = animState(P.c).burst, bAge = bu ? st.t - bu.t : 99;
+  let note = null;
+  if (bu && bAge >= 0 && bAge < bu.in) note = [tpl(BURST.warn, { secs: Math.ceil(bu.in - bAge) }), strobe(t, 3, 0.6) ? C.r : C.rm];
+  else if (bu && bAge >= bu.in && bAge < bu.in + bu.dur) note = [tpl(BURST.on, { mult: bu.mult }), C.r];
+  else if (!L.open) note = [CONTRACT_UI.tag + ' · IDLE', C.amb];
+  else if (R.laneRamping(st, P.lane)) note = [tpl(CONTRACT_UI.ramp, { secs: Math.ceil(Math.max(0, B.laneRamp - ((st.genT ?? 0) - (L.openedT ?? 0)))) }).toUpperCase(), col.acc];
+  if (note && !events.length && !paused) { say(g, fit(note[0], F.k8, BODY - 70), bx + 66, FT + 10, F.k8, note[1]); return; }
   if (!events.length && !paused) return;
   const on = glowPhase(t) > 0.3;
   if (events.length) {
@@ -1135,9 +1223,9 @@ function bays(P) {
   if (!groups.length) {
     const y = FB - 40;
     dashRect(g, by + 2, y, 60, 36, col.ddim, 2, 2);
-    say(g, 'NO BAY', by + 32, y + 11, F.k8, col.dim, 'center');
+    say(g, 'NO DESK', by + 32, y + 11, F.k8, col.dim, 'center');
     say(g, 'flags', by + 32, y + 23, F.v16, col.dim, 'center');
-    say(g, 'block', by + 32, y + 34, F.v16, col.dim, 'center');
+    say(g, 'ship', by + 32, y + 34, F.v16, col.dim, 'center');
   }
 }
 
@@ -1162,7 +1250,7 @@ function meter(P, y0, y1) {
     for (let y = H - 1; y >= 0; y -= 30) fill(mg, 0, y, 4, 1, col.ddim);
   }), by + 18, top);
   if (lit > 1) blitPart(g, art(`meter-lit|${P.side}|${nSeg}`, 22, H, mg => seg(mg, col.dim, 0, nSeg)), by + 18, top + H + 6 - 6 * lit, 0, H + 6 - 6 * lit, 22, 6 * lit - 8);
-  if (lit > 0) fill(g, by + 26, mBot - 5 - (lit - 1) * 6, 12, 4, mod(t * 3, 1) < 0.5 ? col.acc : col.mid);
+  if (lit > 0) fill(g, by + 26, mBot - 5 - (lit - 1) * 6, 12, 4, strobe(t, 3) ? col.acc : col.mid);
 }
 
 // keep each task on the desk it sat down at; new arrivals take a free desk (one whose stamp has been read first)
@@ -1204,8 +1292,8 @@ function gate(P, b) {
     say(g, name, x + 3, cy + 4, F.v16, red ? C.r : col.text);
     g.restore();
   } else if (dAge < T.dock && dAge >= 0) {
-    const waved = dk.kind === 'waved', on = mod(dAge * 6, 1) < 0.6;
-    if (on) say(g, waved ? 'WAVED' : 'FULL', by + 32, cy + 3, F.k8, waved ? C.r : col.acc, 'center');
+    const waved = dk.kind === 'waved', on = strobe(dAge, 6, 0.6);
+    if (on) say(g, waved ? 'BUSY' : 'FULL', by + 32, cy + 3, F.k8, waved ? C.r : col.acc, 'center');
   } else {
     const o = Math.floor(mod(t * 6, 3));
     for (let i = 0; i < 3; i++) sprite(g, SPR.tri, by + 24 + i * 7, cy - 2, { '#': i === o ? col.mid : col.ddim });
@@ -1223,7 +1311,7 @@ function desk(P, b, j) {
   const status = (s, c2) => say(g, s, x0 + 57, dy + 8, F.k8, c2, 'right');
 
   if (inbound) {
-    status('IN', mod(t * 4, 1) < 0.5 ? col.acc : col.dim);
+    status('IN', strobe(t, 4) ? col.acc : col.dim);
     if (full) { const o = Math.floor(mod(t * 8, 3)); for (let i = 0; i < 3; i++) sprite(g, SPR.tri, x0 + 22 + i * 6, dy + 17, { '#': i === o ? col.mid : col.ddim }); }
   } else if (task) {
     const f = task.deskTotal > 0 ? clamp(1 - task.deskT / task.deskTotal, 0, 1) : 1, red = task.flagged;
@@ -1240,13 +1328,13 @@ function desk(P, b, j) {
       status('DONE', col.dim);
       blit(g, stampArt(P.side, st0.kind), x0 + 3, dy + 14);
       if (sAge < 0.18) { box(g, x0 + 1, dy + 12, 58, 21, col.acc); tint(g, x0 + 3, dy + 14, 54, 17, C.wht, 0.35); }
-    } else status(STAMP[st0.kind].split(' ')[0], st0.kind === 'pass' ? C.r : col.acc);
+    } else status(STAMP[st0.kind].split(' ')[0], st0.kind === 'pass' ? C.r : st0.kind === 'falseAlarm' ? C.ambL : col.acc);
   } else {
     status('FREE', col.dim);
     const last = A.lastStamp[b.slot]?.[j];
     if (full && last) {
       const lw = say(g, 'LAST', x0 + 3, dy + 24, F.k8, col.dim);
-      say(g, { approve: 'ok', toss: 'toss', redo: 'redo', roll: 'roll', pass: 'flag' }[last], x0 + 7 + lw, dy + 25, F.v16, col.dim);
+      say(g, { approve: 'ok', caught: 'caught', falseAlarm: 'false', redo: 'redo', roll: 'roll', pass: 'flag' }[last] ?? '', x0 + 7 + lw, dy + 25, F.v16, last === 'falseAlarm' ? C.amb : col.dim);
     }
   }
 }
@@ -1270,28 +1358,51 @@ function edge(P) {
     }
     const fresh = A.pops.some(p => t - p.t0 < 0.25 && t >= p.t0);
     say(g, money(st.ledger.byCat.external || 0), X + 402, y + 18, F.v16, fresh ? col.acc : col.mid, 'right');
-  } else {
-    const training = st.phase === 'training', last = st.gen >= GENERATIONS.length;
-    const label = training ? `TRAINING > G${st.gen + 1}` : last ? 'RESEARCH > SHIP' : `RESEARCH > G${st.gen + 1}`;
-    say(g, label, X + 15, y + 16, F.k8, training ? col.acc : col.dim);
-    const pr = training ? 1 : clamp(st.rd / st.rdNeed, 0, 1), lit = Math.floor(pr * 48);
-    const spark = A.sparks.find(s => t - s.t0 < T.spark && t >= s.t0);
-    const segs = (c2, a2) => art(`rd|${c2}|${a2}`, 191, 9, rg => { rg.globalAlpha = a2; for (let i = 0; i < 48; i++) fill(rg, i * 4, 0, 3, 9, c2); });
-    blit(g, segs(col.ddim, 0.5), bx + 4, y + 9);
-    if (lit > 0) blitPart(g, segs(training && mod(t * 2, 1) < 0.5 ? col.acc : col.mid, 1), bx + 4, y + 9, 0, 0, lit * 4 - 1, 9);
-    if (spark && lit > 0) fill(g, bx + (lit - 1) * 4 + 4, y + 9, 3, 9, col.lite);
-    if (spark && lit > 0) {
-      const f = (t - spark.t0) / T.spark, sx = bx + 5 + (lit - 1) * 4;
-      g.globalAlpha = 1 - f;
-      fill(g, sx, y + 6 - Math.round(3 * f), 1, 1, col.lite); fill(g, sx - 2 - Math.round(2 * f), y + 7 - Math.round(2 * f), 1, 1, col.mid);
-      fill(g, sx + 2 + Math.round(2 * f), y + 7 - Math.round(2 * f), 1, 1, col.mid);
-      g.globalAlpha = 1;
-    }
-    const right = training ? Math.ceil(st.trainT) + 's' : (pr * 100).toFixed(1) + '%';
-    say(g, right, X + 402, y + 18, F.v16, col.acc, 'right');
+  } else rdAndDebt(P);
+  for (const u of A.unrev) {                                  // a flag shipped unreviewed: a red chip rises off the edge
+    const age = t - u.t0;
+    if (age < 0 || age >= T.unrev || !ext) continue;
+    const w = tw(STAMPS.unreviewed, F.k8) + 8, px = X + 300 - w, py = y - 2 - Math.round(10 * ease(clamp(age / T.unrev, 0, 1)));
+    g.globalAlpha = clamp((T.unrev - age) / 0.4, 0, 1);
+    fill(g, px, py, w, 12, C.rdd); box(g, px, py, w, 12, C.r); say(g, STAMPS.unreviewed, px + 4, py + 9, F.k8, C.r);
+    g.globalAlpha = 1;
   }
   anomalyStamp(P);
-  if (P.c.debug && P.c.view.truth) for (const s of A.silent) if (t - s.t0 < 1.5 && t >= s.t0) text(g, `(silent +${s.drift.toFixed(2)} drift)`, X + 230, y - 6, F.v16, C.debug);
+}
+
+// INTERNAL edge (DESIGN-v3 §3e): the R&D bar (120 px) toward the next model, and the debt meter (120 px):
+// LANDED ≈ and STOPPED ≈, both as m, from what the player saw (rules.js debtEstimate: glitches, confirmed catches)
+function rdAndDebt(P) {
+  const { g, st, col, X, A, t, lane } = P, y = EDGE_Y, T0 = TRACKS[P.side], rb = T0.rdBar, db = T0.debt;
+  const rdLane = !!R.laneDef(lane)?.rd, last = st.gen >= GENERATIONS.length;
+  say(g, rdLane ? (last ? 'SHIP' : `G${st.gen + 1}`) : 'R&D', X + 15, y + 16, F.k8, col.dim);
+  if (rdLane) {
+    const pr = clamp(st.rd / st.rdNeed, 0, 1), lit = Math.floor(pr * 30);
+    const segs = (c2, a2) => art(`rd|${c2}|${a2}`, 120, 9, rg => { rg.globalAlpha = a2; for (let i = 0; i < 30; i++) fill(rg, i * 4, 0, 3, 9, c2); });
+    blit(g, segs(col.ddim, 0.5), rb.x, rb.y);
+    if (lit > 0) blitPart(g, segs(col.mid, 1), rb.x, rb.y, 0, 0, lit * 4 - 1, 9);
+    const spark = A.sparks.find(s => t - s.t0 < T.spark && t >= s.t0);
+    if (spark && lit > 0) {
+      const f = (t - spark.t0) / T.spark, sx = rb.x + 1 + (lit - 1) * 4;
+      fill(g, sx - 1, rb.y, 3, 9, col.lite);
+      g.globalAlpha = 1 - f;
+      fill(g, sx, rb.y - 3 - Math.round(3 * f), 1, 1, col.lite); fill(g, sx - 2 - Math.round(2 * f), rb.y - 2 - Math.round(2 * f), 1, 1, col.mid);
+      fill(g, sx + 2 + Math.round(2 * f), rb.y - 2 - Math.round(2 * f), 1, 1, col.mid);
+      g.globalAlpha = 1;
+    }
+    say(g, (pr * 100).toFixed(1) + '%', rb.x + rb.w + 4, y + 18, F.v16, col.acc);
+  } else say(g, 'no R&D: a contract model', rb.x, y + 18, F.v16, col.dim);
+
+  // ---------- the debt meter ----------
+  const d = R.debtEstimate(st, lane), f3 = x => x.toFixed(3);
+  const hot = t - A.meterT < 0.6 && t >= A.meterT && strobe(t, 8, 0.6);          // a glitch ticks the meter
+  say(g, tpl(DEBT_METER.landed, { dm: f3(d.dmLanded) }), db.x, db.y + 9, F.v16, hot ? C.r : d.glitches ? C.rLite : col.mid);
+  say(g, tpl(DEBT_METER.stopped, { dm: f3(d.dmStopped) }), db.x, db.y + 21, F.v16, col.mid);
+  say(g, DEBT_METER.title, X + 402, db.y + 8, F.k8, col.dim, 'right');
+  const few = d.lines < DEBT_MIN_LINES;                    // too few lines for the interval to mean anything yet
+  say(g, few ? 'n < ' + DEBT_MIN_LINES : tpl(DEBT_METER.range, { lo: (B.debtM * d.lo).toFixed(2), hi: (B.debtM * d.hi).toFixed(2) }), X + 402, db.y + 21, F.v16, col.dim, 'right');
+  P.c.hit.add(db.x - 2, y + 1, X + 404 - db.x, 24, 'lane-tab', { side: P.side, id: lane, debt: true,
+    tip: `${DEBT_METER.tip}: ${d.glitches} glitch${d.glitches === 1 ? '' : 'es'} in ${d.lines} lines. LANDED ≈ +${f3(d.dmLanded)} m (90%: ${(B.debtM * d.lo).toFixed(3)}–${(B.debtM * d.hi).toFixed(3)}); STOPPED ≈ +${f3(d.dmStopped)} m${d.precision == null ? '' : `, at your measured precision ${pct(d.precision)}`}. Both go into the next model's m.` }, 'help');
 }
 
 // EXTERNAL INCIDENT on the storefront: a crack across the edge, the LANDED plate over it
@@ -1333,6 +1444,197 @@ function anomalyStamp(P) {
   g.globalAlpha = 1;
 }
 
+// =================== the tab row: one tab per lane of the side, with its lamp ===================
+
+const LAMP_TIP = { green: LANE_UI.lampGreen, amber: LANE_UI.lampAmber, red: LANE_UI.lampRed };
+
+function tabRow(c, A, side) {
+  const { g, st, view } = c, T0 = TRACKS[side], col = C.lane[side], up = R.upcomingLane(st);
+  const items = R.laneIds(st, side).map(id => ({ id, closed: !st.lanes[id].open, s: R.laneStatus(st, id) }));
+  if (up && up.side === side && !st.lanes[up.id]) items.push({ id: up.id, ghost: true, gen: up.gen });
+  // F.k16 when the row fits (DESIGN-v3 §3b), F.k8 when it doesn't
+  const wOf = (it, font) => 18 + Math.ceil(tw(laneTab(it.id), font)) + (it.ghost ? 4 : 0);
+  const big = items.reduce((w, it) => w + wOf(it, F.k16) + 4, 0) <= T0.tabs.w, font = big ? F.k16 : F.k8;
+  let x = T0.tabs.x;
+  const research = view.research?.type === 'mount';
+  // the G7 burst (DESIGN-v3 §3g): every lamp pulses through the 3 s warning (2 Hz glow), then burns red while it runs
+  const bu = A.burst, bAge = bu ? st.t - bu.t : 99, warn = bAge >= 0 && bAge < bu?.in, burning = !warn && bAge >= 0 && bAge < bu?.in + bu?.dur;
+  const glow = warn ? 0.5 + 0.5 * Math.sin(2 * Math.PI * 2 * c.t) : burning ? 0.7 : 0;   // the pulse in real s: 2 Hz at ×3 too
+  if (glow) { g.globalAlpha = glow * (warn ? 0.8 : 0.5); box(g, T0.header.x - 1, T0.header.y - 2, T0.header.w + 2, T0.header.h + 4, C.r); g.globalAlpha = 1; }
+  for (const it of items) {
+    const tb = A.tabs[it.id] || (A.tabs[it.id] = {});
+    if (tb.arrive && tb.arrive.t0 == null && st.phase === 'play') {   // a contract that came on the card: it arrives now
+      tb.arrive.t0 = c.t;
+      focusLane(view, side, it.id, false);
+      console.log(`[handoff] contract tab in: ${it.id}`);
+    }
+    const arr = tb.arrive?.t0 != null ? c.t - tb.arrive.t0 : 99;
+    if (arr < T.arrive) arriving(c, side, x, wOf(it, font), arr);
+    const x0 = x;
+    if (arr < T.slideIn) { x += Math.round(60 * (1 - ease(arr / T.slideIn))); g.globalAlpha = clamp(arr / T.slideIn, 0, 1); }
+    const w = wOf(it, font), on = view.focus[side] === it.id, hov = view.hover?.kind === 'lane-tab' && view.hover.data.id === it.id && !view.hover.data.debt;
+    const fl = tb.flash, flashing = fl && c.t - fl.t0 < T.tabFlash && c.t >= fl.t0 && strobe(c.t, 6);
+    const pick = research && !it.ghost && st.lanes[it.id].slots.length < B.maxSlots;
+    if (it.ghost) dashRect(g, x, 37, w, 16, col.ddim, 2, 2);
+    else if (on) { fill(g, x, 37, w, 16, col.mid); if (hov) box(g, x, 37, w, 16, col.hot); }
+    else { fill(g, x, 37, w, 16, flashing ? (fl.red ? C.rdd : C.ambDD) : C.pan); box(g, x, 37, w, 16, pick ? C.rs : hov ? col.mid : col.ddim); }
+    if (it.closed && !on) dashRect(g, x, 37, w, 16, C.amb, 2, 2, Math.floor(mod(c.t * 6, 4)));
+    // the lamp: green / amber / red (blinks); a closed contract or a signed one: amber, slow
+    const lamp = it.ghost || it.closed ? (mod(c.t * 1.5, 1) < 0.6 ? C.lamp.amber : C.lamp.off) : it.s.lamp === 'red' ? (strobe(c.t, 4, 0.6) ? C.lamp.red : C.rd) : C.lamp[it.s.lamp];
+    if (glow && !it.ghost && !it.closed) { g.globalAlpha = glow; fill(g, x + 3, 40, 10, 10, C.rm); g.globalAlpha = 1; }
+    fill(g, x + 5, 42, 6, 6, C.black); fill(g, x + 6, 43, 4, 4, glow && !it.ghost && !it.closed ? (glow > 0.5 ? C.lamp.red : C.lamp.amber) : lamp);
+    const ink = it.ghost ? col.ddim : on ? C.bg : hov ? col.acc : it.closed ? C.amb : col.dim;
+    text(g, laneTab(it.id), x + 14, big ? 52 : 48, font, ink);
+    const why = it.ghost ? `${CONTRACT_UI.lamp}: it arrives with G${it.gen}.` : it.closed ? `${CONTRACT_UI.tag}: idle until OPEN LANE.`
+      : `Lamp: ${LAMP_TIP[it.s.lamp]}.`;
+    if (!it.ghost) c.hit.add(x, 37, w, 16, 'lane-tab', { side, id: it.id, tip: `${laneTip(it.id)} ${why}${on ? '' : ' Click to show it (pins the track for 20 s).'}` }, 'pointer');
+    else c.hit.add(x, 37, w, 16, 'lane-tab', { side, id: it.id, ghost: true, tip: `${laneTip(it.id)} ${why}` }, 'help');
+    g.globalAlpha = 1;
+    x = x0 + w + 4;
+  }
+  const keys = side === 'ext' ? 'TAB' : '[ ]';
+  if (items.length > 1 && T0.x + 408 - x >= tw(keys, F.k8) + 4) text(g, keys, T0.x + 408, 48, F.k8, col.ddim, 'right');
+}
+
+// a contract arrives (DESIGN-v3 §3g): the side's header flashes for T.arrive s (2 Hz; reduce flashes: a steady fade) and a
+// CONTRACT tag hangs under the new tab
+function arriving(c, side, x, w, age) {
+  const { g } = c, H = TRACKS[side].header, fade = clamp((T.arrive - age) / 0.5, 0, 1);
+  if (calm || strobe(age, 2, 0.6)) { g.globalAlpha = (calm ? 0.6 : 1) * fade; box(g, H.x - 1, H.y - 2, H.w + 2, H.h + 4, C.ambL); g.globalAlpha = 1; }
+  c.late(() => {
+    const s = CONTRACT_UI.tag, tw0 = tw(s, F.k8) + 8, drop = Math.round(6 * (1 - ease(clamp(age / 0.3, 0, 1))));
+    g.globalAlpha = fade;
+    fill(g, x, 55 - drop, tw0, 11, C.amb); box(g, x, 55 - drop, tw0, 11, C.black); say(g, s, x + 4, 63 - drop, F.k8, C.black);
+    g.globalAlpha = 1;
+  });
+}
+
+// an unfocused lane whose lamp turns red takes its track: at most once every AUTO_GAP s, never while a tab click pins it
+function autoFocus(c, A) {
+  const { st, view } = c;
+  for (const side of SIDES) for (const id of R.laneIds(st, side)) {
+    const tb = A.tabs[id] || (A.tabs[id] = {}), lamp = st.lanes[id].open ? R.laneStatus(st, id).lamp : 'green', was = tb.lamp;
+    tb.lamp = lamp;
+    if (lamp !== 'red' || was === 'red' || view.focus[side] === id) continue;
+    if (view.now < view.pin[side] || view.now - view.autoAt[side] < AUTO_GAP || view.research) continue;
+    focusLane(view, side, id, false);
+  }
+}
+
+// =================== a closed contract lane: its kit, OPEN LANE, the deadline ===================
+
+function contractPlate(P) {
+  const { g, st, c, lane, col, bx, t } = P, up = R.upcomingLane(st), left = up?.id === lane ? up.left : null;
+  const w = 188, h = 112, x = bx + (BODY - w) / 2, y = 236;
+  fill(g, x, y, w, h, C.pan2); box(g, x, y, w, h, C.amb); corners(g, x, y, w, h, C.ambL, 5);
+  const tw0 = tw(CONTRACT_UI.tag, F.k8) + 8;
+  fill(g, x + 6, y + 6, tw0, 11, C.amb); say(g, CONTRACT_UI.tag, x + 10, y + 14, F.k8, C.black);
+  say(g, laneTab(lane), x + 12 + tw0, y + 15, F.k8, C.ambL);
+  const kit = B.laneKit.map(id => LAYERS[id].tag).join(' · ');
+  say(g, fit(tpl(CONTRACT_UI.kit, { kit }), F.v16, w - 12), x + 6, y + 33, F.v16, col.mid);
+  say(g, fit('build now, before traffic', F.v16, w - 12), x + 6, y + 47, F.v16, col.dim);
+  // the button
+  const bx0 = x + 14, by0 = y + 56, bw = w - 28, bh = 26, hot = c.view.hover?.kind === 'lane-open';
+  fill(g, bx0, by0, bw, bh, hot ? C.ambL : C.amb); box(g, bx0, by0, bw, bh, C.black);
+  say(g, CONTRACT_UI.open, bx0 + bw / 2, by0 + 18, F.k16, C.black, 'center');
+  c.hit.add(bx0, by0, bw, bh, 'lane-open', { id: lane });
+  if (left != null) {
+    const s = tpl(CONTRACT_UI.opensIn, { secs: Math.ceil(left) }), urgent = left < 15;
+    say(g, s, x + w / 2, y + 100, F.v20, urgent && mod(t * 2, 1) < 0.5 ? C.r : C.ambL, 'center');
+  }
+}
+
+// =================== the glitch (DESIGN-v3 §3e): 0.3 s of scanline tearing on the lane, no codec call ===================
+
+function glitchFx(P) {
+  const { g, A, t, bx, col } = P, gl = A.glitch, age = gl ? t - gl.t0 : 99;
+  if (age < 0 || age >= T.glitch) return;
+  const cv = g.canvas, kk = cv.width / 1200, f = Math.floor(age * 40);
+  if (calm) { g.globalAlpha = 0.16 * (1 - age / T.glitch); fill(g, bx, FT, BODY, FB - FT, col.acc); g.globalAlpha = 1; return; }   // reduce flashes: one soft tint
+  for (let i = 0; i < 9; i++) {
+    const h = 3 + Math.floor(hash(gl.seed + i * 7 + f) * 14), y = FT + HOOD + Math.floor(hash(gl.seed * 3 + i + f * 13) * (FB - FT - 2 * HOOD - h));
+    const dx = Math.round((hash(gl.seed + i * 31 + f * 5) - 0.5) * 40);
+    g.drawImage(cv, Math.round(bx * kk), Math.round(y * kk), Math.round(BODY * kk), Math.round(h * kk), bx + dx, y, BODY, h);
+    g.globalAlpha = 0.22; fill(g, bx, y, BODY, h, i % 3 ? col.acc : C.r); g.globalAlpha = 0.6; fill(g, bx, y, BODY, 1, col.lite); g.globalAlpha = 1;
+  }
+  g.globalAlpha = 0.18; fill(g, bx, FT, BODY, FB - FT, mod(f, 2) ? col.acc : C.wht); g.globalAlpha = 1;
+}
+
+// caught red-handed: the bay column and its corridor flash red, CAUGHT RED-HANDED slams onto the track (reduce flashes:
+// one soft red wash, no blinking)
+function redFx(P) {
+  const { g, A, t, bx, by } = P, red = A.red, age = red ? t - red.t0 : 99;
+  if (age < 0 || age >= T.red) return;
+  const fade = clamp((T.red - age) / 0.6, 0, 1), on = calm || age > 0.9 || strobe(age, 2.5, 0.6);
+  g.globalAlpha = (calm ? 0.18 : 0.35) * fade * (1 - age / T.red);
+  fill(g, bx, FT, BODY, FB - FT, C.r);
+  // the desk that caught it: a white-hot flash that cools to red
+  const b = bayLayout(P).find(q => q.slot === red.slot), hot = clamp(1 - age / 0.7, 0, 1);
+  if (b && hot > 0) { g.globalAlpha = (calm ? 0.3 : 0.85) * hot; fill(g, by, b.top - 2, TRACK.bayW, b.bot - b.top + 4, age < 0.15 && !calm ? C.wht : C.r); }
+  g.globalAlpha = fade;
+  if (on) { box(g, by - 1, FT + 1, TRACK.bayW + 2, FB - FT - 2, C.r); box(g, by, FT + 2, TRACK.bayW, FB - FT - 4, C.rLite); }
+  // the stamp: CAUGHT over RED-HANDED, landing big
+  const s1 = STAMPS.caught, s2 = RETRAIN_CARD.title.replace(s1, '').trim(), big = 1 + 0.6 * (1 - ease(clamp(age / 0.2, 0, 1)));
+  const w = (Math.max(tw(s1, F.k16), tw(s2, F.k8)) + 24) * big, h = 44 * big, cx = bx + BODY / 2, cy = 250;
+  fill(g, cx - w / 2, cy - h / 2, w, h, C.rdd); box(g, cx - w / 2, cy - h / 2, w, h, C.r); box(g, cx - w / 2 + 2, cy - h / 2 + 2, w - 4, h - 4, C.rm);
+  g.save(); g.translate(cx, cy); g.scale(big, big);
+  say(g, s1, 0, -1, F.k16, C.rLite, 'center');
+  say(g, s2, 0, 14, F.k8, C.r, 'center');
+  g.restore();
+  g.globalAlpha = 1;
+}
+
+// lights out (the plug pulled, Shut down & retrain): no traffic on any lane until st.darkUntil
+function darkFx(P) {
+  const { g, st, bx, t } = P;
+  if (!R.isDark(st)) return;
+  g.globalAlpha = 0.55; fill(g, bx, FT + HOOD, BODY, FB - FT - 2 * HOOD, C.black); g.globalAlpha = 1;
+  const y = (FT + FB) / 2;
+  say(g, 'LIGHTS OUT', bx + BODY / 2, y - 4, F.k16, mod(t * 1.2, 1) < 0.7 ? C.amb : C.ambD, 'center');
+  say(g, `the lab is dark · back in ${Math.ceil(st.darkUntil - st.t)} s`, bx + BODY / 2, y + 16, F.v16, C.ambD, 'center');
+}
+
+// =================== tooltips for tracks' own regions: a line's whole text, a lane tab, the debt meter ===================
+
+function hoverTip(c) {
+  const h = c.view.hover;
+  if (!h || c.view.drag) return;
+  if (h.kind === 'line') { if (tw(h.data.text, F.v16) > BODY - 60) c.late(() => tipBox(c.g, h, h.data.flagged ? 'FLAGGED LINE' : 'LINE', h.data.text, h.data.flagged ? C.r : null)); }
+  else if (h.kind === 'lane-tab') c.late(() => tipBox(c.g, h, h.data.debt ? DEBT_METER.title : laneTab(h.data.id), h.data.tip));
+  else if (h.kind === 'lane-open') c.late(() => tipBox(c.g, h, CONTRACT_UI.open, 'Start the contract now. Traffic ramps from a quarter to full over a minute; fast-forward waits for the ramp.'));
+  else if (h.kind === 'mount' && !c.view.placing && !c.view.research) mountTip(c, h);
+}
+// a placed element's facts (DESIGN-v3 §3c): precision and its interval, load and overflow, break-even, the copy rule.
+// Beside the rail, over the lane body; the context card keeps the bars.
+function mountTip(c, h) {
+  const { st } = c, { lane, slot } = h.data, s = st.lanes[lane]?.slots[slot];
+  if (!s?.layer) return;
+  const facts = sheet(st, s.layer, { lane, level: s.level, slot }).facts;
+  if (!facts.length) return;
+  const hot = s.layer === 'killswitch' && facts[0].startsWith(LANE_UI.killAbove) ? C.amb : null;
+  c.late(() => tipBox(c.g, { x: h.x + h.w + 6, y: h.y, w: 0, h: 0, beside: true }, `${LAYERS[s.layer].name.toUpperCase()} · ${laneTab(lane)} #${slot + 1}`, facts, hot));
+}
+// body: a string, or a list of paragraphs (each starts a new line, with a bullet)
+function tipBox(g, r, title, body, hot = null) {
+  const w = 260, paras = Array.isArray(body) ? body.map(s => '· ' + s) : [String(body ?? '')];
+  const lines = paras.flatMap(p => wrapLines(p, w - 12)), h = 22 + lines.length * 14;
+  let x = clamp(Math.round(r.x), 4, 1196 - w), y = Math.round(r.beside ? r.y : r.y + r.h + 4);
+  if (y + h > 656) y = r.beside ? 656 - h : Math.round(r.y - h - 4);
+  fill(g, x, y, w, h, C.pan2); box(g, x, y, w, h, hot ?? C.e2); corners(g, x, y, w, h, hot ?? C.e3, 4);
+  text(g, title, x + 6, y + 12, F.k8, hot ?? C.gm);
+  lines.forEach((s, i) => text(g, s, x + 6, y + 27 + i * 14, F.v16, C.g));
+}
+function wrapLines(s, w) {
+  const out = [];
+  let cur = '';
+  for (const word of s.split(' ')) {
+    const t2 = cur ? cur + ' ' + word : word;
+    if (tw(t2, F.v16) <= w || !cur) cur = t2; else { out.push(cur); cur = word; }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
 // =================== input ===================
 
 export const input = {
@@ -1340,6 +1642,13 @@ export const input = {
     // placing → place here (shift keeps the element picked) · shift → upgrade · else open its panel
     click(e, api) {
       const { lane, slot } = e.data, { view, act } = api, s = api.st.lanes[lane].slots[slot];
+      if (view.research?.type === 'new') {                     // a research NEW card: its free copy goes here
+        if (s.layer) { view.toast('mount taken: pick an empty one, or [esc] to bank the card'); return; }
+        if (!R.canPlace(view.research.layer, lane)) { view.toast(`${view.research.name} doesn't go on this lane`); return; }
+        if (act.pickCard(view.research.i, { lane, slot })) { console.log(`[handoff] research: ${view.research.id} on ${lane}/${slot}`); view.research = null; view.placing = null; }
+        return;
+      }
+      if (view.research) { view.toast('pick a lane for the mount: its tab or its + MOUNT row'); return; }
       if (view.placing && !s.layer) {
         const id = view.placing;
         const ok = LAYERS[id].lanes.includes('global') ? act.place('global', 0, id) : act.place(lane, slot, id);
@@ -1355,9 +1664,30 @@ export const input = {
       else { api.view.placing = null; api.view.selected = null; }
     },
   },
-  'slot-buy': { click: (e, api) => { if (api.act.buySlot(e.data.lane)) boughtAt = { lane: e.data.lane, t: performance.now() }; } },
+  'slot-buy': {
+    click: (e, api) => {
+      if (api.view.research?.type === 'mount') { pickMount(api, e.data.lane); return; }
+      if (api.act.buySlot(e.data.lane)) boughtAt = { lane: e.data.lane, t: performance.now() };
+    },
+  },
   bay: { click: (e, api) => { api.view.selected = { lane: e.data.lane, slot: e.data.slot }; } },
+  'lane-tab': {
+    click(e, api) {
+      const { side, id, ghost, debt } = e.data;
+      if (ghost || debt) return;
+      if (api.view.research?.type === 'mount') { pickMount(api, id); return; }
+      focusLane(api.view, side, id, true);
+    },
+  },
+  'lane-open': { click: (e, api) => { if (api.act.openLane(e.data.id)) console.log(`[handoff] lane ${e.data.id} opened`); } },
+  line: { click: (e, api) => { tutorial.lineClicked(e.data.lane, e.data.id); if (api.debug) console.log(`[handoff] line ${e.data.id}: ${e.data.text}`); } },
 };
+
+// a research MOUNT card: +1 mount on this lane
+function pickMount(api, lane) {
+  const r = api.view.research;
+  if (api.act.pickCard(r.i, { lane })) { console.log(`[handoff] research: +1 mount on ${lane}`); api.view.research = null; }
+}
 
 // a double-click on "+ SLOT" buys one mount; its second click lands on the new empty mount and says nothing
 const DOUBLE = 350;

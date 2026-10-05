@@ -280,6 +280,13 @@ export const lerp = (a, b, f) => a + (b - a) * f;
 export const ease = e => (e < 0.5 ? 2 * e * e : 1 - Math.pow(-2 * e + 2, 2) / 2);
 export const mod = (a, n) => ((a % n) + n) % n;
 
+// =================== reduce flashes (start screen, DESIGN-v3 §3g) ===================
+// strobe(t, hz, duty): a blink that is lit `duty` of each cycle. With reduce flashes on, every blink of 3 Hz or more
+// holds lit instead (WCAG: no more than three flashes a second). main.js sets calm from view.settings every frame.
+export let calm = false;
+export function setCalm(v) { calm = !!v; }
+export const strobe = (t, hz, duty = 0.5) => (calm && hz >= 3) || mod(t * hz, 1) < duty;
+
 // =================== skeleton placeholder (builders delete their calls) ===================
 
 export function placeholder(g, r, title, lines = []) {

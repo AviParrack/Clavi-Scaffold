@@ -17,7 +17,7 @@ import { catchesType, slotActive, sideOf } from '../sim/rules.js';
 import { laneTab } from './derive.js';
 import { eventMoney } from '../sim/events.js';
 import { money } from '../util/format.js';
-import { C, F, k, epoch, fill, box, dashBox, corners, text, tw, fit, wrap, layer, blit, glowRect, clamp, ease, mod, hash } from './theme.js';
+import { C, F, k, epoch, fill, box, dashBox, corners, text, tw, fit, wrap, layer, blit, glowRect, clamp, ease, mod, hash, calm } from './theme.js';
 import { SPR, MICRO, sprite, segStr, lcdPanel } from './sprites.js';
 import { CODEC } from './layout.js';
 import { animOf, cursorOf, drain, fxAge } from './view.js';
@@ -34,6 +34,7 @@ const TEXT_X = 872, TEXT_W = 300, LINE_H = 19;
 const ALARM_HOLD = 10;             // s an incident keeps its bar and lamp lit
 const AMBIENT_OLD = 10;            // sim s: with QUEUE_LONG or more waiting, ambient lines older than this are dropped
 const QUEUE_LONG = 3;
+const HOLD = new Set(['card', 'report', 'training']);   // phases a solid screen covers the board: no new call starts
 const FLASH = 0.6, FADE = 1.2;     // EXTERNAL flash, INTERNAL flicker
 const pageHold = n => clamp(1.2 + n / 28, 2.2, 6);    // the v2 hold: s a finished page stays up
 const dwell = n => Math.max(1.5 + n / 15, pageHold(n)); // DESIGN-v3 §3g: s a page stays up in total, from its start
@@ -77,13 +78,14 @@ const stateOf = view => animOf(view, 'codec', () => ({
   trace: null,          // { lane, side, steps: [{ tag, verb, tone }], end, t0 }   (lane: the incident's own lane id)
   traces: new Map(),    // task id → [[slot, code], ...]
   youPeak: 0, youT0: -99,
+  phase: null,          // st.phase last frame: the report clears the line (see wrapUp)
 }));
 
 // =================== reading the sim: fx ===================
 
 const CODE = { scan: 'r', flag: 'f', unread: 'u', pass: 'p', redteam: 'p', waved: 'w', pull: 'b', approve: 'a', cleared: 'c',
-  unreviewed: 'n', defer: 'd', resample: 's', toss: 't', kill: 'k', airgap: 'g', throttle: 't' };
-const ENDS = new Set(['pay', 'block', 'caught', 'throttle', 'toss']);
+  unreviewed: 'n', defer: 'd', resample: 's', kill: 'k', airgap: 'g', throttle: 't' };
+const ENDS = new Set(['pay', 'caught', 'throttle', 'kill', 'airgap']);
 
 function readFx(c, S) {
   const st = c.st, done = [];
@@ -176,8 +178,15 @@ export function say(view, st, speaker, text) {
   S.queue.push({ id: 'ui' + (++uiId), speaker, text: String(text), t: st.t, choice: false, page: 0, t0: 0, doneAt: null, keep: true });
   S.mem = -1;
 }
+// SKIP TUTORIAL: the UI lines still waiting go (the one on screen finishes)
+export function dropUi(view) {
+  const S = view.anim.codec;
+  if (S) S.queue = S.queue.filter(e => !String(e.id).startsWith('ui'));
+}
 // how many calls are waiting or on screen (the tutorial waits for the codec to go quiet before its next prompt)
 export const busy = view => { const S = view.anim.codec; return !!S && (S.queue.length > 0 || !!S.cur); };
+// UI lines still waiting their turn (not yet on screen): the tutorial shows its next prompt once its own lines are up
+export const uiWaiting = view => !!view.anim.codec?.queue.some(e => String(e.id).startsWith('ui'));
 const isAsking = (st, e) => !!e && st.pendingChoice?.msgId === e.id;
 
 // a pending choice jumps the queue (the lines said just before it, in the same step, come along first)
@@ -234,6 +243,19 @@ function finish(S, e, t) {
 const speed = view => CPS[view.settings?.codec] ?? CPS.normal;
 const dwellMult = view => DWELL[view.settings?.codec] ?? 1;
 
+// the generation ends (the report): what was still waiting or on screen goes to the history (click the idle box to
+// replay it). Calls are held off screen until DEPLOY (HOLD), so without this the old model's lines would open the next.
+function wrapUp(c, S) {
+  const was = S.phase;
+  S.phase = c.st.phase;
+  if (was !== 'play' || S.phase !== 'report') return;
+  const n = S.queue.length + (S.cur ? 1 : 0);
+  S.hist.push(...S.queue.filter(e => !e.replay));
+  S.queue = [];
+  if (S.cur) finish(S, S.cur, c.t);
+  if (n) console.log(`[handoff] codec: the generation ends, ${n} waiting call${n > 1 ? 's' : ''} to the history`);
+}
+
 // a long queue sheds the ambient lines that have waited too long (not choices, incidents or UI lines)
 function shed(c, S) {
   if (S.queue.length < QUEUE_LONG) return;
@@ -247,6 +269,7 @@ function advance(c, S) {
   let e = S.cur;
   if (e && e.choice && e.asked && !isAsking(st, e)) { finish(S, e, c.t); e = null; }   // answered: the reply comes next
   if (!e) {
+    if (HOLD.has(st.phase)) return;                        // the card's lines wait for DEPLOY, not play under the card
     if (S.queue.length) start(c, S, S.queue.shift());
     else if (S.callT0 != null && S.idleAt != null && c.t >= S.idleAt) { S.callT0 = null; S.hangT0 = c.t; }
     return;
@@ -266,7 +289,7 @@ function advance(c, S) {
   e.skip = false;
   if (!lastPage) { e.page++; e.t0 = c.t; e.doneAt = null; return; }
   finish(S, e, c.t);
-  if (S.queue.length) start(c, S, S.queue.shift());
+  if (S.queue.length && !HOLD.has(st.phase)) start(c, S, S.queue.shift());
 }
 
 // click on the box: finish the page, else the next page or call, else (line quiet) replay the calls, newest first
@@ -311,6 +334,7 @@ export function draw(c) {
   const { g, st, t } = c, S = stateOf(c.view);
   readFx(c, S);
   readCodec(c, S);
+  wrapUp(c, S);
   ensureChoice(c, S);
   advance(c, S);
   const asking = isAsking(st, S.cur), tall = asking && S.cur.phase2;
@@ -335,7 +359,8 @@ function alarmOf(S, t) {
   if (!a) return null;
   const age = t - a.t0;
   if (age < 0 || (a.kind !== 'cat' && age > ALARM_HOLD)) return null;
-  const lit = a.kind === 'int'
+  const lit = calm ? (a.kind === 'int' ? 0.8 : 1)                       // reduce flashes: lit, no strobe
+    : a.kind === 'int'
     ? (age < FADE ? (mod(age * 13, 1) < 0.55 ? 1 - age / FADE * 0.5 : 0.25) : 0.55 + 0.25 * Math.sin(age * 2.2))
     : (age < FLASH ? (mod(age * 10, 1) < 0.5 ? 1 : 0) : (mod(t * 2.4, 1) < 0.6 ? 1 : 0));
   return { ...a, age, lit };

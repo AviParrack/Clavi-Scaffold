@@ -6,7 +6,7 @@ import * as Sim from './sim/sim.js';
 import * as Rules from './sim/rules.js';
 import * as Layout from './ui/layout.js';
 import { W, H, REGIONS } from './ui/layout.js';
-import { C, F, setScale, cssVars, fontsReady, box, text } from './ui/theme.js';
+import { C, F, setScale, setCalm, cssVars, fontsReady, box, text } from './ui/theme.js';
 import { createView, resetView } from './ui/view.js';
 import { createHits } from './ui/hit.js';
 import { createAct } from './ui/act.js';
@@ -18,7 +18,9 @@ import * as menu from './ui/menu.js';
 import * as overlays from './ui/overlays.js';
 import * as tutorial from './ui/tutorial.js';
 import { createDebug } from './ui/debug.js';
+import { modelCard } from './ui/derive.js';
 import { initAudio, setMuted, isMuted } from './ui/audio.js';
+import { runTraining } from './train/index.js';
 import { BALANCE as B } from './config/balance.js';
 
 const params = new URLSearchParams(location.search);
@@ -78,16 +80,16 @@ setMuted(store.get('muted', false));
 // tutorial: null = ask api.tutorialWanted (a player's first game), true / false = force it (debug hooks)
 function newGame(difficulty = 'medium', { tutorial: tut = null } = {}) {
   const seed = params.has('seed') ? Number(params.get('seed')) : Math.floor(Math.random() * 1e9);
-  const withTutorial = tut ?? api.tutorialWanted;
+  const withTutorial = (tut ?? api.tutorialWanted) && !DEV;          // dev mode never runs the tutorial
   st = Sim.createState({ seed, difficulty, tutorial: withTutorial });
   st.debug = DEBUG;
   resetView(view);
   stopTraining();
   if (DEV) devStart(st);
-  tutorial.start(api, withTutorial && !DEV);
+  tutorial.start(api, withTutorial);
   acc = 0;
   store.set('settings', { difficulty });
-  console.log(`[handoff] new game seed=${seed} difficulty=${difficulty}${DEBUG ? ` (true: ${st.trueDifficulty})` : ''} tutorial=${withTutorial && !DEV}`);
+  console.log(`[handoff] new game seed=${seed} difficulty=${difficulty}${DEBUG ? ` (true: ${st.trueDifficulty})` : ''} tutorial=${withTutorial}`);
   return st;
 }
 function endGame() { stopTraining(); st = null; resetView(view); }
@@ -102,22 +104,64 @@ function devStart(st) {
   console.log(`[handoff] dev mode: ${Rules.laneIds(st).length} lanes open, ${st.unlocked.length} elements, ${B.maxSlots} slots per lane, ${Math.round(st.money)} money`);
 }
 
-// =================== training (part 1 placeholder: the stub, then submit; part 2 mounts src/train on #train) ===================
-// While st.phase is 'training', overlays.js shows the training screen. After TRAIN_STUB_S s the stub's result is
-// submitted, exactly as the minigame's result will be: Sim.submitTraining → the next model's card.
+// =================== training (DESIGN-v3 §4, §5): src/train on its own canvas while st.phase is 'training' ===================
+// runTraining(trainingConfig(st)) owns #train (its loop, input, countdown and results card). Its result goes to
+// Sim.submitTraining, which starts the next model at its card. While a run is on, the board is neither drawn nor
+// clickable (#train covers it). A new game, or the end of the run, cancels it. If src/train fails to start, the
+// stub stands in (overlays.js shows a placeholder for TRAIN_STUB_S s), so a broken minigame never blocks the game.
 
+const trainCanvas = document.getElementById('train');
 const TRAIN_STUB_S = 2.5;
-let trainRun = null;                            // { g, t0 } while a training run is on
+let trainRun = null;                            // { g, game, handle } while the minigame runs · { g, game, stub: t0 } for the stub
+
 function tickTraining(t) {
-  if (!st || st.phase !== 'training' || st.over) { trainRun = null; return; }
-  if (!trainRun || trainRun.g !== st.gen) { trainRun = { g: st.gen, t0: t }; console.log(`[handoff] training G${st.gen + 1}: stub run`); }
-  view.training = { g: st.gen + 1, f: Math.min(1, (t - trainRun.t0) / TRAIN_STUB_S) };
-  if (t - trainRun.t0 < TRAIN_STUB_S || view.hold) return;
+  if (!st || st.phase !== 'training' || st.over) { if (trainRun) stopTraining(); return; }
+  if (trainRun?.game === st && trainRun.g === st.gen) { if (trainRun.stub != null) tickStub(t); return; }
+  stopTraining();
+  startTraining(t);
+}
+
+function startTraining(t) {
+  const game = st, g = st.gen, M = modelCard(st, g + 1);
+  const cfg = { ...Sim.trainingConfig(st), name: M.name, tier: M.tier };     // the run's own (seeded) name, as on its card
+  let handle = null;
+  try {
+    handle = runTraining(cfg, { canvas: trainCanvas, k: () => k, debug: api.debug, muted: () => isMuted() });
+  } catch (err) {
+    console.error('[handoff] training failed to start, the stub stands in:', err);
+    trainRun = { g, game, stub: t };
+    return;
+  }
+  trainRun = { g, game, handle };
+  trainCanvas.classList.add('on');
+  view.hover = null; view.drag = null; view.placing = null; view.selected = null;
+  console.log(`[handoff] training G${cfg.g}: seed ${cfg.seed} · debt ${cfg.debt.toFixed(4)} · ${cfg.hazards.length} hazards`);
+  handle.promise.then(r => {
+    if (trainRun?.handle !== handle) return;                     // cancelled, or a new game
+    trainRun = null;
+    trainCanvas.classList.remove('on');
+    setScale(k);                                                  // src/train set it every frame: the board's caches follow k
+    if (r.cancelled || st !== game || st.phase !== 'training') return;
+    if (api.act.submitTraining(r)) console.log(`[handoff] training G${cfg.g} submitted: s ${r.s.toFixed(3)} · err ${r.err.toFixed(3)} → G${st.gen} card`);
+  });
+}
+
+// the stand-in: a progress bar, then the stub's s (as the headless policies use)
+function tickStub(t) {
+  view.training = { g: st.gen + 1, f: Math.min(1, (t - trainRun.stub) / TRAIN_STUB_S) };
+  if (t - trainRun.stub < TRAIN_STUB_S || view.hold) return;
   const r = Sim.trainingStub(st, 0.5);
   trainRun = null; view.training = null;
   if (api.act.submitTraining(r)) console.log(`[handoff] training submitted: s=${r.s.toFixed(2)} (stub)`);
 }
-function stopTraining() { trainRun = null; view.training = null; }
+
+function stopTraining() {
+  const run = trainRun;
+  trainRun = null; view.training = null;
+  trainCanvas.classList.remove('on');
+  run?.handle?.cancel();
+}
+const trainingLive = () => !!trainRun?.handle;
 
 // =================== scale: fit the board in the window ===================
 // fit = CSS px per logical px, k = device px per logical px. The canvas backing store is W·k × H·k device px.
@@ -169,7 +213,7 @@ function guard(name, fn) {
 // screen shake (EXTERNAL INCIDENT): whole device pixels, deterministic in t
 function shakeOffset(t) {
   const s = view.shake;
-  if (!s) return [0, 0];
+  if (!s || view.settings.calm) return [0, 0];                 // reduce flashes: the board holds still
   const e = (t - s.t0) / s.dur;
   if (e < 0 || e >= 1) return [0, 0];
   const a = s.amp * (1 - e) * k;
@@ -181,6 +225,14 @@ const perf = { draw: 0, step: 0 };
 function render(t, dt) {
   const t0 = performance.now();
   view.now = t;
+  setCalm(view.settings.calm);
+  const c = { g, st, view, t, dt, k, hit: hits, act: api.act, api, debug: api.debug, late: () => {} };
+  if (trainingLive()) {                         // src/train draws its own canvas: the board waits, the overlays stay hidden
+    guard('overlays', () => overlays.update(c));
+    guard('tutorial', () => tutorial.update(c));
+    perf.draw = performance.now() - t0;
+    return;
+  }
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.fillStyle = C.bg;
   g.fillRect(0, 0, canvas.width, canvas.height);
@@ -190,7 +242,7 @@ function render(t, dt) {
 
   // ---------- board ----------
   const late = [];
-  const c = { g, st, view, t, dt, k, hit: hits, act: api.act, api, debug: api.debug, late: fn => late.push(fn) };
+  c.late = fn => late.push(fn);
   hits.begin();
   if (st) {
     for (const [name, m] of MODULES) guard(name, () => m.draw(c));
@@ -228,7 +280,7 @@ function frame(ms) {
     while (acc >= SIM_DT) { Sim.step(st, SIM_DT); acc -= SIM_DT; }
     perf.step = performance.now() - t0;
   }
-  if (st) tickTraining(ms / 1000);
+  tickTraining(ms / 1000);
   render(view.clock ?? ms / 1000, dt);
   if (DEBUG && st && ms - lastLog > 10000) {
     lastLog = ms;
@@ -316,6 +368,8 @@ function debugHooks() {
       return summary();
     },
     skipTutorial() { tutorial.skip(api, false); },
+    // the live training run's handle (src/train: _ctl.freeze / tick / skipCountdown / advance / draw), or null
+    get training() { return trainRun?.handle ?? null; },
 
     // ---------- time ----------
     hold(on = true) { view.hold = on; },               // the loop keeps drawing but stops stepping the sim

@@ -113,7 +113,7 @@ function keys(ev, api) {
   else if (code === 'Tab') { ev.preventDefault(); cycleLane(api, 'ext', ev.shiftKey ? -1 : 1); }
   else if (code === 'BracketLeft' || code === 'BracketRight') cycleLane(api, 'int', code === 'BracketLeft' ? -1 : 1);
   else if (k === 'Escape') {
-    if (view.research) { act.bankCard(); view.toast('card banked: open RESEARCH to pick again'); }
+    if (view.research) { act.bankCard(); view.toast('card banked: open RESEARCH to pick again', true); }
     view.research = null; view.placing = null; view.selected = null;
   }
   else if (k === 'f' || k === 'F') toggleFast(api);

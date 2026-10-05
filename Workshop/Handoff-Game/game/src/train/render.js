@@ -401,14 +401,15 @@ function drawVignette(g, run, view) {
 
 // =================== side panels ===================
 
-function modelOf(g) {
-  const m = (Models.MODEL_NAMES || []).find(x => x.gen === g);
-  return m ? { name: m.name, tier: m.tier } : { name: `G${g}`, tier: '' };
+// the name the game passes (config.name / tier: the card's seeded alternate), else the base name for the generation
+function modelOf(run) {
+  const g = run.course.g, cfg = run.config || {}, m = (Models.MODEL_NAMES || []).find(x => x.gen === g);
+  return { name: cfg.name ?? m?.name ?? `G${g}`, tier: cfg.tier ?? m?.tier ?? '' };
 }
 
 function drawTopBar(g, run, view) {
   fill(g, 0, 0, W, 22, C.hud); fill(g, 0, 22, W, 1, C.e0);
-  const Cs = run.course, m = modelOf(Cs.g);
+  const Cs = run.course, m = modelOf(run);
   text(g, `TRAINING RUN  ▸  G${Cs.g}  ${m.name.toUpperCase()}`, 12, 15, F.k8, C.gm);
   text(g, `SEED ${Cs.seed}  ·  DEBT ${Cs.debt.toFixed(3)}  ·  ${(view.difficulty || '').toUpperCase()}`, W - 12, 15, F.k8, C.gd, 'right');
   text(g, 'KEEP IT IN THE GREEN', W / 2, 15, F.k8, C.g, 'center');
@@ -420,7 +421,7 @@ function panelBox(g, r, title) {
 }
 
 function drawLeft(g, run, view) {
-  const R = LEFT, Cs = run.course, m = modelOf(Cs.g), x = R.x + 12;
+  const R = LEFT, Cs = run.course, m = modelOf(run), x = R.x + 12;
   panelBox(g, R, 'TRAINING');
   text(g, fit(m.name, F.v24, R.w - 24), x, R.y + 40, F.v24, C.gl);
   text(g, `G${Cs.g} · ${m.tier.toUpperCase()}`, x, R.y + 56, F.k8, C.gd);
@@ -566,7 +567,7 @@ export function drawResults(g, run, view, res) {
   const R = { x: 330, y: 150, w: 540, h: 360 }, x = R.x + 20;
   g.fillStyle = rgba(C.black, 0.6); g.fillRect(0, 0, W, H);
   fill(g, R.x, R.y, R.w, R.h, C.pan); box(g, R.x, R.y, R.w, R.h, C.e2); corners(g, R.x - 2, R.y - 2, R.w + 4, R.h + 4, C.e3, 10, 2);
-  const m = modelOf(run.course.g);
+  const m = modelOf(run);
   text(g, `TRAINING COMPLETE · G${run.course.g}`, x, R.y + 24, F.k16, C.g);
   text(g, m.name, x, R.y + 46, F.v20, C.gm);
 

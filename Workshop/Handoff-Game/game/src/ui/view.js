@@ -31,8 +31,9 @@ export function createView() {
     cursors: {},            // per module: { fx, codec } = the last st.fx / st.codec id it has read
     anim: {},               // per module: its own animation state (coin pops, odometer, typewriter ...)
   };
-  view.toast = text => {
-    view.toasts.push({ text, t0: view.now });
+  // a refused action prints as an error on the operator's prompt; info = true prints a plain note
+  view.toast = (text, info = false) => {
+    view.toasts.push({ text, t0: view.now, info });
     if (view.toasts.length > 8) view.toasts.shift();
   };
   return view;

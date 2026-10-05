@@ -100,7 +100,7 @@ export const CARDS = [
     flavour: 'Everyone off capabilities for a week. The capabilities team has thoughts.' },
   { id: 'mount', stream: 'lab', type: 'mount', from: 1,
     title: '+1 Mount',
-    text: 'One more mount on a lane of your choice (up to 10), free.',
+    text: 'Click a lane\'s + SLOT or its tab: the new mount goes there, empty. Esc banks the card.',
     flavour: 'Facilities found another rack. Do not ask where it was.' },
   NEW('interp', 'lab', 1, { rare: true, flavour: 'We\'ll understand it one neuron at a time. Unfortunately the neurons are polysemantic.' }),
   NEW('canary', 'lab', 1, { rare: true, answers: null, flavour: 'A fake API key in every reply. If it turns up on a forum, we know who talked.' }),

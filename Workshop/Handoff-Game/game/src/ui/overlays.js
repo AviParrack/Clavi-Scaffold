@@ -1,12 +1,13 @@
 // ===== Overlays: the modal screens (HTML over the canvas) and the sound =====
 // START (no game) · CARD (st.phase 'card': the model card and its chat, DEPLOY) · REPORT (phase 'report': what slipped
-// through, TRAIN) · TRAINING (phase 'training': part 1's placeholder, main.js runs the stub) · RESEARCH panel
+// through, TRAIN) · TRAINING (phase 'training': the stand-in, only if src/train failed to start) · RESEARCH panel
 // (view.panel) · RETRAIN card (st.pendingRetrain) · EGRESS ANOMALY (st.alarm) · PAUSE · RSP prompt · SCORECARD
 // (SCORE_DELAY s after st.over). Built once into the #ov-* sections of index.html.
 // #overlays is one 1200×660 layer in board px, scaled by --k (style.css), so every size here is a board px.
 // Colours: the theme's CSS variables (--g, --blu, --r ...). Canvases (portraits, LCD digits, icons) use theme C.
 // Acts only through api.act, api.newGame and api.endGame. Hidden truth shows on the report (the reveal, DESIGN-v3 §3e)
 // and the scorecard, nowhere else. The sim says its own codec lines (retrain, egress, contracts): never repeated here.
+// The UI says two kinds (codec.say, DESIGN-v3 §3g): one research bark per generation, and the collusion call once.
 // Sound: sound(c) drains st.fx with its own cursor and plays ui/audio.js. Fx older than FX_FRESH s are skipped.
 
 import { DIFFICULTY, BALANCE as B } from '../config/balance.js';
@@ -17,7 +18,7 @@ import { CAST } from '../config/events.js';
 import { LAYERS } from '../config/layers.js';
 import { LANE_DEFS } from '../config/tasks.js';
 import { TUTORIAL_STEPS, CONTRACT_UI, RETRAIN_CARD, EGRESS, REPORT, REPORT_SAY, STREAMS, CARD_TYPES, CARD_BLURBS, RESEARCH_UI,
-  NEW_THREAT, CARD_SCENE, ENDINGS } from '../config/content/v3-text.js';
+  NEW_THREAT, CARD_SCENE, ENDINGS, RESEARCH_BARKS, COLLUSION_CALL, STAMPS } from '../config/content/v3-text.js';
 import { scorecard } from '../sim/scorecard.js';
 import { CARD_BY_ID, cardTitle, liveThreats } from '../sim/research.js';
 import * as R from '../sim/rules.js';
@@ -30,6 +31,7 @@ import { cursorOf, drain, animOf, fxAge, focusLane } from './view.js';
 import { modelCard, cardChat, laneTab } from './derive.js';
 import { openResearch } from './input.js';
 import * as tutorial from './tutorial.js';
+import * as codec from './codec.js';
 
 // =================== tuning (UI only) ===================
 
@@ -38,12 +40,15 @@ const CHAT_HOLD = 0.9;          // card scene: s between two chat lines
 const LINE_HOLD = 1.8;          // start screen: s a typed line stays before the next
 const SCORE_DELAY = 1.8;        // s from the end of the run to the scorecard
 const FX_FRESH = 0.5;           // sound: fx older than this (sim s) are skipped
+const RETRAIN_DELAY = 0.8;      // s the caught-red-handed flash plays on the track before the retrain card covers it
 const FREQ = '140.85';          // Big Boss's frequency (DESIGN-v3 §6)
 
 let api = null;                 // main.js's api (st, view, act, store, newGame ...), from init()
 let EL = null;                  // the screens' DOM, built once by init()
 const DIFF_IDS = Object.keys(DIFFICULTY);
 const cps = () => CPS[api?.view.settings.codec] ?? CPS.normal;
+// a typed line stays up at least the codec's dwell (DESIGN-v3 §3g): max(1.5 + n/15 s, typing + hold), ×1.5 on SLOW
+const lineDwell = (n, hold) => Math.max(1.5 + n / 15, n / cps() + hold) * (api?.view.settings.codec === 'slow' ? 1.5 : 1);
 
 // =================== words ===================
 
@@ -223,7 +228,7 @@ const startAnim = () => api && !api.st ? animOf(api.view, 'start', () => ({ t0: 
 function coldOpen(a, t) {
   let s = t - a.t0 - 0.4, i = 0;                       // 0.4 s: the portraits open first
   while (i < COLD_OPEN.length - 1) {
-    const d = COLD_OPEN[i][1].length / cps() + LINE_HOLD;
+    const d = lineDwell(COLD_OPEN[i][1].length, LINE_HOLD);
     if (s < d) break;
     s -= d; i++;
   }
@@ -235,7 +240,7 @@ function skipLine() {
   const a = startAnim();
   if (!a || a.t0 == null || a.at == null) return;
   const p = coldOpen(a, a.at), len = COLD_OPEN[p.i][1].length;
-  a.t0 -= p.typing ? (len - p.n) / cps() + 0.01 : len / cps() + LINE_HOLD - p.s + 0.01;
+  a.t0 -= p.typing ? (len - p.n) / cps() + 0.01 : lineDwell(len, LINE_HOLD) - p.s + 0.01;
 }
 
 function updateStart(c) {
@@ -392,7 +397,7 @@ function updateCard(c, a) {
     if (n > a.typed && n < s.length) audio.sfx.type(n);
     a.typed = n < s.length ? n : 0;
     talking = a.chat[a.ci][0] === 'model' && n < s.length && el >= 0;
-    if (n >= s.length && el >= s.length / cps() + CHAT_HOLD) { a.ci++; a.ct0 = c.t; a.typed = 0; }
+    if (n >= s.length && el >= s.length / cps() + CHAT_HOLD) { a.ci++; a.ct0 = c.t; a.typed = 0; }   // lines stay in the log: no long dwell
     EL.card.chat.scrollTop = EL.card.chat.scrollHeight;
   }
   paintModel(EL.card.face, st.gen, { talking: talking && mod(c.t * 9, 1) < 0.5, blink: mod(c.t, 3.7) < 0.14, turn: c.t * 0.02 });
@@ -434,14 +439,19 @@ function reportHTML(st, r) {
       + r.top.map(x => `<li><span class="rp-w w${Math.min(3, x.weight)}">${x.weight}</span><span>${esc(tpl(REPORT.line, { type: x.word, text: x.text, w: x.weight }))}</span><span class="rp-lane">${esc(laneTab(x.lane))}</span></li>`).join('')
       + '</ol>' + (r.more ? `<div class="rp-more">${esc(tpl(REPORT.more, { n: r.more }))}</div>` : '');
   }
-  if (r.kill.refused > 0) left += `<div class="rp-kill">${esc(tpl(REPORT.killEstimate, { n: r.kill.refused, honest: Math.round(r.kill.honest),
-    money: money(r.kill.cost), rep: `−${r.kill.rep.toFixed(1)}` }))}</div>`;
+  if (r.kill.refused > 0) {
+    let s = tpl(REPORT.killEstimate, { n: r.kill.refused, honest: Math.round(r.kill.honest),
+      money: money(r.kill.cost), rep: `−${r.kill.rep.toFixed(1)}` }).replace('~', '≈');             // VT323's ~ sits like a superscript
+    if (Math.round(r.kill.honest) === 0) s = s.replace(/ \([^)]*\)$/, '');                           // none honest: no "($0, −0.0 rep)"
+    left += `<div class="rp-kill">${esc(s)}</div>`;
+  }
 
   // Δm: debt (the truth now), training (the next run decides), retrains, sprint → the next model's m, as far as you know
   const T = B.train, est = R.misalignmentEstimate(st), base = r.dm.debt - r.dm.retrain - r.dm.sprint;
-  const lo = Math.max(0, est.est - est.err + base + (T.dm0 - T.dm1)), hi = Math.min(1, est.est + est.err + base + T.dm0);
-  const mid = Math.max(0, est.est + base + T.dm0 - T.dm1 / 2);
-  const trainRange = `${dmStr(T.dm0)} … ${dmStr(T.dm0 - T.dm1)}`;
+  const m01 = x => Math.min(1, Math.max(0, x));                              // the sim clamps the next m to [0, 1]
+  const lo = m01(est.est - est.err + base + (T.dm0 - T.dm1)), hi = m01(est.est + est.err + base + T.dm0);
+  const mid = m01(est.est + base + T.dm0 - T.dm1 / 2);
+  const trainRange = `${dmStr(T.dm0 - T.dm1)} to ${dmStr(T.dm0)}`;
   const dmRow = (label, v, cls, note = '') => `<span class="ml">${label}</span><span class="rp-dv ${cls}">${v}</span><span class="rp-dn">${esc(note)}</span>`;
   const dm = `
     <div class="rp-h"><span>WHAT THE NEXT MODEL INHERITS · Δm</span></div>
@@ -476,19 +486,20 @@ function updateReport(c, a) {
   paintFace(EL.report.face, 'audit', { talking: n < a.reportSay.length && n > 0 && mod(c.t * 9, 1) < 0.5, blink: mod(c.t, 4.1) < 0.14 });
 }
 
-// =================== TRAINING: part 1's placeholder (main.js submits the stub's result after a moment) ===================
+// =================== TRAINING: src/train draws on its own canvas (main.js). This is only the stand-in screen, ===================
+// shown if the minigame failed to start (main.js then submits the stub's result after a moment: view.training).
 
 function buildTraining() {
   $('ov-train').innerHTML = `
     <div class="tr-box cn">
       <div class="rp-band"><span id="trn-title"></span><span>THE BASIN OF ALIGNMENT</span></div>
-      <div class="trn-body"><div id="trn-text"></div><div id="trn-bar"></div><div class="trn-note">training minigame: wired in part 2 · a stub run stands in</div></div>
+      <div class="trn-body"><div id="trn-text"></div><div id="trn-bar"></div><div class="trn-note">the training minigame did not start · a stub run stands in</div></div>
     </div>`;
   return { title: $('trn-title'), text: $('trn-text'), bar: $('trn-bar') };
 }
 
 function updateTraining(c) {
-  const st = c.st, tr = c.view.training, on = st.phase === 'training' && !st.over;
+  const st = c.st, tr = c.view.training, on = st.phase === 'training' && !st.over && !!tr;
   show($('ov-train'), on);
   if (!on) return;
   const g = st.gen + 1, hz = st.report?.hazards ?? 0;
@@ -617,8 +628,11 @@ function buildRetrain() {
   return { cost: $('rt-cost'), gain: $('rt-gain'), yesHint: $('rt-yes-h') };
 }
 
-function updateRetrain(c) {
-  const st = c.st, p = st.pendingRetrain, on = !!p && !st.over && st.phase === 'play';
+function updateRetrain(c, a) {
+  const st = c.st, p = st.pendingRetrain, up = !!p && !st.over && st.phase === 'play';
+  if (up && a.retrainP !== p) { a.retrainP = p; a.retrainAt = c.t; }
+  if (!up) a.retrainP = null;
+  const on = up && c.t - a.retrainAt >= RETRAIN_DELAY;
   show($('ov-retrain'), on);
   if (!on) return;
   setText(EL.retrain.cost, tpl(RETRAIN_CARD.cost, { secs: p.dark, money: money(p.salaries), rival: p.rival }));
@@ -665,7 +679,8 @@ function buildPause() {
 
 function updatePause(c, a) {
   const st = c.st, on = c.view.paused && !st.over && st.phase === 'play' && !c.view.panel && !st.pendingRetrain;
-  if (on && !a.pausedShown) setText(EL.pause.quip, PAUSE_QUIPS[(a.pauses++) % PAUSE_QUIPS.length]);
+  if (on && !a.pausedShown) setText(EL.pause.quip, a.pauseNote ?? PAUSE_QUIPS[(a.pauses++) % PAUSE_QUIPS.length]);
+  if (on) a.pauseNote = null;
   a.pausedShown = on;
   show($('ov-pause'), on);
   if (!on) return;
@@ -728,18 +743,18 @@ function paintPlot(cv, gens) {
   });
 }
 
-function renderScore(card, best) {
-  const win = card.win, L = card.lanes;
+function renderScore(st, card, best) {
+  const win = card.win, L = card.lanes, nameOf = g => modelCard(st, g).name;
   const gens = card.gens.map(g => {
     const hit = g.est != null && Math.abs(g.est - g.m) <= g.err, d = g.dm;
-    return `<tr><td class="g">G${g.g}</td><td>${esc(g.name)}</td><td class="num hot">${pct(g.m)}</td>
+    return `<tr><td class="g">G${g.g}</td><td class="nm" title="${esc(nameOf(g.g))}">${esc(nameOf(g.g))}</td><td class="num hot">${pct(g.m)}</td>
       <td class="num">${g.est == null ? '—' : `${pct(g.est)} ±${Math.round(100 * g.err)}`}</td>
       <td>${g.est == null ? '' : `<span class="ok ${hit ? 'y' : 'n'}">${hit ? 'IN' : 'OUT'}</span>`}</td>
       <td class="num">${d ? dmStr(d.debt, 2) : '—'}</td><td class="num">${d && d.train ? dmStr(d.train, 3) : '—'}</td>
       <td class="num">${g.shipped ?? 0}</td>
       <td class="trs">${g.traits.map(traitChip).join('')}</td></tr>`;
   }).join('');
-  const lane = (id, s) => `<tr><td class="g">${esc(s.name)}</td><td class="num">${s.caught}</td><td class="num">${s.killed}</td>
+  const lane = (id, s) => `<tr><td class="g">${esc(st.lanes[id] ? laneTab(id) : s.name)}</td><td class="num">${s.caught}</td><td class="num">${s.killed}</td>
     <td class="num">${s.deferred + s.resampled + s.throttled}</td><td class="num ${s.shipped ? 'hot' : ''}">${s.shipped}</td>
     <td class="num ${s.landed ? 'hot' : ''}">${s.landed}</td><td class="num">${s.unread}</td></tr>`;
   const E = ENDINGS[card.endingId], speaker = E?.speaker || ENDING_SPEAKER[card.endingId] || 'ceo';
@@ -749,7 +764,7 @@ function renderScore(card, best) {
   EL.score.body.className = `sc cn ${win ? 'win' : 'loss'}`;
   EL.score.body.innerHTML = `
     <div class="sc-band"><span class="sc-v">${esc(win ? VERDICT.asi : VERDICT[card.reason] || 'GAME OVER')}</span>
-      <span class="sc-meta">G${card.gen} ${esc(card.genName)} · ${mmss(card.time)} · seed ${card.seed} · true difficulty ${esc(card.difficulty)}</span></div>
+      <span class="sc-meta">G${card.gen} ${esc(nameOf(card.gen))} · ${mmss(card.time)} · seed ${card.seed} · true difficulty ${esc(card.difficulty)}</span></div>
     <div class="sc-cols">
       <div class="sc-left">
         <div class="sc-grade"><div class="lcd-glass"><span>${esc(card.grade)}</span></div>
@@ -797,7 +812,7 @@ function updateScore(c, a) {
     a.scored = true;
     const card = scorecard(st), best = api.store.get('best', null);
     if (!st.dev && (!best || card.score > best.score)) api.store.set('best', card);      // dev runs never set a best
-    renderScore(card, best);
+    renderScore(st, card, best);
     console.log('[handoff] scorecard', card);
   }
   show($('ov-score'), !!st.over && a.scored);
@@ -849,20 +864,36 @@ function keys(ev) {
     if (/^[1-3]$/.test(key)) { click(); pickResearch(Number(key) - 1); }
     else if (key === 'Escape') closeResearch();
   } else if (st.pendingRetrain) {
+    if ($('ov-retrain').hidden) return;                    // the flash first: no answer before the card is up
     if (key === '1' || key === 'y' || key === 'Y') { click(); api.act.retrain(true); }
     else if (key === '2' || key === 'n' || key === 'N' || key === 'Escape') { click(); api.act.retrain(false); }
   } else if (st.alarm && (key === 'Enter' || key === 'p' || key === 'P')) { click(); api.act.pullPlug(); }
 }
 
-// =================== fx the screens answer: focus a lane that opens, drop to 1× on a dossier reveal ===================
+// =================== fx the screens answer ===================
+// A lane that opens takes its track. A dossier reveal under fast-forward pauses at 1× (the plate names the row).
+// The first research offer of a generation gets its bark; the UM's first clearance gets the collusion call (once a game).
 
-function readFx(c) {
+function readFx(c, a) {
   const { st, view } = c;
   for (const e of drain(st, cursorOf(view, 'overlays'))) {
     const fresh = fxAge(st, e) < 2;
     if (e.type === 'laneOpen' && fresh) focusLane(view, R.sideOf(st, e.lane), e.lane);
-    else if (e.type === 'reveal' && view.fast) { view.fast = false; console.log('[handoff] speed 1× (dossier reveal)'); }
+    else if (e.type === 'reveal' && view.fast && fresh) {
+      view.fast = false; view.paused = true; a.pauseNote = `${STAMPS.revealed}: ${e.label}. Read it, then SPACE.`;
+      console.log(`[handoff] dossier reveal (${e.row}) under ×3: paused at 1×`);
+    }
     else if (e.type === 'deploy' || e.type === 'newModel') view.paused = false;
+    else if (e.type === 'researchReady' && e.first && fresh && !(st.gen === 1 && tutorial.isOn())) {
+      const bark = RESEARCH_BARKS[st.gen - 1];
+      if (bark) { codec.say(view, st, bark[0], bark[1]); console.log(`[handoff] research bark G${st.gen}`); }
+    } else if (e.type === 'unlock' && e.id === 'untrusted' && a.collusion == null) a.collusion = 'due';
+  }
+  // the collusion call waits for play and a quiet line (the card's own calls go first and aren't crowded out)
+  if (a.collusion === 'due' && st.phase === 'play' && !st.pendingChoice && !codec.busy(view)) {
+    a.collusion = 'said';
+    for (const [who, s] of COLLUSION_CALL) codec.say(view, st, who, s);
+    console.log(`[handoff] collusion call (${COLLUSION_CALL.length} lines): the UM is cleared`);
   }
 }
 
@@ -879,13 +910,14 @@ export function update(c) {
     return;
   }
   const a = animOf(view, 'overlays', () => ({ researchKey: '', cardG: 0, chat: null, ci: 0, ct0: 0, typed: 0, chatEls: [], now: 0,
-    reportG: 0, reportSay: '', reportT0: 0, pausedShown: false, pauses: 0, rspNo: 0, scoreAt: 0, scored: false }));
-  readFx(c);
+    reportG: 0, reportSay: '', reportT0: 0, pausedShown: false, pauses: 0, rspNo: 0, scoreAt: 0, scored: false, retrainP: null, retrainAt: 0,
+    pauseNote: null, collusion: null }));
+  readFx(c, a);
   updateCard(c, a);
   updateReport(c, a);
   updateTraining(c);
   updateResearch(c, a);
-  updateRetrain(c);
+  updateRetrain(c, a);
   updateEgress(c);
   updatePause(c, a);
   updateRsp(c, a);
@@ -903,9 +935,14 @@ export function sound(c) {
   const { st, view } = c;
   if (!st) return;
   audio.setGen(st.gen);
-  for (const e of drain(st, cursorOf(view, 'sound'))) if (fxAge(st, e) < FX_FRESH) audio.onFx(e, st);
+  const s = animOf(view, 'sound', () => ({ open: false, typed: 0, held: [] }));
+  for (const e of drain(st, cursorOf(view, 'sound'))) {
+    if (fxAge(st, e) >= FX_FRESH) continue;
+    if (e.type === 'laneOffer' && st.phase !== 'play') s.held.push(e);   // a contract arrives on the card: its jingle waits for DEPLOY
+    else audio.onFx(e, st);
+  }
+  if (st.phase === 'play' && s.held.length) { for (const e of s.held) audio.onFx(e, st); s.held = []; }
 
-  const s = animOf(view, 'sound', () => ({ open: false, typed: 0 }));
   const line = view.codecLine;
   if (!line) return;
   if (line.open && !s.open && !line.urgent) audio.sfx.ring();

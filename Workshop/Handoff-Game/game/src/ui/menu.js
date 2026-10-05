@@ -1,22 +1,23 @@
 // ===== Defense menu: 18 keys in role groups, role tabs, and the context panel above them =====
 // Look: design/codec-mockups/variant-c.js (buildHover, buildMenu, drawMenu). Plan: design/UI-PLAN.md §4, §6, §9.
-// Context panel, first match wins: hovered key · role tab · placed mount (not the selected one) → its card;
-// placing → the picked card; view.selected → the upgrade panel (upgrade.js); else the lab actions.
-// Never draws hidden truth: CATCH is the spec number (upgrade.js sheet). ?debug=1 + T adds a magenta truth tick.
-// Registers: menu-item {id} · menu-tab {role} · ctx-btn {action: research | retrain | rsp}   (upgrade.js: upg-btn)
+// Context panel, first match wins: a research card waiting for its mount · hovered key · role tab · placed mount (not
+// the selected one) → its card; placing → the picked card; view.selected → the upgrade panel (upgrade.js); else the
+// lab actions. Never draws hidden truth: rated TPR, measured precision (upgrade.js sheet). ?debug=1 + T: a truth tick.
+// Registers: menu-item {id} · menu-tab {role} · ctx-btn {action: research | cancel | retrain | rsp}   (upgrade.js: upg-btn)
 
 import { LAYERS, ROLES } from '../config/layers.js';
 import { BALANCE as B } from '../config/balance.js';
-import { CARDS, TECH } from '../config/cards.js';
+import { CARDS, TECH, V2_TECH } from '../config/cards.js';
+import { RESEARCH_UI, STAMPS } from '../config/content/v3-text.js';
 import * as R from '../sim/rules.js';
-import { money, big } from '../util/format.js';
+import { money, big, tpl } from '../util/format.js';
 import { C, F, k as K, epoch, fill, box, dashBox, corners, text, tw, fit, wrap, blit, clamp, mod } from './theme.js';
 import { icon, sprite, SPR, MICRO } from './sprites.js';
 import { CONTEXT, MENU, menuKey, MENU_FOOT } from './layout.js';
-import { unlockedInMenuOrder } from './input.js';
+import { unlockedInMenuOrder, openResearch } from './input.js';
+import { laneTab } from './derive.js';
 import * as upgrade from './upgrade.js';
 import { sheet, pc, nextLine, fitLine, goodList, GLYPH, attackInk, well, pips, bar, chip } from './upgrade.js';
-import { specCatch } from './derive.js';
 
 // =================== words: roles, one-line jobs, research branches ===================
 
@@ -46,9 +47,13 @@ const JOB = {                    // one line on the card: about 32 characters at
   honeypot: 'plants fake openings as bait', canary: 'fake secrets that trace leaks',
   redteam: 'fake attacks measure catch rates', interp: 'researchers reading activations',
 };
-const BRANCH = { Monitoring: 'MON', 'Human oversight': 'HUM', Containment: 'CON', 'Science of alignment': 'SCI' };
-const branchOf = id => BRANCH[(LAYERS[id].unlockHint || '').replace('Research: ', '')] || '';
-const TECH_TITLE = Object.fromEntries(CARDS.filter(c => c.type === 'tech').map(c => [c.id, c.title]));
+// a locked key's caption: the research stream that unlocks it (MON, CTL, LAB), or the generation that clears it
+const branchOf = id => {
+  const h = LAYERS[id].unlockHint || '';
+  return h.includes('Monitoring') ? 'MON' : h.includes('Control') ? 'CTL' : h.includes('Lab') ? 'LAB' : (h.match(/G\d/) || [''])[0];
+};
+const TECH_TITLE = { ...V2_TECH, ...Object.fromEntries(CARDS.filter(c => c.type === 'lab').map(c => [c.id, c.title])) };
+const NEW_FOR = 120;     // s of play an unhovered unlock keeps its NEW glow (DESIGN-v3 §3g: until hovered)
 const roleKeys = role => ORDER.filter(id => LAYERS[id].role === role);
 
 // =================== cached art: repainted only when its signature changes ===================
@@ -86,14 +91,14 @@ export function draw(c) {
 // 32×44 each: hotkey digit, icon, tag, price. Locked: silhouette, padlock, '?', research branch.
 
 function keys(c, hovId, tab) {
-  const { g, st, view } = c, order = unlockedInMenuOrder(st);
+  const { g, st, view } = c, order = unlockedInMenuOrder(st), fresh = freshUnlocks(c, hovId);
   const look = ORDER.map(id => {
     const state = view.placing === id ? 'picked' : hovId === id ? 'hover' : 'idle';
     if (!st.unlocked.includes(id)) return { id, locked: true, state };
     const price = R.buyPrice(st, id), hk = order.indexOf(id) + 1;
-    return { id, can: st.money >= price, price: keyPrice(price), hk: hk <= 9 ? hk : 0, state };
+    return { id, can: st.money >= price, price: keyPrice(price), hk: hk <= 9 ? hk : 0, state, fresh: fresh.has(id) };
   });
-  const sig = look.map(k => `${k.id}${k.state}${k.locked ? 'L' : `${+k.can}${k.price}${k.hk}`}`).join('|') + (tab || '');
+  const sig = look.map(k => `${k.id}${k.state}${k.locked ? 'L' : `${+k.can}${k.price}${k.hk}${k.fresh ? 'N' : ''}`}`).join('|') + (tab || '');
   blit(g, art('keys', sig, MENU.w, 96, lg => {
     look.forEach((k, i) => {
       const r = menuKey(i), x = r.x - MENU.x, y = r.y - MENU.y;
@@ -103,6 +108,13 @@ function keys(c, hovId, tab) {
     brackets(lg, tab);
   }), MENU.x, MENU.y);
   ORDER.forEach((id, i) => { const r = menuKey(i); c.hit.add(r.x, r.y, r.w, r.h, 'menu-item', { id }); });
+  // a fresh unlock glows (and says NEW) until it is hovered or placed, or NEW_FOR s pass
+  const a = 0.35 + 0.35 * Math.sin(c.t * 5);
+  look.forEach((k, i) => {
+    if (!k.fresh || k.state === 'picked') return;
+    const r = menuKey(i);
+    g.globalAlpha = a; box(g, r.x - 1, r.y - 1, r.w + 2, r.h + 2, C.rs); g.globalAlpha = 1;
+  });
 
   // the card's notch points at the hovered key (row 2: from the gap above it), and bobs over the armed one
   const i = ORDER.indexOf(hovId || view.placing);
@@ -111,6 +123,20 @@ function keys(c, hovId, tab) {
     const ny = r.y === menuKey(0).y ? CONTEXT.y + CONTEXT.h : r.y - 4;
     for (let k = 0; k < 4; k++) fill(g, r.x + 13 + k, ny + k + (r.y === menuKey(0).y ? bob : 0), 7 - 2 * k, 1, armed ? C.gl : C.gd);
   }
+}
+
+// elements unlocked in the last NEW_FOR s of play (fx 'unlock'), not hovered or placed since
+function freshUnlocks(c, hovId) {
+  const { st, view } = c, A = view.anim.menu || (view.anim.menu = { unlocked: new Map() }), cur = view.cursors.menu || (view.cursors.menu = { fx: 0, codec: 0 });
+  const n = Math.min(st.fx.length, st.fxId - cur.fx);
+  for (const e of n > 0 ? st.fx.slice(st.fx.length - n) : []) {
+    if (e.type === 'unlock' && LAYERS[e.id]) A.unlocked.set(e.id, e.t);
+    if (e.type === 'place') A.unlocked.delete(e.layer);
+  }
+  cur.fx = st.fxId;
+  if (hovId && st.phase === 'play' && A.unlocked.delete(hovId)) console.log(`[handoff] menu: ${hovId} seen (NEW off)`);
+  for (const [id, t] of A.unlocked) if (st.t - t > NEW_FOR) A.unlocked.delete(id);
+  return new Set(A.unlocked.keys());
 }
 
 // a key's price caption: no '$' and no '.0', so it sits inside the 32 px key ($1.6k → 1.6k, $60.0M → 60M)
@@ -132,6 +158,7 @@ function paintKey(g, x, y, k) {
   box(g, x, y, 32, 44, picked ? C.gl : hov ? C.g : k.can ? C.e1 : C.e0);
   icon(g, k.id, x + 6, y + 2, 2, picked ? C.bg : hov ? C.gl : k.can ? C.gm : C.gd);
   if (k.hk) sprite(g, MICRO[k.hk], x + 2, y + 2, { '#': picked ? C.bg : C.gd });
+  if (k.fresh && !picked) { fill(g, x + 13, y + 1, 18, 7, C.rs); text(g, STAMPS.fresh, x + 22, y + 7, F.k8, C.black, 'center'); }
   text(g, LAYERS[k.id].tag, x + 16, y + 35, F.v16, picked ? C.bg : hov ? C.g : C.gd, 'center');
   text(g, fit(k.price, F.k8, 28), x + 16, y + 42, F.k8, picked ? C.pan2 : hov ? C.g : k.can ? C.gm : C.gd, 'center');
 }
@@ -166,7 +193,7 @@ function tabs(c, tab) {
 
 function help(c) {
   const { g, view } = c, y = MENU_FOOT.helpY;
-  const s = view.placing ? '[click] lit mount  [shift] keep  [esc] cancel' : '[1-9] place   [shift] upgrade   [rmb] sell';
+  const s = view.research ? '[click] a lit mount   [esc] bank the card' : view.placing ? '[click] lit mount  [shift] keep  [esc] cancel' : '[1-9] place   [shift] upgrade   [rmb] sell';
   let x = MENU.x;
   for (const part of s.split(/(\[[^\]]+\])/)) if (part) x += text(g, part, x, y, F.v16, part[0] === '[' ? C.gm : C.gd);
   text(g, 'DEFENSE MENU', MENU.x + MENU.w, y, F.k8, C.gm, 'right');
@@ -179,6 +206,7 @@ function contextPanel(c, hovId, tab) {
   const onSite = h && ((h.kind === 'mount' || h.kind === 'bay') ? h.data : h.kind === 'lab-site' ? { lane: 'global', slot: 0 } : null);
   const placed = onSite && R.slotAt(st, onSite.lane, onSite.slot)?.layer, sel = view.selected;
   const isSel = placed && sel && sel.lane === onSite.lane && sel.slot === onSite.slot;     // the clicked mount shows its panel at once
+  if (view.research) return researchPlacing(c);
   if (hovId) return card(c, { id: hovId });
   if (tab) return roleCard(c, tab);
   if (placed && !isSel) return card(c, { id: placed, lane: onSite.lane, slot: onSite.slot });
@@ -203,27 +231,28 @@ function cardModel(c, { id, lane = null, slot = null, placing = false }) {
   const m = {
     id, name: L.name, role: L.role, job: JOB[id], locked, placed, col, lvl, active: placed ? R.slotActive(st, R.slotAt(st, lane, slot)) : true,
     head: placed ? null : locked ? 'LOCKED' : money(price), can,
-    lanes: placed ? [{ s: lane === 'global' ? 'LAB SITE' : `${lane.toUpperCase()} #${slot + 1}`, lane: col, best: true }]
+    lanes: placed ? [{ s: lane === 'global' ? 'LAB SITE' : `${laneTab(lane)} #${slot + 1}`, lane: col, best: true }]
       : L.lanes.map(side => ({ s: side === 'global' ? 'LAB SITE' : side.toUpperCase(), lane: side === 'int' ? 'int' : 'ext', best: L.bestIn === 'both' || L.bestIn === side })),
     rows: sh.rows.map(r => ({ label: r.label, frac: +r.frac.toFixed(3), val: r.val, bad: r.bad })),
-    good: goodList(sh.good), note: sh.note, spec: sh.spec, measured: null, alarm: false,
+    good: goodList(sh.good), note: sh.note, facts: placed ? sh.facts : sh.facts.slice(-1), measured: null, alarm: false,
     desc: L.desc, truth: null, blink: false,
   };
-  const ms = sh.s.laneMeasured || sh.s.measured;
+  // a Red Team above it: the measured recall (with its error bar) against the rated TPR
+  const ms = sh.s.laneMeasured || sh.s.measured, tpr = sh.rows[0]?.label === 'TPR' ? sh.rows[0].v : null;
   if (ms) {
     const r2 = x => Math.round(x * 100) / 100, err = Math.round(100 * ms.err);
     m.measured = sh.s.laneMeasured
       ? { txt: `stack below catches ${pc(ms.rate)} ±${err} (n ${ms.n})` }
-      : { lo: r2(ms.lo), hi: r2(ms.hi), rate: r2(ms.rate), txt: `measured ${pc(ms.rate)} ±${err} · spec ${pc(sh.spec)} · n ${ms.n}` };
-    m.alarm = !sh.s.laneMeasured && sh.spec != null && ms.hi < sh.spec - 0.005;
+      : { lo: r2(ms.lo), hi: r2(ms.hi), rate: r2(ms.rate), txt: `recall ${pc(ms.rate)} ±${err} · rated ${pc(tpr ?? 0)} · n ${ms.n}` };
+    m.alarm = !sh.s.laneMeasured && tpr != null && ms.hi < tpr - 0.005;
   }
-  if (c.debug && view.truth && sh.spec != null) m.truth = +(sh.s.catch ?? 0).toFixed(3);
+  if (c.debug && view.truth && tpr != null) m.truth = +(sh.s.tpr ?? 0).toFixed(3);
 
   const where = L.lanes.includes('global') ? 'the lab site' : L.lanes.length > 1 ? 'a mount, EXT or INT' : `a mount, ${L.lanes[0].toUpperCase()} only`;
   if (placing) {
     m.blink = mod(c.t * 2, 1) < 0.6;
     m.bottom = { tag: 'PLACING', txt: `now click ${where === 'the lab site' ? 'the lab site' : 'a lit mount'} · [esc] cancels`, on: true };
-  } else if (locked) m.bottom = { tag: 'LOCKED', txt: `${L.unlockHint} · [R] draws research`, on: false };
+  } else if (locked) m.bottom = { tag: 'LOCKED', txt: `${L.unlockHint}: a research card unlocks it`, on: false };
   else if (placed) {
     const n = nextLine(st, id, lvl, lane), room = CONTEXT.w - 18 - (Math.ceil(tw(n.tag, F.k8)) + 7);
     m.bottom = { tag: n.tag, txt: fitLine(n, room), on: n.tag !== 'MAX' };
@@ -272,8 +301,8 @@ function paintCard(g, m) {
     bar(g, CARD.barX, y, CARD.barW / 8, 8, 8, r.frac, r.bad ? ink.barBad : ink.bar, C.e0);
     text(g, fit(r.val, F.v16, W - 14 - CARD.barX - CARD.barW), W - 8, y + 9, F.v16, ink.val, 'right');
   });
-  // the Red Team's error bar just under the CATCH bar (red when even its top is under the spec), and the debug truth tick
-  const y0 = CARD.rows, onCatch = m.rows[0]?.label === 'CATCH';
+  // the Red Team's error bar just under the TPR bar (red when even its top is under the rated TPR), and the debug truth tick
+  const y0 = CARD.rows, onCatch = m.rows[0]?.label === 'TPR';
   if (onCatch && m.measured?.rate != null) {
     const x0 = px(m.measured.lo), x1 = px(m.measured.hi), mc = m.alarm ? C.r : C.gl, by = y0 + 10;
     fill(g, x0, by, x1 - x0 + 1, 1, mc); fill(g, x0, by - 2, 1, 3, mc); fill(g, x1, by - 2, 1, 3, mc);
@@ -281,9 +310,16 @@ function paintCard(g, m) {
   }
   if (onCatch && m.truth != null) fill(g, px(m.truth), y0 - 2, 2, 12, C.debug);
 
-  // the room left under short sheets holds the element's own description (two lines under two bar rows)
-  const freeY = CARD.rows + m.rows.length * pitch + 9, lines = Math.floor((CARD.good - 4 - freeY) / 13);
-  if (lines > 0) wrapFit(m.desc, W - 12, lines).forEach((s, i) => text(g, s, 6, freeY + 4 + i * 13, F.v16, C.gd));
+  // the room left under the bars: the facts (precision, overflow, break-even ...), then the element's own description
+  const freeY = CARD.rows + m.rows.length * pitch + 9;
+  let lines = Math.floor((CARD.good - 4 - freeY) / 13), fy = freeY + 4;
+  for (const f of m.facts) {
+    if (lines <= 0) break;
+    const ls = wrapFit(f, W - 12, Math.min(lines, 2));
+    ls.forEach((s, i) => text(g, s, 6, fy + i * 13, F.v16, dim ? C.gd : C.gm));
+    fy += 13 * ls.length; lines -= ls.length;
+  }
+  if (lines > 0) wrapFit(m.desc, W - 12, lines).forEach((s, i) => text(g, s, 6, fy + i * 13, F.v16, C.gd));
 
   // ---------- good against, or the red team's measurement ----------
   const gy = CARD.good;
@@ -316,6 +352,27 @@ function wrapFit(s, w, n) {
   const ls = wrap(s, F.v16, w);
   if (ls.length <= n) return ls;
   return [...ls.slice(0, n - 1), fit(ls.slice(n - 1).join(' '), F.v16, w)];
+}
+
+// ---------- a research card waiting for its mount (NEW: an empty mount · MOUNT: a lane) ----------
+
+function researchPlacing(c) {
+  const { g, st, view } = c, X = CONTEXT.x, Y = CONTEXT.y, W = CONTEXT.w, H = CONTEXT.h, r = view.research;
+  const blink = mod(c.t * 2, 1) < 0.6;
+  fill(g, X, Y, W, H, C.pan2); box(g, X, Y, W, H, C.rsm); corners(g, X, Y, W, H, C.rs, 6);
+  if (blink) dashBox(g, X + 2, Y + 2, W - 4, H - 4, C.rsd, 3, 3);
+  if (r.layer) well(g, X + 6, Y + 6, r.layer, C.rs, C.rsm);
+  text(g, RESEARCH_UI.badge, X + 36, Y + 13, F.k8, C.rsm);
+  text(g, fit(r.name, F.v24, W - 44), X + 36, Y + 30, F.v24, C.gl);
+  const ask = r.type === 'new' ? tpl(RESEARCH_UI.place, { name: r.name }) : 'Choose a lane for the extra mount';
+  const how = r.type === 'new' ? 'click a lit empty mount; the first copy is free' : `click a lane's tab or its + SLOT row (up to ${B.maxSlots} mounts)`;
+  wrapFit(ask, W - 12, 2).forEach((s, i) => text(g, s, X + 6, Y + 56 + i * 16, F.v20, C.g));
+  wrapFit(how, W - 12, 2).forEach((s, i) => text(g, s, X + 6, Y + 92 + i * 14, F.v16, C.gm));
+  const y = Y + H - 22, w = W - 12, hot = view.hover?.kind === 'ctx-btn' && view.hover.data.action === 'cancel';
+  fill(g, X + 6, y, w, 17, hot ? C.e0 : C.black); box(g, X + 6, y, w, 17, hot ? C.gl : C.e2);
+  chip(g, X + 10, y + 3, 'ESC', C.bg, C.gm, 11);
+  text(g, fit(RESEARCH_UI.cancel, F.v16, w - 40), X + 38, y + 13, F.v16, hot ? C.gl : C.gm);
+  c.hit.add(X + 6, y, w, 17, 'ctx-btn', { action: 'cancel' });
 }
 
 // ---------- role card (hovered tab) ----------
@@ -354,12 +411,14 @@ function labActions(c) {
 
   // ---------- buttons ----------
   const hov = a => view.hover?.kind === 'ctx-btn' && view.hover.data.action === a;
-  const price = R.researchPrice(st), fresh = st.probe.trainedGen === st.gen && st.probe.shift === 0, probeNow = R.probeBaseTPR(st, 1);
+  const fresh = st.probe.trainedGen === st.gen && st.probe.shift === 0, lvl = R.labLevel(st, 'probe');
+  const probeNow = R.probeBaseTPR(st, lvl), probeNew = LAYERS.probe.tpr[st.gen - 1] * R.lv('probe', lvl, 'tprMult');
+  const Rs = st.research, n = Rs.banked.length, rate = R.rpRate(st), left = rate > 0 ? Math.max(0, B.research.offerRP - Rs.rp) / rate : Infinity;
   const rows = [
-    { action: 'research', key: 'R', label: 'RESEARCH', cost: money(price), can: st.money >= price && !st.pendingResearch,
-      txt: st.money >= price ? 'draw two cards, keep one' : `need ${money(price - st.money)} more` },
+    { action: 'research', key: 'R', label: RESEARCH_UI.badge, cost: n ? `${n} READY` : '', can: n > 0 && st.phase === 'play',
+      txt: n ? 'three cards, one per work stream: pick one' : isFinite(left) ? tpl(RESEARCH_UI.next, { secs: Math.ceil(left) }) : 'the lab is dark' },
     { action: 'retrain', label: 'RETRAIN PROBES', cost: `${B.retrainEvidence} EV`, can: !fresh && st.evidence >= B.retrainEvidence,
-      txt: fresh ? `probes are fresh: TPR ${pc(probeNow)}` : `probe TPR ${pc(probeNow)} > ${pc(LAYERS.probe.tpr)}` },
+      txt: fresh ? `probes are fresh: TPR ${pc(probeNow)}` : `probe TPR ${pc(probeNow)} > ${pc(probeNew)}` },
   ];
   if (st.upgrades.rsp) rows.push({ action: 'rsp', label: 'INVOKE RSP', cost: '', can: st.rsp.ready,
     txt: st.rsp.ready ? `pause ${TECH.rspPause}s: m −${TECH.rspM}, rep +${TECH.rspRep}` : st.rsp.usedGen === st.gen ? 'used this generation' : `estimate must pass ${pc(TECH.rspThreshold)}` });
@@ -378,10 +437,10 @@ function labActions(c) {
   // ---------- below: each stack on paper, the tech taken, a hint (as many as fit) ----------
   const taken = Object.keys(st.upgrades).filter(id => TECH_TITLE[id]).map(id => TECH_TITLE[id] + (st.upgrades[id] > 1 ? ` ×${st.upgrades[id]}` : ''));
   const lines = [
-    { tag: 'EXT', bg: C.lane.ext.mid, txt: stackLine(st, view.focus.ext), col: C.gm },
-    { tag: 'INT', bg: C.lane.int.mid, txt: stackLine(st, view.focus.int), col: C.gm },
+    { tag: laneTab(view.focus.ext), bg: C.lane.ext.mid, txt: stackLine(st, view.focus.ext), col: C.gm },
+    { tag: laneTab(view.focus.int), bg: C.lane.int.mid, txt: stackLine(st, view.focus.int), col: C.gm },
     { tag: 'TECH', bg: taken.length ? C.gm : C.gdd, txt: taken.join(' · ') || 'none yet · research draws offer some', col: taken.length ? C.g : C.gd },
-    { txt: 'hover anything for its card · click a mount to upgrade', col: C.gd },
+    { txt: 'hover anything for its card · click a mount to upgrade (lab-wide)', col: C.gd },
   ];
   let y = Y + 21 + rows.length * 22 + 13;
   for (const l of lines) {
@@ -392,15 +451,16 @@ function labActions(c) {
   }
 }
 
-// one lane's stack on paper: the chance its detectors flag a model attack (spec sheet × heads free), what acts on it
+// one lane's stack on paper: the chance its detectors flag a model attack (rated TPR × heads free), what acts on it
 function stackLine(st, lane) {
+  if (!st.lanes[lane]) return 'no lane';
   let miss = 1, det = 0, resp = 0, kill = false;
   st.lanes[lane].slots.forEach(s => {
     if (!s.layer || !R.slotActive(st, s)) return;
     const L = LAYERS[s.layer];
     if (L.role === 'detector' && !L.catches) {
       det++;
-      miss *= 1 - specCatch(st, s.layer, s.level, lane) * (1 - R.elementStats(st, s.layer, { lane, level: s.level }).unreadRate);
+      miss *= 1 - R.ratedTPR(st, s.layer, s.level, lane) * (1 - R.elementStats(st, s.layer, { lane, level: s.level }).unreadRate);
     }
     if (R.isResolver(s.layer)) resp++;
     if (s.layer === 'killswitch') kill = true;
@@ -434,6 +494,7 @@ export const input = {
     click(e, api) {
       const { view, st } = api, id = e.data.id;
       if (!st.unlocked.includes(id)) { view.toast(`${LAYERS[id].name}: ${LAYERS[id].unlockHint}`); return; }
+      if (view.research) { view.toast('choose a mount for the research card first, or [esc]'); return; }
       const now = performance.now();
       if (view.placing === id && now - armedAt < DOUBLE) return;      // a double-click keeps it armed
       view.placing = view.placing === id ? null : id;
@@ -447,7 +508,8 @@ export const input = {
     click(e, api) {
       const a = e.data.action, { act, st, view } = api;
       if (api.debug) console.log(`[handoff] menu: ${a}`);
-      if (a === 'research') act.drawResearch();
+      if (a === 'research') openResearch(api);
+      else if (a === 'cancel') { if (view.research) act.bankCard(); view.research = null; view.placing = null; }
       else if (a === 'retrain') {
         if (st.probe.trainedGen === st.gen && st.probe.shift === 0) view.toast('probes are already fresh: save the evidence');
         else act.retrainProbes();

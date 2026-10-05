@@ -1,7 +1,7 @@
 // ===== Sound: every blip is synthesised with WebAudio (no files) =====
 // Silent until the first user gesture (initAudio, called on pointer or key). M mutes (setMuted).
 // ui/overlays.js plays it: onFx(e, st) for each fresh sim fx, ring() / type() for the codec, setGen() for the ramp.
-// Never reacts to fx 'silent': a landed INTERNAL attack makes no sound (hidden truth).
+// A landed INTERNAL attack makes no sound of its own (hidden truth): only the glitch some of them leave is heard.
 
 import { sideOf } from '../sim/rules.js';
 
@@ -170,7 +170,10 @@ export const sfx = {
   toggle: on => tone(on ? 880 : 440, 0.05, { vol: 0.05 }),
   slot()  { hiss(0.06, { vol: 0.12, f: 500 }); tone(1200, 0.03, { vol: 0.04, at: 0.05 }); },
   card()  { tone(784, 0.08, { type: 'triangle', vol: 0.08 }); tone(1175, 0.16, { type: 'triangle', vol: 0.08, at: 0.08 }); },
-  reveal() { [880, 1320, 990, 1480, 1175, 1760].forEach((f, i) => tone(f, 0.035, { vol: 0.035, at: i * 0.035 })); },
+  reveal() {                                       // a stinger: the hit, then the sparkle of the row typing on
+    hiss(0.06, { vol: 0.1, f: 2400 }); tone(392, 0.35, { type: 'triangle', vol: 0.08 }); tone(587, 0.45, { type: 'triangle', vol: 0.07, at: 0.06 });
+    [880, 1320, 990, 1480, 1175, 1760].forEach((f, i) => tone(f, 0.035, { vol: 0.03, at: 0.2 + i * 0.035 }));
+  },
 
   // ---------- the run ----------
   training: () => tone(110, 1.2, { type: 'triangle', vol: 0.06, to: 440, attack: 0.3 }),
@@ -179,6 +182,30 @@ export const sfx = {
   rsp:    () => tone(880, 0.9, { type: 'triangle', vol: 0.07, to: 110 }),
   win()   { [523, 659, 784, 1046, 1318, 1568].forEach((f, i) => tone(f, 0.4, { type: 'triangle', vol: 0.09, at: i * 0.12 })); },
   lose()  { tone(300, 1.4, { type: 'sawtooth', vol: 0.12, to: 40, lp: 1600 }); hiss(1, { vol: 0.12, f: 900, to: 120 }); },
+
+  // ---------- v3 ----------
+  // a glitch on an INTERNAL lane: a burst of static, two pitch drops (no codec call: this is all the player hears)
+  glitch() { if (!every('glitch', 0.3)) return; hiss(0.12, { vol: 0.1, kind: 'bandpass', f: 3200, to: 400, q: 1.5 }); tone(1800, 0.04, { type: 'square', vol: 0.03, to: 300, lp: 3000 }); tone(900, 0.05, { type: 'square', vol: 0.025, at: 0.06, to: 120, lp: 2000 }); },
+  falseAlarm: () => every('falseAlarm', 0.25) && tone(660, 0.05, { type: 'triangle', vol: 0.05, to: 520 }),
+  unreviewed() { if (!every('unreviewed', 0.3)) return; hiss(0.1, { vol: 0.12, f: 260 }); tone(140, 0.12, { vol: 0.07, to: 90 }); },
+  research() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.09, { type: 'triangle', vol: 0.06, at: i * 0.06 })); },
+  contract() {                                     // Big Boss's jingle: four brassy notes, the till rings
+    [392, 523, 659, 1046].forEach((f, i) => tone(f, i === 3 ? 0.3 : 0.1, { type: 'sawtooth', vol: 0.045, at: i * 0.11, lp: 1800 }));
+    tone(131, 0.4, { type: 'triangle', vol: 0.06 }); hiss(0.05, { vol: 0.05, f: 3000, at: 0.36 }); tone(2093, 0.12, { type: 'triangle', vol: 0.03, at: 0.4 });
+  },
+  laneOpen() { [392, 523, 659, 784].forEach((f, i) => tone(f, 0.08, { vol: 0.06, at: i * 0.05 })); },
+  klaxon() { for (let i = 0; i < 3; i++) { tone(880, 0.16, { type: 'sawtooth', vol: 0.08, at: i * 0.36, lp: 2200 }); tone(660, 0.16, { type: 'sawtooth', vol: 0.08, at: i * 0.36 + 0.18, lp: 2200 }); } },
+  plug() { hiss(0.3, { vol: 0.16, f: 1600, to: 80 }); tone(220, 0.6, { type: 'sawtooth', vol: 0.08, to: 30, lp: 900, at: 0.05 }); },
+  retrain() {                                      // caught red-handed: an alarm stinger
+    hiss(0.12, { vol: 0.14, f: 1800, to: 300 }); tone(196, 0.5, { type: 'sawtooth', vol: 0.08, to: 98, lp: 1200 });
+    for (let i = 0; i < 2; i++) { tone(988, 0.12, { type: 'square', vol: 0.04, at: 0.15 + i * 0.28, lp: 2600 }); tone(740, 0.12, { type: 'square', vol: 0.04, at: 0.29 + i * 0.28, lp: 2600 }); }
+  },
+  evidence() { if (!every('evidence', 0.6)) return; tone(1318, 0.08, { type: 'triangle', vol: 0.025 }); tone(1760, 0.12, { type: 'triangle', vol: 0.02, at: 0.07 }); },   // one soft chime a batch
+  burst() {                                        // the G7 warning: a tone rising over the 3 s, blips on top
+    tone(220, 2.8, { type: 'sawtooth', vol: 0.04, to: 880, lp: 1600, attack: 0.3 });
+    for (let i = 0; i < 4; i++) tone(1046, 0.05, { type: 'square', vol: 0.035, at: i * 0.7, lp: 2500 });
+  },
+  quota: ok => tone(ok ? 988 : 330, 0.12, { type: 'triangle', vol: 0.05, to: ok ? 1318 : 247 }),
 };
 
 // =================== sim fx → sound ===================
@@ -190,13 +217,26 @@ export function onFx(e, st) {
     case 'flag':        sfx.flag(); break;
     case 'pull':        sfx.pull(); break;
     case 'approve':     sfx.stamp(true); break;
-    case 'toss':        sfx.stamp(false); break;
+    case 'falseAlarm':  sfx.falseAlarm(); break;
+    case 'unreviewed':  sfx.unreviewed(); break;
+    case 'glitch':      sfx.glitch(); break;
+    case 'evidence':    if (e.lane) sfx.evidence(); break;              // a lane's batch (the lab's steady trickle is quiet)
+    case 'researchReady': sfx.research(); break;
+    case 'unlock':      sfx.card(); break;
+    case 'laneOffer':   sfx.contract(); break;
+    case 'laneOpen':    sfx.laneOpen(); break;
+    case 'egressAlarm': sfx.klaxon(); break;
+    case 'plugPulled':  sfx.plug(); break;
+    case 'retrainOffer': sfx.retrain(); break;
+    case 'burstWarn':   sfx.burst(); break;
+    case 'quota':       sfx.quota(e.met); break;
+    case 'dark':        sfx.rsp(); break;
     case 'waved':       sfx.waved(); break;
-    case 'block': case 'throttle': sfx.block(); break;
+    case 'throttle': case 'airgap': sfx.block(); break;
     case 'kill':        sfx.kill(); break;
     case 'caught':      sfx.caught(); break;
     case 'landed':      sfx.incident(); break;                                  // EXTERNAL INCIDENT
-    case 'foiled': case 'contained': case 'shake': sfx.anomaly(); break;       // INTERNAL ANOMALY (never 'silent')
+    case 'foiled': case 'contained': case 'shake': sfx.anomaly(); break;       // INTERNAL ANOMALY
     case 'catastrophe': sfx.catastrophe(); break;
     case 'event':       sfx.event(); break;
     case 'place':       sfx.place(); break;

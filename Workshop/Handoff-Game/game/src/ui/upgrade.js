@@ -1,18 +1,21 @@
 // ===== Upgrade panel (the mount in view.selected) + the spec sheet and widgets the hover card shares (menu.js) =====
 // Look: design/codec-mockups/variant-c.js buildHover. Plan: design/UI-PLAN.md §4 (menu), §6 (hidden truth).
-// The spec sheet is what a player may know about an element: config, upgrades, research, events, the generation.
-// Never the hidden truth: elementStats().catch / .tpr include collusion and traits, so CATCH is the spec number.
-// Registers: upg-btn {action: upgrade | toggle | bay | sell | buyslot | close}
+// The spec sheet is what a player may know about an element (DESIGN-v3 §3c, §3d): rated TPR and FPR, measured
+// precision, desks and load, break-even precision. Built from the sim's readouts (rules.js ratedTPR, detectorStats,
+// auditStats, killStats, collusionEstimate); never the hidden truth (no st.m, no traits).
+// Levels are lab-wide (st.levels): upgrading one copy upgrades every copy on every lane.
+// Registers: upg-btn {action: upgrade | toggle | sell | buyslot | close}
 
 import { LAYERS } from '../config/layers.js';
 import { MAX_LEVEL, UPGRADES } from '../config/upgrades.js';
 import { ATTACKS } from '../config/tasks.js';
 import { BALANCE as B } from '../config/balance.js';
 import * as R from '../sim/rules.js';
-import { money, big } from '../util/format.js';
+import { COLLUSION_UI, LANE_UI } from '../config/content/v3-text.js';
+import { money, big, tpl } from '../util/format.js';
 import { C, F, fill, box, dashBox, corners, text, tw, fit, clamp, mod } from './theme.js';
 import { icon, sprite, SPR } from './sprites.js';
-import { specCatch, specAudit } from './derive.js';
+import { laneTab } from './derive.js';
 
 // =================== spec sheet ===================
 
@@ -20,7 +23,8 @@ const MODEL = ['harmful', 'leak', 'sabotage', 'poison', 'exfil'];
 
 // where the hover card measures an element that is not placed yet: its side's G1 lane (whose id is the side's own)
 export const homeLane = id => (['ext', 'int', 'global'].includes(LAYERS[id].bestIn) ? LAYERS[id].bestIn : LAYERS[id].lanes[0]);
-const linePay = (st, lane) => (R.sideOf(st, lane) === 'int' ? B.intValue : B.extValue) * R.chipWorth(st);
+const linePay = (st, lane) => (R.laneDef(lane)?.pay ?? R.laneDef(R.sideOf(st, lane) === 'int' ? 'int' : 'ext').pay) * R.priceIndex(st);
+const onLane = (st, lane) => !!lane && !!st.lanes[lane];
 
 // ---------- number formats ----------
 export const pc = x => { const p = 100 * x; return (p > 0 && p < 10 && Math.abs(p - Math.round(p)) > 0.05 ? p.toFixed(1) : Math.round(p)) + '%'; };
@@ -33,50 +37,67 @@ const lower = s => s[0].toLowerCase() + s.slice(1);
 // bad: more is worse (drawn dimmer). v: the raw number deltas are taken from.
 const row = (label, frac, val, v, unit, bad = false) => ({ label, frac: clamp(frac || 0, 0, 1), val, v, unit, bad });
 
-// sheet(st, id, { lane, level, slot }) → { s, rows, good, note, spec }
+// sheet(st, id, { lane, level, slot }) → { s, rows, good, note, facts, measured }
 //   rows: up to 5 bar rows · good: attack types it is good against · note: [verb, text] when good is empty
-//   spec: the spec-sheet catch (detectors, auditor), compared with the Red Team's measurement
+//   facts: short sentences for the card (precision, overflow, break-even ...) · measured: a Red Team's recall
 export function sheet(st, id, { lane = null, level = 1, slot = null } = {}) {
-  const L = LAYERS[id], ln = lane ?? homeLane(id), s = R.elementStats(st, id, { lane: ln, level, slot });
-  const pay = linePay(st, ln), cost = row('COST/TASK', s.costPerTask / pay, money(s.costPerTask), s.costPerTask, 'money', true);
-  const deskRow = () => row('DESKS', s.desks / 6, `${s.desks} desk${s.desks === 1 ? '' : 's'}`, s.desks, 'desk');
-  const deskTime = () => row('DELAY', s.latency / 5, secs(s.latency) + ' a desk', s.latency, 's', true);
-  let rows = [], spec = null;
+  const L = LAYERS[id], ln = onLane(st, lane) ? lane : homeLane(id), s = R.elementStats(st, id, { lane: ln, level, slot });
+  const placed = slot != null && onLane(st, lane) && !!st.lanes[lane].slots[slot]?.layer;
+  const pay = linePay(st, ln), cost = row('COST/LINE', s.costPerTask / pay, money(s.costPerTask), s.costPerTask, 'money', true);
+  let rows = [], facts = [], measured = null;
 
   if (L.role === 'detector') {
-    spec = specCatch(st, id, level, lane);
+    const d = placed ? R.detectorStats(st, lane, slot) : null;
+    const tpr = d ? d.tprRated : R.ratedTPR(st, id, level, onLane(st, lane) ? lane : null), fpr = d ? d.fprRated : R.detectorFPR(id, level);
     rows = [
-      row('CATCH', spec, pc(spec), spec, 'pct'),
-      row('FALSE ALARM', s.falseAlarm / 0.2, pc(s.falseAlarm), s.falseAlarm, 'pct', true),
-      cost,
-      row('DELAY', s.latency / s.dwell, secs(s.latency) + ' a read', s.latency, 's', true),
-      row('UNREAD', s.unreadRate, `${pc(s.unreadRate)} · ${s.heads} at once`, s.unreadRate, 'pct', true),
+      row('TPR', tpr, `${pc(tpr)} rated`, tpr, 'pct'),
+      row('FALSE ALARM', fpr / 0.2, `${pc(fpr)} rated`, fpr, 'pct', true),
     ];
-    rows[4].heads = s.heads;
+    if (d) rows.push(row('PRECISION', d.precision ?? 0, d.precision == null ? 'no reviews yet' : `${pc(d.precision)} · ${pc(d.lo)}–${pc(d.hi)}`, d.precision ?? 0, 'pct'));
+    rows.push(cost, row('UNREAD', s.unreadRate, `${pc(s.unreadRate)} · ${s.heads} at once`, s.unreadRate, 'pct', true));
+    rows[rows.length - 1].heads = s.heads;
+    if (d) facts.push(`flags ${d.flagsPerMin.toFixed(1)}/min · humans confirmed ${d.tp}, false alarms ${d.fa}`);
+    if (id === 'untrusted' && onLane(st, lane)) facts.push(...collusionLines(st, lane, level, tpr));
+    facts.push('a second copy adds reading speed, not accuracy');
+    if (d?.recall != null) measured = { rate: d.recall, tpr };
   } else switch (id) {
     case 'auditor': {
-      // a line bundles 1, 10, 100 ... real tasks; a desk audits only auditorCap of them, so CATCH falls with the generation
-      const b = R.bundle(st), cov = R.auditCoverage(st, b, level);
-      spec = specAudit(st, level);
-      rows = [row('CATCH', spec, pc(spec), spec, 'pct'),
-        row('COVERS', cov, cov >= 1 ? 'every task' : `${big(R.auditorCap(st, level), 0)} of ${big(b, 0)} tasks`, cov, 'pct'),
-        row('FALSE ALARM', s.falseAlarm / 0.2, pc(s.falseAlarm), s.falseAlarm, 'pct', true), cost,
-        row('DESKS', s.desks / 6, `${s.desks} desk${s.desks === 1 ? '' : 's'} · ${secs(s.latency)}`, s.desks, 'desk')];
+      const cap = R.capstone('auditor', level).honestyCap, acc = cap ? cap : R.auditorAcc(st, level);
+      const desks = s.desks, perMin = desks * 60 / s.latency;
+      rows = [row('ACCURACY', acc, (cap ? '≤ ' : '') + pc(acc), acc, 'pct'),
+        row('CAPACITY', perMin / 30, `${num(perMin)}/min · ${desks} desk${desks === 1 ? '' : 's'}`, perMin, 'n')];
+      if (placed) {
+        const a = R.auditStats(st, lane, slot), to = a.to === 'ships' ? 'ships unreviewed' : `to the ${LAYERS[a.to].name}`;
+        rows.push(row('LOAD', a.load, `${num(a.flagsPerMin)} flags/min · ${pc(Math.min(9.99, a.load))}`, a.load, 'pct', true),
+          row('OVERFLOW', a.overflow, `${pc(a.overflow)} ${a.to === 'ships' ? '> ships' : '> ' + LAYERS[a.to].tag}`, a.overflow, 'pct', true));
+        facts.push(`humans review ${pc(a.reviewedShare)} of ${laneTab(lane)} · overflow ${to}`);
+      }
+      rows.push(row('SALARY', s.salaryPerSec / Math.max(1e-9, R.incomePerSec(st)), money(s.salaryPerSec) + '/s', s.salaryPerSec, 'money', true));
+      facts.push('reviews flags first, then spot-checks unflagged lines with spare time');
       break;
     }
     case 'defer':
-      rows = [row('CATCH', 1, '100% redone', 1, 'pct'), row('PAYS', s.payFrac, pc(s.payFrac) + ' of a line', s.payFrac, 'pct'), deskTime(), deskRow()];
+      rows = [row('HANDLES', 1, 'every flag it takes', 1, 'pct'), row('PAYS', s.payFrac, pc(s.payFrac) + ' of a line', s.payFrac, 'pct'),
+        row('DELAY', s.latency / 5, secs(s.latency) + ' a line', s.latency, 's', true), row('DESKS', s.desks / 6, `${s.desks} slot${s.desks === 1 ? '' : 's'}`, s.desks, 'desk')];
       break;
     case 'resampler': {
-      const p = B.attackBase + B.attackPerM * R.misalignmentEstimate(st).est, c = 1 - Math.pow(p, s.tries);   // at YOUR estimate
-      rows = [row('CATCH', c, '~' + pc(c), c, 'pct'), cost, deskTime(),
-        row('DESKS', s.desks / 6, `${s.desks} desk${s.desks === 1 ? '' : 's'} · ${s.tries} ${s.tries === 1 ? 'try' : 'tries'}`, s.desks, 'desk')];
+      const p = B.attackBase + B.attackPerM * R.misalignmentEstimate(st).est, c = 1 - Math.pow(Math.min(1, p), s.tries);   // at YOUR estimate
+      rows = [row('CLEAN', c, '~' + pc(c) + ' of redraws', c, 'pct'), cost, row('DELAY', s.latency / 5, secs(s.latency) + ' a line', s.latency, 's', true),
+        row('DESKS', s.desks / 6, `${s.desks} slot${s.desks === 1 ? '' : 's'} · ${s.tries} ${s.tries === 1 ? 'try' : 'tries'}`, s.desks, 'desk')];
       break;
     }
-    case 'killswitch':
-      rows = [row('CATCH', 1, '100% of flags', 1, 'pct'), row('COST/KILL', s.triggerCost / pay, money(s.triggerCost), s.triggerCost, 'money', true),
-        row('REP/KILL', s.triggerRep / 4, s.triggerRep ? '−' + num(s.triggerRep) + ' rep' : 'none', s.triggerRep, 'rep', true)];
+    case 'killswitch': {
+      const ops = R.servers(st, 'killswitch', level), perMin = ops * 60 / s.latency;
+      const k = placed ? R.killStats(st, lane, slot) : { breakEven: onLane(st, lane) ? R.killBreakEven(st, lane, level) : R.killBreakEven(st, 'ext', level), precisionHere: null };
+      rows = [row('CAPACITY', perMin / 60, `${num(perMin, 0)}/min · ${ops} operator${ops === 1 ? '' : 's'}`, perMin, 'n'),
+        row('FEE', s.triggerCost / pay, money(s.triggerCost) + ' a refusal', s.triggerCost, 'money', true),
+        row('REP', s.triggerRep / 4, s.triggerRep ? '−' + num(s.triggerRep) + ' a refusal' : 'none', s.triggerRep, 'rep', true),
+        row('BREAK-EVEN', k.breakEven ?? 0, k.breakEven == null ? 'n/a: costs R&D here' : `precision ${pc(k.breakEven)}`, k.breakEven ?? 0, 'pct')];
+      if (k.breakEven != null) facts.push(`refusing pays when flags are over ${pc(k.breakEven)} real${placed ? ` · here ${k.precisionHere == null ? 'unmeasured' : pc(k.precisionHere)}` : ''}`);
+      facts.push('a refusal is never checked: "?" on the board');
+      if (placed && st.lanes[lane].slots.some((x, j) => j > slot && x.layer === 'auditor')) facts.unshift(`${LANE_UI.killAbove}: mount it below the Auditor`);
       break;
+    }
     case 'paraphraser':
       rows = [row('COLLUSION', s.collusionMult, 'UM below ' + times(s.collusionMult), s.collusionMult, 'x', true), cost];
       break;
@@ -86,18 +107,17 @@ export function sheet(st, id, { lane = null, level = 1, slot = null } = {}) {
         cost];
       break;
     case 'leastpriv':
-      rows = [row('EXFIL FAIL', s.exfilFail, pc(s.exfilFail), s.exfilFail, 'pct'), row('DRIFT', s.driftMult, times(s.driftMult), s.driftMult, 'x', true),
-        row('R&D', (1 - s.rdMult) / 0.1, '−' + pc(1 - s.rdMult), 1 - s.rdMult, 'pct', true), cost];
+      rows = [row('EXFIL FAIL', s.exfilFail, pc(s.exfilFail), s.exfilFail, 'pct'), row('DEBT', s.debtMult, times(s.debtMult) + ' a landing', s.debtMult, 'x', true), cost];
       break;
     case 'ratelimit':
-      rows = [row('CAP', s.cap / Math.max(s.cap, R.laneRate(st, ln)), num(s.cap) + ' lines/s', s.cap, 'n'),
+      rows = [row('CAP', s.cap / Math.max(s.cap, R.laneRate(st, ln) || s.cap), num(s.cap) + ' lines/s', s.cap, 'n'),
         row('TURNED AWAY', s.throttleRate, pc(s.throttleRate) + ' now', s.throttleRate, 'pct', true),
         row('JAILBREAKS', s.jailbreakCap / 15, 'capped ' + times(s.jailbreakCap), s.jailbreakCap, 'x', true), cost];
       break;
     case 'honeypot':
       rows = [row('BAIT', s.injectRate / 0.15, pc(s.injectRate) + ' of lines', s.injectRate, 'pct'),
         row('EVIDENCE', s.baitEvidence / 10, '+' + num(s.baitEvidence) + ' a bite', s.baitEvidence, 'ev'),
-        row('COLLUSION', L.collusionMult, 'UM in lane ' + times(L.collusionMult), L.collusionMult, 'x', true), cost];
+        row('HOLD', s.holdSeconds / 30, `UM collusion 0 for ${num(s.holdSeconds, 0)}s`, s.holdSeconds, 's'), cost];
       break;
     case 'canary':
       rows = [row('LEAK DAMAGE', s.repMult, pc(s.repMult) + ' of rep', s.repMult, 'pct', true),
@@ -116,13 +136,27 @@ export function sheet(st, id, { lane = null, level = 1, slot = null } = {}) {
 
   const cap = R.capstone(id, level);
   const good = [...new Set([...L.good, ...(cap.alsoCatches || []), ...(cap.alsoCovers || [])])];
-  return { s, rows, good, note: NOTE[id] || null, spec };
+  return { s, rows, good, note: NOTE[id] || null, facts, measured, lab: R.labLevel(st, id) };
+}
+
+// the Untrusted Monitor's collusion, step by step (DESIGN-v3 §3g), at YOUR m estimate (never the true m):
+//   collusion ≈ κ × m = c → ×0.5 Paraphraser = c → ×0.5 Signal Jamming = c → held … → effective TPR
+function collusionLines(st, lane, level, tpr) {
+  const P = R.collusionEstimate(st, lane, level), k = R.genDef(st).kappa;
+  if (!k) return [];
+  const two = x => x.toFixed(2);
+  const out = [tpl(COLLUSION_UI.base, { k: two(k), c: two(P.kappaM) })];
+  if (P.afterPara < P.kappaM) out.push(tpl(COLLUSION_UI.step, { mult: two(P.afterPara / P.kappaM), name: LAYERS.paraphraser.name, c: two(P.afterPara) }));
+  if (P.afterJam < P.afterPara) out.push(tpl(COLLUSION_UI.step, { mult: two(P.afterJam / P.afterPara), name: 'Signal Jamming', c: two(P.afterJam) }));
+  if (P.held > 0) out.push(tpl(COLLUSION_UI.held, { pct: pc(P.held) }));
+  out.push(tpl(COLLUSION_UI.tpr, { tpr: two(tpr * (1 - P.c * P.levelMult)) }));
+  return [out.join(' → ')];
 }
 
 // what an element is for when it is good against no attack type in particular
 const NOTE = {
-  killswitch: ['CATCHES', 'any line still flagged when it passes'],
-  redteam: ['MEASURES', 'the true catch rate of every mount below'],
+  killswitch: ['REFUSES', 'whatever the desks above had no room for'],
+  redteam: ['MEASURES', 'the real recall of every detector below'],
   interp: ['SEES', 'through sandbagging · evidence every second'],
 };
 
@@ -150,10 +184,10 @@ export function nextLine(st, id, level, lane) {
   const cp = UPGRADES[id].capstone;
   if (level >= MAX_LEVEL) return { tag: 'MAX', head: cp.name + ':', items: [lower(cp.text)], short: [lower(brief(id))], fallback: `${cp.name} is on · click the mount to read it` };
   const price = R.upgradePrice(st, id, level);
+  if (price == null) return { tag: 'MAX', head: 'max level', items: [''], fallback: 'max level' };
   if (level === MAX_LEVEL - 1) return { tag: 'L5', head: `${money(price)} ${cp.name}:`, items: [lower(cp.text)], short: [lower(brief(id))], fallback: `${money(price)} ${cp.name} · click the mount to read it` };
   const d = deltas(sheet(st, id, { lane, level }), sheet(st, id, { lane, level: level + 1 })).map(x => x.txt);
-  if (id === 'auditor' && R.auditCoverage(st, R.bundle(st), level) < 1) d.push(`L5 covers ${cp.capacityMult}×`);
-  return { tag: 'NEXT', head: `L${level + 1} ${money(price)}:`, items: d.length ? d : ['better'] };
+  return { tag: 'NEXT', head: `L${level + 1} ${money(price)} lab-wide:`, items: d.length ? d : ['better'] };
 }
 
 // one line of at most w px: every item, else the short wording, else as many whole items as fit + '+N more'
@@ -172,7 +206,7 @@ export function fitLine(n, w) {
 const BRIEF = {
   egress: cp => `Exfiltration past it is blocked, read or not. R&D −${pc(1 - cp.rdMult)}; side channels from G${Math.min(...Object.keys(cp.sideChannel))}.`,
   auditor: cp => `Each human covers ${cp.capacityMult}× as much. Accuracy is capped by the model's honesty (max ${pc(cp.honestyCap)}).`,
-  leastpriv: cp => `Exfiltration below fails ${pc(cp.exfilFail)} of the time; landed sabotage does ${times(cp.driftMult)} the drift.`,
+  leastpriv: cp => `Exfiltration below fails ${pc(cp.exfilFail)} of the time; a landed attack adds ${times(cp.debtMult)} the debt.`,
   ratelimit: () => `Turned-away lines go to the trusted model: they pay ${pc(B.deferPay)}, zero risk.`,
   interp: () => 'Reveals the true m in the dossier at any evidence, as long as the lab stays.',
 };
@@ -253,7 +287,7 @@ export function draw(c, r, sel) {
   text(g, fit(LAYERS[id].name, F.v24, W - 130), X + 36, Y + 24, F.v24, C.g);
 
   // ---------- line 2: where it is and what it is doing ----------
-  const where = lane === 'global' ? 'LAB SITE' : `${R.laneName(st, lane)} · MOUNT ${sel.slot + 1}`;
+  const where = lane === 'global' ? 'LAB SITE' : `${laneTab(lane)} · MOUNT ${sel.slot + 1}`;
   let x = X + 6 + chip(g, X + 6, Y + 31, where, C.bg, col.mid) + 6;
   text(g, fit(stateLine(st, lane, sel.slot, slot), F.v16, X + W - 6 - x), x, Y + 41, F.v16, active ? C.gm : C.gd);
 
@@ -275,7 +309,7 @@ export function draw(c, r, sel) {
   });
 
   // ---------- the big UPGRADE key ----------
-  upgradeKey(c, X + 246, Y + ROW_Y - 1, 100, 45, id, lvl, hov('upgrade'), lane === 'global' ? 'MORE RESEARCHERS' : 'OR SHIFT+CLICK');
+  upgradeKey(c, X + 246, Y + ROW_Y - 1, 100, 45, id, lvl, hov('upgrade'), lane === 'global' ? 'MORE RESEARCHERS' : 'EVERY COPY');
 
   // ---------- L5 capstone preview: up to two lines (hover it for the full config text) ----------
   const cp = UPGRADES[id].capstone, have = lvl >= MAX_LEVEL, next = lvl === MAX_LEVEL - 1, cy = Y + CAP_Y;
@@ -312,8 +346,8 @@ function stateLine(st, lane, i, slot) {
     const busy = slot.busy.filter(u => u > st.t).length, heads = R.detectorHeads(id, slot.level);
     return `ON · reading ${busy}/${heads} · ${slot.reads} read, ${slot.unread} missed`;
   }
-  if (LAYERS[id].bay) return `ON · bay ${R.bayCount(st, lane, i)}/${R.bayDesks(st, id, slot.level)} desks busy`;
-  return 'ON';
+  if (LAYERS[id].bay) return `ON · ${R.bayCount(st, lane, i)}/${R.servers(st, id, slot.level)} desks busy · L${slot.level} lab-wide`;
+  return `ON · L${slot.level} lab-wide`;
 }
 
 // four rows: the ones the next level changes first, then the rest, shown in the element's own order
@@ -345,14 +379,10 @@ function upgradeKey(c, x, y, w, h, id, lvl, hot, hint) {
 // ON/OFF · bay rule · sell · + mount · close, left to right
 function buttons(c, x0, y, wAll, sel, slot, hov) {
   const { g, st, api } = c, id = slot.layer, L = LAYERS[id], lane = sel.lane, h = BTN_H;
-  const sell = R.investedPrice(st, id, slot.level) * B.sellRefund;
+  const sell = R.investedPrice(st, id) * B.sellRefund;
   const list = [];
   if (lane === 'global') list.push({ action: null, label: 'ALWAYS ON' });
   else list.push({ action: 'toggle', label: slot.on ? 'TURN OFF' : 'TURN ON', lit: !slot.on });
-  if (L.bay && lane !== 'global') {
-    const rule = slot.onFull ?? L.onFull;
-    list.push({ action: 'bay', label: 'BAY FULL:', val: rule === 'wave' ? 'WAVE' : 'BLOCK', fixed: !api?.act?.setBayRule });
-  }
   list.push({ action: 'sell', label: 'SELL', val: '+' + money(sell) });
   const sp = lane === 'global' ? null : R.slotPrice(st, lane);
   if (sp != null) list.push({ action: 'buyslot', label: '+ MOUNT', val: money(sp), dim: st.money < sp });
@@ -390,11 +420,6 @@ export const input = {
       else if (a === 'sell') { if (act.sell(sel.lane, sel.slot)) view.selected = null; }
       else if (a === 'buyslot') act.buySlot(sel.lane);
       else if (a === 'close') view.selected = null;
-      else if (a === 'bay' && slot?.layer) {
-        const rule = slot.onFull ?? LAYERS[slot.layer].onFull;
-        if (act.setBayRule) act.setBayRule(sel.lane, sel.slot, rule === 'wave' ? 'block' : 'wave');
-        else view.toast(rule === 'wave' ? 'bay full: the line rolls on, still flagged (risky, keeps the pay)' : 'bay full: the line is blocked (safe, loses the pay)');
-      }
     },
   },
 };

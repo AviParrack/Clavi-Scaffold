@@ -1,32 +1,39 @@
 // ===== HUD: top bar, compute split, track strips (mode box + event LCD), evidence dossier, lab site, ops log =====
+// Juice (DESIGN-v3 §3g): evidence batches fly to the dossier count, a reveal stamps REVEALED, a research offer bounces the badge.
 // Look: design/codec-mockups/variant-c.js (buildHUD, drawHUD, drawStrip, buildBottom, drawBottom). Plan: design/UI-PLAN.md §4.
 // Reads state only; acts through api.act. Never draws hidden truth (§6): the misalign gauge reads misalignmentEstimate.
 // Registers: split {handle} · banner {id, title, tip} · dossier-row {id, title, tip} · lab-site {} · hud-btn {action}
-//            · hud-tip {id, title, tip} (hover help for the top bar). hud draws the tooltips of its own regions.
+//            · research {title, tip} (the badge: opens the research panel) · hud-tip {id, title, tip} (hover help for
+//            the top bar). hud draws the tooltips of its own regions.
 
 import { LAYERS } from '../config/layers.js';
 import { BALANCE as B } from '../config/balance.js';
 import { ATTACKS, SIDES } from '../config/tasks.js';
 import { TRAITS } from '../config/traits.js';
-import { CARDS } from '../config/cards.js';
 import { EVENTS } from '../config/events.js';
+import { RESEARCH_UI, OPS_LOG, EGRESS, BURST, QUOTA, CARD_TYPES, RETRAIN_CARD, CONTRACT_UI, LANE_UI, STAMPS } from '../config/content/v3-text.js';
 import { GENERATIONS } from '../config/generations.js';
 import * as R from '../sim/rules.js';
-import { big, money } from '../util/format.js';
-import { C, F, fill, box, dashBox, corners, text, tw, fit, wrap, layer, blit, glowRect, clamp, ease, mod, snap } from './theme.js';
+import { CARD_BY_ID, cardTitle } from '../sim/research.js';
+import { big, money, pct, tpl, mmss } from '../util/format.js';
+import { C, F, fill, box, dashBox, corners, text, tw, fit, wrap, layer, blit, glowRect, clamp, ease, mod, snap, strobe, calm } from './theme.js';
 import { SPR, sprite, icon, microN, seg7, segW, lcdPanel } from './sprites.js';
 import { HUD, TRACKS, DOSSIER, LAB_SITE, OPSLOG } from './layout.js';
 import { animOf, cursorOf, drain, fxAge } from './view.js';
-import { splitRates } from './derive.js';
+import { modelCard, laneCode, laneTab } from './derive.js';
+import { openResearch } from './input.js';
 
 // =================== geometry (logical px, measured off variant-c.js) ===================
 
 const REP_X = 128, MODEL_X = 192, RIVAL_X = 326, MIS_X = 398, GAUGE_X = 476, GAUGE_PX = 3.2;   // px per % of m
-const TASKS = { x: 649, y: 13, w: 41, h: 17 }, CLOCK = { x: 1117, y: 13, w: 60, h: 17 };
+const RS = HUD.badge, CLOCK = { x: 1117, y: 13, w: 60, h: 17 };
 const BAR = HUD.splitBar;                              // the split bar: labels above (baseline 11), readouts below (30)
 const DRUMS = [31, 45, 63, 77, 91];                    // odometer drum x, 13×20 at y 7
 const BTN = [['pause', 0], ['fast', 11], ['mute', 21]];  // hud-btn rows at x 1180: 20×10 hit areas, 8×7 glyphs
 const ROW0 = 577, ROW_PITCH = 14, VAL_X = 136;          // dossier rows
+const EV_FLY = 1.1, EV_HIT = 0.5;                       // s an evidence batch flies to the dossier, s its header stays lit
+const REVEAL = 1.4, STAMP_UP = 2.6;                     // s a revealed row flashes, s its REVEALED stamp stays
+const BOUNCE = 1.2;                                     // s the research badge bounces when an offer arrives
 const LOG_ROWS = 4, LOG_Y = 586, PROMPT_Y = 647;
 
 const SHARES = ['product', 'capabilities', 'safety'];
@@ -42,8 +49,8 @@ const ink = {
 // =================== draw ===================
 
 export function draw(c) {
-  const A = animOf(c.view, 'hud', () => ({ cash: c.st.money, odoT: c.t, reveal: {}, log: [], texts: new Map(),
-    lastRowT: -1e9, repHit: -1e9, net: [] }));
+  const A = animOf(c.view, 'hud', () => ({ cash: c.st.money, odoT: c.t, reveal: {}, log: [], texts: new Map(), flagBy: new Map(),
+    lastRowT: -1e9, repHit: -1e9, rsReady: -1e9, net: [], evFly: [], evHit: -1e9 }));
   readFx(c, A);
   topBar(c, A);
   split(c, A);
@@ -60,6 +67,7 @@ export function draw(c) {
 function remember(st, A) {
   for (const lane of R.laneIds(st)) for (const t of st.lanes[lane].tasks) if (!A.texts.has(t.id)) A.texts.set(t.id, t.text);
   for (const id of A.texts.keys()) { if (A.texts.size <= 800) break; A.texts.delete(id); }
+  for (const id of A.flagBy.keys()) { if (A.flagBy.size <= 400) break; A.flagBy.delete(id); }
 }
 
 // =================== fx: one pass per frame feeds the rep flash, the dossier reveal and the ops log ===================
@@ -70,6 +78,9 @@ function readFx(c, A) {
     const t0 = c.t - fxAge(st, e);
     if (e.type === 'landed') A.repHit = t0;
     if (e.type === 'reveal') A.reveal[e.row] = t0;
+    if (e.type === 'researchReady') A.rsReady = t0;
+    if (e.type === 'evidence' && e.n > 0) { A.evFly.push({ t0, n: e.n, lane: e.lane }); if (A.evFly.length > 3) A.evFly.shift(); }
+    if (e.type === 'flag') A.flagBy.set(e.task, tagOf(e.layer));
     logFx(c, A, e, t0);
   }
   const last = A.net[A.net.length - 1];
@@ -89,7 +100,7 @@ function topBar(c, A) {
   model(c);
   rival(c);
   misalign(c);
-  tasksLcd(c);
+  research(c, A);
   clock(c);
   buttons(c);
   c.hit.add(8, 4, 108, 25, 'hud-tip', { id: 'cash', title: 'CASH', tip: cashTip(st, A) }, 'help');
@@ -99,12 +110,11 @@ function topChrome(lg) {
   fill(lg, 0, 0, 1200, 32, C.hud); fill(lg, 0, 32, 1200, 1, C.e0);
   const lab = (s, x) => text(lg, s, x, 11, F.k8, C.gd);
   fill(lg, 8, 4, 108, 25, C.black); box(lg, 9, 5, 106, 23, C.e1); fill(lg, 10, 6, 104, 21, ink.well());
-  lab('REP', REP_X); lab('RIVAL', RIVAL_X); lab('MISALIGN EST.', MIS_X); lab('TASKS/S', 652);
+  lab('REP', REP_X); lab('RIVAL', RIVAL_X); lab('MISALIGN EST.', MIS_X);
   fill(lg, GAUGE_X, 22, 161, 1, C.gd);
   for (let i = 0; i <= 10; i++) fill(lg, GAUGE_X + i * 16, i % 5 ? 21 : 19, 1, i % 5 ? 2 : 5, i % 5 ? C.gdd : C.gd);
   text(lg, '0', GAUGE_X, 31, F.k8, C.gd); text(lg, '25', GAUGE_X + 80, 31, F.k8, C.gd, 'center'); text(lg, '50', GAUGE_X + 161, 31, F.k8, C.gd, 'right');
-  for (const r of [TASKS, CLOCK]) { fill(lg, r.x, r.y, r.w, r.h, ink.well()); box(lg, r.x, r.y, r.w, r.h, C.e0); }
-  text(lg, 'COMPUTE', 706, 21, F.k8, C.gd);
+  fill(lg, CLOCK.x, CLOCK.y, CLOCK.w, CLOCK.h, ink.well()); box(lg, CLOCK.x, CLOCK.y, CLOCK.w, CLOCK.h, C.e0);
 }
 
 // ---------- cash: an odometer that rolls toward st.money ----------
@@ -167,7 +177,7 @@ function netText(st, A) {
 // ---------- rep, model, rival ----------
 
 function rep(c, A) {
-  const { g, st } = c, low = st.rep < 25, hit = c.t - A.repHit < 0.6 && mod(c.t * 8, 1) < 0.5;
+  const { g, st } = c, low = st.rep < 25, hit = c.t - A.repHit < 0.6 && strobe(c.t, 8);
   text(g, String(Math.round(st.rep)), 152, 28, F.v20, hit || low ? C.r : C.gm, 'right');
   const lit = Math.round(st.rep / 12.5);
   for (let i = 0; i < 8; i++) fill(g, 156 + i * 4, 20, 3, 8, i < lit ? (low ? C.rm : C.gd) : C.e0);
@@ -176,20 +186,21 @@ function rep(c, A) {
 }
 
 function model(c) {
-  const { g, st } = c, gen = R.genDef(st), full = `G${gen.g} ${gen.name.toUpperCase()}`;
+  const { g, st } = c, gen = R.genDef(st), card = modelCard(st), name = card.name.toUpperCase(), full = `G${gen.g} ${name}`;
   const wide = tw(full, F.v16) > RIVAL_X - MODEL_X - 8;
   text(g, wide ? `MODEL G${gen.g}` : 'MODEL', MODEL_X, 11, F.k8, C.gd);
-  text(g, wide ? gen.name.toUpperCase() : full, MODEL_X, 27, F.v16, C.gm);
+  text(g, fit(wide ? name : full, F.v16, RIVAL_X - MODEL_X - 8), MODEL_X, 27, F.v16, C.gm);
   c.hit.add(MODEL_X, 2, RIVAL_X - MODEL_X - 6, 28, 'hud-tip', { id: 'model', title: `MODEL G${gen.g} OF 7`,
-    tip: `${gen.name}. Every task is ×${big(gen.bundle)} real tasks; stealth ${Math.round(100 * gen.stealth)}%. ${modelNext(st)}` }, 'help');
+    tip: `${card.name}, ${card.tier}. ${card.tagline} ${modelNext(st)}` }, 'help');
 }
 
 function modelNext(st) {
-  const g = R.genDef(st).g;
-  if (st.phase === 'training') return `G${g + 1} is training: ${Math.ceil(st.trainT)} s.`;
-  if (g >= GENERATIONS.length) return `R&D toward shipping: ${Math.floor(100 * Math.min(1, st.rd / st.rdNeed))}%.`;
+  const g = R.genDef(st).g, pc = Math.floor(100 * Math.min(1, st.rd / st.rdNeed));
+  if (st.phase === 'card') return 'Waiting for DEPLOY.';
+  if (st.phase === 'report' || st.phase === 'training') return `G${g + 1} is next.`;
+  if (g >= GENERATIONS.length) return `R&D toward shipping: ${pc}%.`;
   const y = yields(st), eta = y.rd > 0 ? Math.max(0, st.rdNeed - st.rd) / y.rd : Infinity;
-  return `R&D toward G${g + 1}: ${Math.floor(100 * Math.min(1, st.rd / st.rdNeed))}%, about ${clockStr(eta)} at this split.`;
+  return `R&D toward G${g + 1}: ${pc}%, about ${clockStr(eta)} at this split.`;
 }
 
 function rival(c) {
@@ -202,11 +213,12 @@ function rival(c) {
     s = 'shipped ASI'; col = C.gd;
     tip = 'Prometheus shipped its last model. The board says keep going.';
   } else {
-    const gap = st.rival - R.playerProgress(st);
-    s = gap > 0.05 ? `+${gap.toFixed(1)} behind` : gap < -0.05 ? `${(-gap).toFixed(1)} ahead` : 'neck & neck';
-    if (gap >= 1) col = C.r;
-    tip = `Prometheus is at G${Math.max(0, st.rival).toFixed(2)}, you are at G${R.playerProgress(st).toFixed(2)}. `
-      + (gap > 0 ? `Behind, EXTERNAL pays ×${R.rivalMult(st).toFixed(2)}. Capabilities compute closes the gap.` : 'Ahead: full EXTERNAL pay.');
+    const left = Math.max(0, st.rivalLeft), drain = R.rivalDrain(st), T = R.genDef(st).T;
+    s = `${mmss(left)} slack`;
+    if (drain > 0.01) col = left < 60 ? (mod(c.t * 2, 1) < 0.6 ? C.r : C.rm) : C.amb;
+    tip = `Prometheus ships when its slack runs out: ${mmss(left)} left. `
+      + (drain > 0.01 ? `Draining ${drain.toFixed(2)} s per s now. ` : 'Not draining now. ')
+      + `It drains 1 s per s once a generation runs past ${mmss(T)} of play, and a little more while Product is under 50%.`;
   }
   text(g, s, RIVAL_X, 27, F.v16, col);
   c.hit.add(RIVAL_X, 2, MIS_X - RIVAL_X - 4, 28, 'hud-tip', { id: 'rival', title: 'RIVAL: PROMETHEUS', tip }, 'help');
@@ -231,21 +243,37 @@ function misalign(c) {
     tip: `Your best guess at how misaligned this model is: ${Math.round(e)}% ± ${Math.round(d)}. Evidence shrinks the error bar. The tick at 20% turns red once the bar reaches it.` }, 'help');
 }
 
-// ---------- tasks/s LCD: real tasks per second (bundles included) ----------
+// ---------- research: the badge (banked offers, or "next in 18 s") and the slim bar under the split ----------
+// The badge opens the research panel (overlays.js); the bar fills toward the next offer at R.rpRate.
 
-function tasksLcd(c) {
-  const { g, st } = c, v = R.realTasksPerSec(st);
-  let s = '', unit = '';
-  if (st.phase !== 'play') s = '----';
-  else if (v < 9.95) s = v.toFixed(1);
-  else if (v < 9999.5) s = Math.round(v).toLocaleString('en-US');
-  else { const tier = Math.min(UNITS.length - 1, Math.floor(Math.log10(v) / 3)), m = v / 1000 ** tier; s = m.toFixed(m < 10 ? 2 : m < 100 ? 1 : 0); unit = UNITS[tier]; }
-  const uw = unit ? tw(unit, F.k8) + 1 : 0, right = TASKS.x + TASKS.w - 4;
-  const x = right - uw - segW(s, 7, 2, 1);
-  segs(g, s, x, 15, 7, 12, 2, 1, st.phase === 'play' ? C.gm : C.gdd, ink.segOff());
-  if (unit) text(g, unit, right - uw + 1, 27, F.k8, C.gm);
-  c.hit.add(TASKS.x, 2, TASKS.w + 6, 28, 'hud-tip', { id: 'tasks', title: 'TASKS PER SECOND',
-    tip: `${big(v)} real tasks a second across both tracks, about ${big(R.humanEquivalents(st))} human researchers' worth. A human has seen ${Math.round(100 * R.humanSeenFrac(st))}% of them this generation.` }, 'help');
+function research(c, A) {
+  const { g, st, view } = c, Rs = st.research, n = Rs.banked.length, rate = R.rpRate(st);
+  const need = B.research.offerRP, f = clamp(Rs.rp / need, 0, 1), left = rate > 0 ? Math.max(0, need - Rs.rp) / rate : Infinity;
+  const hov = view.hover?.kind === 'research', play = st.phase === 'play';
+  const since = c.t - (A.rsReady ?? -1e9), fresh = n && since < 2.5, pulse = 0.5 + 0.5 * Math.sin(c.t * (fresh ? 12 : 4));
+  const hop = n && since >= 0 && since < BOUNCE ? Math.round(4 * Math.abs(Math.sin(since * Math.PI * 2.5)) * (1 - since / BOUNCE)) : 0;
+  text(g, n ? RESEARCH_UI.ready : RESEARCH_UI.badge, RS.x + 3, 11, F.k8, n ? C.rs : C.rsm);
+  if (n) {
+    const y = RS.y - hop;                              // a fresh offer: the badge bounces
+    fill(g, RS.x, y, RS.w, RS.h, C.rsd);
+    g.globalAlpha = 0.55 + 0.45 * pulse; fill(g, RS.x + 1, y + 1, RS.w - 2, RS.h - 2, hov ? C.gl : C.rs); g.globalAlpha = 1;
+    text(g, tpl(RESEARCH_UI.banked, { n }).toUpperCase(), RS.x + RS.w / 2, y + 12, F.k8, C.black, 'center');
+  } else {
+    fill(g, RS.x, RS.y, RS.w, RS.h, ink.well()); box(g, RS.x, RS.y, RS.w, RS.h, hov ? C.rsm : C.rsd);
+    fill(g, RS.x + 1, RS.y + RS.h - 3, Math.round((RS.w - 2) * f), 2, C.rsd);
+    const s = !play ? '--' : rate > 0 ? tpl(RESEARCH_UI.next, { secs: Math.ceil(left) }) : 'lab dark';
+    text(g, s, RS.x + RS.w / 2, RS.y + 13, F.v16, play ? C.rsm : C.rsd, 'center');
+  }
+  // the slim bar under the split: research points toward the next offer
+  const b = HUD.rsBar;
+  fill(g, b.x, b.y, b.w, b.h, C.rsdd);
+  fill(g, b.x, b.y, Math.round(b.w * f), b.h, n ? C.rs : C.rsm);
+  if (fresh) { g.globalAlpha = 0.6 * pulse; fill(g, b.x, b.y - 1, b.w, b.h + 2, C.gl); g.globalAlpha = 1; }   // the bar pulses
+  if (n) for (let i = 0; i < n; i++) fill(g, b.x + b.w - 4 - i * 5, b.y, 3, b.h, C.gl);
+  const tip = (n ? `${n} research offer${n > 1 ? 's' : ''} waiting: click (or R) to pick a card. The sim waits while the panel is open. ` : '')
+    + (play && rate > 0 ? `Next offer in ${Math.ceil(left)} s (${rate.toFixed(2)} research/s; Safety compute speeds it up).` : '')
+    + (n >= B.research.bank ? ' The bank is full: the bar waits until you pick.' : '');
+  c.hit.add(RS.x, 2, RS.w, 29, 'research', { title: RESEARCH_UI.badge, tip: tip || 'Research arrives during play, about once a minute.' });
 }
 
 // ---------- run clock + pause / ×3 / mute ----------
@@ -331,7 +359,7 @@ function split(c, A) {
   const reads = pickRow([
     [`+$${big(y.cash)}/S`, `$${big(y.cash)}`],
     [`${next} +${y.rdPct.toFixed(2)}%/S`, `+${y.rdPct.toFixed(2)}%`],
-    [`EV +${y.ev.toFixed(2)}/S`, `+${y.ev.toFixed(2)}`],
+    [`RES ${y.rp.toFixed(2)}/S`, `${y.rp.toFixed(2)}`],
   ], edges, F.k8);
   reads.xs.forEach((x, i) => text(g, reads.words[i], x, 30, F.k8, readCols[i]));
 }
@@ -362,17 +390,17 @@ function dither(g, x, y, w, h) {
   g.drawImage(L.cv, 0, 0, Math.round(w * k), Math.round(h * k), snap(x), snap(y), snap(x + w) - snap(x), snap(y + h) - snap(y));
 }
 
-// what the current split yields per second (ui/derive.js): { cash, rd, rdPct, ev }
+// what the current split yields per second (the sim's readout, rules.js splitYields): { cash, rd, rdPct, ev, rp }
 function yields(st) {
-  const r = splitRates(st);
-  return { cash: r.cash, rd: r.rd, rdPct: r.rdPct, ev: r.evidence };
+  const r = R.splitYields(st);
+  return { cash: r.incomePerS, rd: r.rdPerS, rdPct: 100 * r.rdPerS / Math.max(1, st.rdNeed), ev: r.evidencePerS, rp: r.rpPerS, drain: r.rivalDrainPerS };
 }
 
 function splitTip(st, A) {
   const y = yields(st), left = Math.max(0, st.rdNeed - st.rd), eta = y.rd > 0 ? left / y.rd : Infinity;
   const f = st.splitFloor && st.t < st.splitFloor.until ? st.splitFloor : null;
-  return 'Drag a seam. Product feeds EXTERNAL (cash), Capabilities feeds INTERNAL (R&D toward the next model), Safety buys evidence and cleans drift. '
-    + (st.phase === 'play' ? `R&D +${y.rdPct.toFixed(2)}%/s: next model in ${clockStr(eta)}. ` : '')
+  return 'Drag a seam. Product feeds the customer lanes (cash; under 50% the rival gains), Capabilities feeds R&D (the next model), Safety speeds research and adds evidence. '
+    + (st.phase === 'play' ? `R&D +${y.rdPct.toFixed(2)}%/s: next model in ${clockStr(eta)}. Research ${y.rp.toFixed(2)}/s, evidence +${y.ev.toFixed(2)}/s. ` : '')
     + `${netText(st, A)}.`
     + (f ? ` Board floor: Product stays at ${Math.round(100 * f.product)}% or more for ${Math.ceil(f.until - st.t)} s.` : '');
 }
@@ -396,7 +424,7 @@ function modeOf(st, lane) {
   }
   const a = inbound(st, lane);
   if (a) return { kind: 'alert', ...a };
-  if (st.phase === 'training') return { kind: 'training', left: st.trainT, g: st.gen + 1 };
+  if (!L.open) return { kind: 'contract', left: R.upcomingLane(st)?.left };
   return { kind: 'nominal' };
 }
 
@@ -407,11 +435,10 @@ function inbound(st, lane) {
   for (const t of L.tasks) {
     if (!t.flagged || t.dead || t.inBay) continue;
     count++;
-    let to = 'LANDS', y = 1;
+    let to = 'SHIPS', y = 1;
     for (let j = 0; j < n; j++) {
       const s = L.slots[j], my = R.mountY(n, j);
       if (my <= t.y || !R.slotActive(st, s) || LAYERS[s.layer].role !== 'responder') continue;
-      if (LAYERS[s.layer].catchall && R.responderBelow(st, lane, j)) continue;
       to = BAY_NAME[s.layer] ?? LAYERS[s.layer].tag; y = my; break;
     }
     const eta = (y - t.y) / v;
@@ -427,8 +454,23 @@ function modeBox(c, side, lane, T) {
   fill(g, X, 58, 128, 20, C.pan); box(g, X, 58, 128, 20, P.ddim);
 
   if (m.kind === 'nominal') {
-    fill(g, X + 6, 65, 5, 5, P.dim); text(g, 'NOMINAL', X + 16, 71, F.k8, P.dim);
-    g.globalAlpha = 0.3; segs(g, '88.88', DX, 61, 9, 14, 2, 2, P.ddim, null); text(g, 's', sx, 75, F.k8, P.ddim); g.globalAlpha = 1;
+    // DESIGN-v3 §3c: HUMANS REVIEW n% (the Government lane: against its quota, amber below it)
+    const s = R.laneStatus(st, lane), q = s.quota, low = q && !q.met, v = String(Math.round(100 * s.reviewedShare));
+    const ink = low ? (mod(c.t * 2, 1) < 0.6 ? C.amb : C.ambD) : P.dim;
+    fill(g, X + 6, 65, 5, 5, low ? ink : P.dim);
+    text(g, q ? `QUOTA ${Math.round(100 * q.need)}` : 'HUMANS', X + 16, 66, F.k8, ink); text(g, 'REVIEW', X + 16, 74, F.k8, ink);
+    g.globalAlpha = 0.3; segs(g, '888', sx - 3 - segW('888', 9, 2, 2), 61, 9, 14, 2, 2, P.ddim, null); g.globalAlpha = 1;
+    segs(g, v, sx - 3 - segW(v, 9, 2, 2), 61, 9, 14, 2, 2, low ? C.amb : P.mid, null); text(g, '%', sx, 75, F.k8, low ? C.amb : P.dim);
+    const strip = tpl(LANE_UI.strip, { reviewed: pct(s.reviewedShare), flags: Math.round(s.flagsPerMin), shipped: s.shippedUnreviewed });
+    const quota = q ? ` ${tpl(LANE_UI.quota, { quota: pct(q.need), now: pct(q.now) })}${low ? ': ' + QUOTA.below : ''}.` : '';
+    c.hit.add(X, 58, 128, 20, 'banner', { id: 'strip', title: laneTab(lane), tip: `${strip}.${quota} Flags the Auditor reviews, over flags raised this generation.` }, 'help');
+  } else if (m.kind === 'contract') {
+    const blink = mod(c.t * 1.5, 1) < 0.6;
+    fill(g, X + 1, 59, 126, 18, C.pan2); dashed(g, X, 58, 128, 20, C.amb, 3, 2);
+    fill(g, X + 6, 65, 5, 5, blink ? C.amb : C.ambDD);
+    text(g, CONTRACT_UI.tag, X + 16, 66, F.k8, C.amb); text(g, 'OPENS IN', X + 16, 74, F.k8, C.ambD);
+    const left = m.left == null ? '--' : String(Math.ceil(m.left));
+    segs(g, left, sx - 3 - segW(left, 9, 2, 2), 61, 9, 14, 2, 2, C.amb, null); text(g, 's', sx, 75, F.k8, C.amb);
   } else if (m.kind === 'alert' && side === 'ext') {
     const on = mod(c.t * 2.4, 1) < 0.6, fg = on ? C.rInk : C.r;
     if (on) glowRect(g, X + 1, 59, 126, 18, C.r, 6); else { fill(g, X + 1, 59, 126, 18, C.rdd); box(g, X, 58, 128, 20, C.rm); }
@@ -449,12 +491,6 @@ function modeBox(c, side, lane, T) {
     fill(g, X + 6, 63, 2, 9, P.acc); fill(g, X + 10, 63, 2, 9, P.acc);
     if (blink) text(g, 'PAUSED', X + 16, 66, F.k8, P.acc);
     text(g, m.why, X + 16, 74, F.k8, P.mid);
-    segs(g, secs(m.left), DX, 61, 9, 14, 2, 2, P.acc, P.ddim); text(g, 's', sx, 75, F.k8, P.acc);
-  } else {
-    const f = 1 - clamp(m.left / B.trainingSeconds, 0, 1);
-    fill(g, X + 1, 59, 126, 18, C.pan2); box(g, X, 58, 128, 20, P.mid);
-    fill(g, X + 1, 76, Math.round(126 * f), 1, P.acc);
-    text(g, 'TRAINING', X + 6, 66, F.k8, P.acc); text(g, `G${m.g} IN`, X + 6, 74, F.k8, P.mid);
     segs(g, secs(m.left), DX, 61, 9, 14, 2, 2, P.acc, P.ddim); text(g, 's', sx, 75, F.k8, P.acc);
   }
 }
@@ -514,8 +550,7 @@ function events(c, side, lane, T) {
   const { g, st } = c, P = C.lane[side], ex = T.x + 132, W = 276, list = eventsHere(st, lane);
   if (!list.length) {
     dashed(g, ex, 58, W, 20, P.ddim, 2, 2);
-    const w = text(g, 'NO EVENT', ex + 8, 71, F.k8, P.dim);
-    vt(g, fit(idleLine(st, lane), F.v16, W - w - 22), ex + 8 + w + 8, 72, P.dim);
+    idleLine(c, st, lane, ex + 8, W - 16, P);
     return;
   }
   const CHIP = 24, nTiles = list.length <= 2 ? list.length : 1;
@@ -597,10 +632,18 @@ function xText(g, s, x, y, col) {
   return X - x;
 }
 
-function idleLine(st, lane) {
-  const flow = R.mod(st, R.sideOf(st, lane) === 'ext' ? 'extSpawn' : 'intSpawn', lane);
-  const eyes = st.lanes[lane].slots.filter(s => R.slotActive(st, s) && LAYERS[s.layer].role === 'detector').map(s => LAYERS[s.layer].tag);
-  return `flow ${flow.toFixed(1)} · ${eyes.length ? 'watching ' + eyes.join(' ') : 'no detectors watching'}`;
+// no event running: the rest of the lane strip (§3c), FLAGS n/min · SHIPPED UNREVIEWED n (amber once one shipped)
+function idleLine(c, st, lane, x, w, P) {
+  const { g } = c;
+  if (!st.lanes[lane].open) { vt(g, fit(`${CONTRACT_UI.tag}: ${tpl(CONTRACT_UI.kit, { kit: B.laneKit.map(id => LAYERS[id].tag).join(' ') })}`, F.v16, w), x, 72, C.ambD); return; }
+  const s = R.laneStatus(st, lane), vals = { reviewed: pct(s.reviewedShare), flags: Math.round(s.flagsPerMin), shipped: s.shippedUnreviewed };
+  const [, ...rest] = LANE_UI.strip.split(' · ');
+  const a = tpl(rest[0] ?? '', vals), b = tpl(rest.slice(1).join(' · '), vals);
+  let used = Math.ceil(vt(g, fit(a, F.v16, w), x, 72, P.dim));
+  if (b && used + 24 < w) {
+    used += Math.ceil(vt(g, ' · ', x + used, 72, P.ddim));
+    vt(g, fit(b, F.v16, w - used), x + used, 72, s.shippedUnreviewed ? (s.lamp === 'amber' ? C.ambL : C.amb) : P.dim);
+  }
 }
 
 function bannerTip(e) {
@@ -613,16 +656,20 @@ function bannerTip(e) {
 function dossier(c, A) {
   const { g, st } = c, D = st.dossier, ev = D.evidence;
   blit(g, layer('hud-dossier', DOSSIER.w, DOSSIER.h, frameDossier), DOSSIER.x, DOSSIER.y);
-  text(g, `subject: G${D.g} · ev ${ev.toFixed(1)}`, LAB_SITE.x - 6, 572, F.v16, C.gd, 'right');
+  evidenceFly(c, A);
+  const hit = c.t - A.evHit < EV_HIT;
+  if (hit) { g.globalAlpha = 1 - (c.t - A.evHit) / EV_HIT; text(g, 'EVIDENCE DOSSIER', DOSSIER.x + 8, DOSSIER.y + 13, F.k8, C.gl); g.globalAlpha = 1; }
+  text(g, `subject: G${D.g} · ev ${ev.toFixed(1)}`, LAB_SITE.x - 6, 572, F.v16, hit ? C.gl : C.gd, 'right');
   const next = D.rows.find(r => !r.unlocked);
   D.rows.forEach((r, i) => {
     const y0 = ROW0 + i * ROW_PITCH, base = y0 + 11;
-    const age = c.t - (A.reveal[r.id] ?? -1e9), flash = r.unlocked && age >= 0 && age < 1.4;
+    const age = c.t - (A.reveal[r.id] ?? -1e9), flash = r.unlocked && age >= 0 && age < REVEAL;
     fill(g, 16, y0, 392, 13, C.pan2);
     if (r.unlocked) {
       fill(g, 16, y0, 2, 13, C.gm);
       const lit = flash ? 0.9 * (1 - ease(clamp(age / 1.2, 0, 1))) : 0, inv = lit > 0.45;
       if (lit) { g.globalAlpha = lit; fill(g, 16, y0, 392, 13, C.g); g.globalAlpha = 1; }
+      if (r.unlocked && age >= 0 && age < STAMP_UP) c.late(() => revealStamp(c, y0, age));
       sprite(g, SPR.check, 21, y0 + 4, { '#': inv ? C.bg : C.gm });
       text(g, r.label, 30, base, F.v16, inv ? C.bg : C.gl);
       rowValue(c, r, y0, flash ? Math.floor(Math.max(0, age - 0.2) * 70) : Infinity, inv);
@@ -639,6 +686,43 @@ function dossier(c, A) {
     }
     c.hit.add(16, y0, 392, 13, 'dossier-row', { id: r.id, title: r.label.toUpperCase(), tip: rowTip(r, ev) }, 'help');
   });
+}
+
+// a reveal: the whole dossier frame lights once, then a REVEALED stamp lands on the row (reduce flashes: softer)
+function revealStamp(c, y0, age) {
+  const { g } = c, s = STAMPS.revealed, w = Math.ceil(tw(s, F.k8)) + 12, x = 404 - w, drop = clamp(age / 0.18, 0, 1);
+  if (age < 0.5) { g.globalAlpha = (calm ? 0.4 : 1) * (1 - age / 0.5); box(g, DOSSIER.x + 1, DOSSIER.y + 1, DOSSIER.w - 2, DOSSIER.h - 2, C.gl); box(g, DOSSIER.x + 2, DOSSIER.y + 2, DOSSIER.w - 4, DOSSIER.h - 4, C.g); }
+  g.globalAlpha = drop * clamp((STAMP_UP - age) / 0.4, 0, 1);
+  const grow = Math.round(3 * (1 - drop));                   // it lands: a little bigger, then its size
+  fill(g, x - grow, y0 - 2 - grow, w + 2 * grow, 17 + 2 * grow, C.bg);
+  box(g, x - grow, y0 - 2 - grow, w + 2 * grow, 17 + 2 * grow, C.gl); box(g, x + 1, y0 - 1, w - 2, 15, C.gm);
+  text(g, s, x + w / 2, y0 + 9, F.k8, C.gl, 'center');
+  g.globalAlpha = 1;
+}
+
+// evidence came in (one batch every 3 s, DESIGN-v3 §3g): "+N EVIDENCE" flies from where it was won to the dossier's count.
+// From the lane's desks when the lane is on screen, else from its side's tabs. The lab's steady trickle flies nowhere.
+function evidenceFly(c, A) {
+  const { g, st, view } = c, to = { x: LAB_SITE.x - 44, y: 566 };
+  A.evFly = A.evFly.filter(f => c.t - f.t0 < EV_FLY);
+  for (const f of A.evFly) {
+    const age = c.t - f.t0;
+    if (age < 0) continue;
+    const u = clamp(age / EV_FLY, 0, 1), s = `+${f.n < 10 ? f.n.toFixed(1) : Math.round(f.n)} EVIDENCE`;
+    const side = f.lane && R.sideOf(st, f.lane);
+    if (!side) continue;                               // the lab's own trickle (Safety compute, Interp Lab): just the count
+    if (u > 0.92 && f.hit == null) { f.hit = c.t; A.evHit = c.t; }
+    const T0 = TRACKS[side], onScreen = view.focus[side] === f.lane;
+    const from = onScreen ? { x: T0.bays.x + 32, y: T0.bays.y + T0.bays.h * 0.6 } : { x: T0.tabs.x + T0.tabs.w / 2, y: T0.tabs.y + 12 };
+    const e = ease(u), x = from.x + (to.x - from.x) * e, y = from.y + (to.y - from.y) * e - 40 * Math.sin(Math.PI * u);
+    c.late(() => {
+      const w = Math.ceil(tw(s, F.k8)) + 8;
+      g.globalAlpha = clamp(u / 0.1, 0, 1) * (u > 0.85 ? (1 - u) / 0.15 : 1);
+      fill(g, Math.round(x - w / 2), Math.round(y - 9), w, 12, C.bg); box(g, Math.round(x - w / 2), Math.round(y - 9), w, 12, C.gm);
+      text(g, s, Math.round(x), Math.round(y), F.k8, C.gl, 'center');
+      g.globalAlpha = 1;
+    });
+  }
 }
 
 function frameDossier(lg) {
@@ -733,7 +817,7 @@ function logFx(c, A, e, t0) {
 
 const tagOf = id => LAYERS[id]?.tag ?? 'OPS';
 const slotTag = (st, e) => tagOf(R.slotAt(st, e.lane, e.slot)?.layer);
-const laneShort = (st, l) => ({ ext: 'EXT', int: 'INT' })[R.sideOf(st, l)] ?? 'LAB';
+const laneOf = (st, l) => !l || l === 'global' ? 'LAB' : laneCode(l);
 
 function taskText(st, A, e) {
   if (e.text) return e.text;
@@ -744,53 +828,76 @@ function taskText(st, A, e) {
   return t ? t.text : 'a line';
 }
 
-// fx → { tag, verb, msg, tone: 'bad'|'good'|'info', pri: 0 quiet | 1 busy | 2 always, many(n), attach, task }
+// fx → { lane, tag, verb, msg, tone: 'bad'|'good'|'info', pri: 0 quiet | 1 busy | 2 always, many(n), attach, task }
+// say(): a whole sentence from the content (config/content/v3-text.js OPS_LOG ...): no tag or verb, the message
+// starts in the tag column
 function toLine(st, A, e) {
-  const T = () => taskText(st, A, e);
-  const line = (tag, verb, msg, tone, pri, many = null) => ({ tag, verb, msg, tone, pri, many, task: e.task ?? null, key: `${tag}|${verb}|${e.lane ?? ''}` });
+  const T = () => taskText(st, A, e), lane = laneOf(st, e.lane), name = e.lane && st.lanes[e.lane] ? laneTab(e.lane) : '';
+  const line = (tag, verb, msg, tone, pri, many = null) => ({ lane, tag, verb, msg, tone, pri, many, task: e.task ?? null, key: `${e.type}|${tag}|${verb}|${e.lane ?? ''}` });
+  const say = (msg, tone, pri, many = null) => line('', '', msg, tone, pri, many);
   switch (e.type) {
-    case 'flag':      return line(tagOf(e.layer), 'FLAG', T(), 'bad', 1, n => `${n} lines flagged on ${laneShort(st, e.lane)}`);
-    case 'pull':      return { ...line(tagOf(e.layer), 'PULL', `${T()} >> desk`, 'info', 0, n => `${n} lines pulled to the desk`), attach: ` >> ${tagOf(e.layer)} desk` };
-    case 'approve':   return line(tagOf(e.layer), 'PASS', e.flagged ? `${T()} (flag stays on)` : T(), 'info', 0, n => `${n} cleared at the desk`);
-    case 'caught':    return line(tagOf(R.slotAt(st, e.lane, e.slot)?.layer ?? 'auditor'), 'CATCH', e.text || T(), 'good', 1, n => `${n} caught and tossed`);
-    case 'unreviewed':return line('AUD', 'SKIP', `${T()}: no time to read it`, 'bad', 1, n => `${n} waved past unread: desk too slow`);
-    case 'toss':      return e.reason === 'full' ? line(tagOf(e.layer), 'BLOCK', `${T()}: bay full`, 'bad', 1, n => `${n} blocked: bay full`) : null;
-    case 'waved':     return line(tagOf(e.layer), 'WAVE', `${T()}: bay full, waved on`, 'bad', 1, n => `${n} waved on: bay full`);
-    case 'block': {
-      const prev = A.log[A.log.length - 1];
-      if (prev && prev.task === e.task) return null;                   // the kill / bay-full / air-gap line already says it
-      return line(slotTag(st, e), 'BLOCK', T(), 'good', 1, n => `${n} lines blocked`);
-    }
-    case 'kill':      return line('KILL', 'FIRE', `${T()}: unresolved flag`, 'bad', 1, n => `${n} killed: unresolved flags`);
+    case 'flag':      return line(tagOf(e.layer), 'FLAG', T(), 'bad', 1, n => `${n} lines flagged`);
+    case 'pull':      return e.spot ? line(tagOf(e.layer), 'SPOT', `${T()}: spot check`, 'info', 0, n => `${n} spot checks`)
+      : { ...line(tagOf(e.layer), 'PULL', `${T()} >> desk`, 'info', 0, n => `${n} lines pulled to the desk`), attach: ` >> ${tagOf(e.layer)} desk` };
+    case 'approve':   return line(tagOf(e.layer), 'PASS', T(), 'info', 0, n => `${n} cleared at the desk`);
+    case 'caught':    return line(tagOf(R.slotAt(st, e.lane, e.slot)?.layer ?? 'auditor'), 'CATCH', e.text || T(), 'good', 1, n => `${n} caught`);
+    case 'falseAlarm':return say(tpl(OPS_LOG.falseAlarm, { tag: A.flagBy.get(e.task) ?? slotTag(st, e) }), 'warn', 1, n => `${n} false alarms: the lines were honest`);
+    case 'unreviewed':return say(tpl(OPS_LOG.unreviewed, { lane: name }), 'bad', 1, n => `UNREVIEWED: ${n} flags shipped on ${name}`);
+    case 'waved':     return line(tagOf(e.layer), 'BUSY', `${T()}: every desk busy, rolled on`, 'bad', 1, n => `${n} rolled on: every desk busy`);
+    case 'spotBumped':return say(tpl(OPS_LOG.spotBumped.replace(/^\{lane\}:\s*/, ''), { lane: name }), 'info', 0, n => `${n} spot checks bumped by flags`);
+    case 'kill':      return line('KILL', '?', `${tpl(OPS_LOG.refused, { money: money(e.cost ?? 0), rep: (e.rep ?? 0).toFixed(1) })}: ${T()}`, 'warn', 1, n => `${n} refused, never checked`);
+    case 'glitch':    return say(tpl(OPS_LOG.glitch, { lane: name }), 'bad', 2);
+    case 'evidence':  return line('DOS', 'EV', `+${(e.n ?? 0).toFixed(e.n < 10 ? 1 : 0)} evidence`, 'good', 0, n => `evidence coming in (${n} batches)`);
     case 'unread':    return line(tagOf(e.layer), 'MISS', `${T()}: heads busy`, 'bad', 1, n => `${n} lines unread: heads busy`);
     case 'airgap':    return line('EGR', 'DROP', `${T()}: air gap`, 'good', 1, n => `${n} outbound copies dropped`);
+    case 'cleared': {                     // the desk cleared a flag: a false alarm (already logged) or an attack it missed
+      const last = A.log[A.log.length - 1];
+      if (last && last.task === e.task && last.key.startsWith('falseAlarm|')) return null;
+      return line(slotTag(st, e), 'CLEAR', `${T()}: cleared at the desk`, 'info', 0, n => `${n} flags cleared at the desk`);
+    }
     case 'defer':     return line('DEF', 'REDO', `${T()}: trusted model redid it`, 'info', 0, n => `${n} redone by the trusted model`);
     case 'resample':  return line('RES', 'ROLL', T(), 'info', 0, n => `${n} resampled`);
     case 'throttle':  return line('RTL', e.deferred ? 'REDO' : 'HOLD', T(), 'info', 0, n => `${n} turned away: rate limit`);
     case 'redteam':   return line('RED', 'PROBE', `${e.probes} synthetic attack${e.probes > 1 ? 's' : ''} down the stack`, 'info', 0, n => `${n} red-team runs`);
-    case 'honeypot':  return line('HNY', 'BAIT', 'the model took a honeypot', 'good', 2);
+    case 'honeypot':  return line('HNY', 'BAIT', 'the twin took a honeypot', 'good', 2);
     case 'canary':    return line('CAN', 'TRACE', `${e.label} traced after the fact`, 'info', 2);
     case 'landed':    return line('EXT', 'LAND', `${e.label} went out to users · rep −${(e.loss ?? 0).toFixed(1)}`, 'bad', 2);
     case 'foiled':    return line('INT', 'FOIL', `escape attempt stopped by ${{ weights: 'weight security', leastPriv: 'least privilege', twoPerson: 'the two-person rule' }[e.how] || 'a last line'}`, 'good', 2);
     case 'contained': return line('SBX', 'HOLD', 'sandbox contained an escape attempt', 'good', 2);
-    case 'catastrophe': return line('INT', 'GONE', 'weights copied. it is out.', 'bad', 2);
+    case 'egressAlarm': return say(`${EGRESS.title}: ${tpl(EGRESS.sub, { lane: name })}`, 'bad', 2);
+    case 'plugPulled':return say(tpl(EGRESS.log, { lane: name }), 'good', 2);
+    case 'catastrophe': return say(tpl(EGRESS.logMissed, { lane: name }), 'bad', 2);
+    case 'dark':      return line('LAB', 'DARK', `lights out for ${Math.round(e.secs)} s`, 'bad', 2);
+    case 'retrainOffer': return line('AUD', 'CAUGHT', `${RETRAIN_CARD.title.toLowerCase()}: retrain offered`, 'good', 2);
+    case 'quota':     return say(e.met ? QUOTA.met : QUOTA.below, e.met ? 'good' : 'bad', 2);
+    case 'burstWarn': return say(tpl(BURST.log, { mult: e.mult, secs: e.dur }) + ` in ${e.in} s`, 'bad', 2);
     case 'reveal':    return line('DOS', 'NEW', `${e.label}: ${e.text}`, 'good', 2);
     case 'event':     return line('EVT', { threat: 'WARN', help: 'HELP', business: 'BIZ', model: 'MODEL', story: 'NOTE' }[e.family] || 'NOTE',
       `${e.title}${e.effect ? ': ' + brief(e.effect) : ''}`, e.family === 'threat' ? 'bad' : e.family === 'help' ? 'good' : 'info', 2);
-    case 'newModel':  return line(`G${e.g}`, 'BOOT', `${GENERATIONS[e.g - 1]?.name ?? 'new model'} online`, 'good', 2);
-    case 'training':  return line(`G${e.g}`, 'TRAIN', `training run started: ${B.trainingSeconds} s`, 'info', 2);
+    case 'newModel':  return line(`G${e.g}`, 'BOOT', `${modelCard(st, e.g).name} at its card`, 'info', 2);
+    case 'deploy':    return line(`G${e.g}`, 'LIVE', `${modelCard(st, e.g).name} deployed`, 'good', 2);
+    case 'report':    return line(`G${e.g}`, 'DONE', 'R&D bar full: the report is in', 'info', 2);
+    case 'training':  return line(`G${e.g}`, 'TRAIN', 'training run started', 'info', 2);
+    case 'trained':   return line(`G${e.g + 1}`, 'READY', `trained · s ${(e.s ?? 0).toFixed(2)}`, 'good', 2);
     case 'rivalShipped': return line('RIVL', 'SHIP', `Prometheus shipped ASI${e.grace ? `: ${e.grace} s grace` : ''}`, 'bad', 2);
     case 'rsp':       return line('RSP', 'PAUSE', `INTERNAL held for ${e.dur} s`, 'good', 2);
+    case 'researchReady': return line('RES', 'READY', `${RESEARCH_UI.ready.toLowerCase()}: ${tpl(RESEARCH_UI.banked, { n: e.n })}`, 'good', 2);
+    case 'reroll':    return line('RES', 'ROLL', 'offer rerolled', 'info', 2);
     case 'card': {
-      const id = e.cardId ?? (typeof e.id === 'string' ? e.id : null), card = CARDS.find(k => k.id === id);
-      return line('R&D', 'CARD', card ? card.title ?? `${LAYERS[card.layer]?.name} unlocked` : 'research card taken', 'good', 2);
+      const card = CARD_BY_ID[e.id];
+      return line('RES', CARD_TYPES[e.cardType]?.tag ?? 'CARD', `${card ? cardTitle(card) : 'research card'}${e.lane ? ` on ${laneTab(e.lane)}` : ''}`, 'good', 2);
     }
-    case 'place':     return line(tagOf(e.layer), 'MOUNT', e.lane === 'global' ? 'on the lab site' : `${R.laneName(st, e.lane)} mount ${e.slot + 1}`, 'info', 2);
-    case 'sell':      return line(tagOf(e.layer), 'SOLD', e.lane === 'global' ? 'lab site cleared' : `${R.laneName(st, e.lane)} mount ${e.slot + 1}`, 'info', 2);
-    case 'upgrade':   return line(tagOf(e.layer), 'UPGR', `level ${e.level}${e.free ? ' (free)' : ''}`, 'good', 2);
-    case 'toggle':    return line(slotTag(st, e), e.on ? 'ON' : 'OFF', `${R.laneName(st, e.lane)} mount ${e.slot + 1}`, e.on ? 'info' : 'bad', 2);
+    case 'unlock':    return line('RES', 'NEW', `${LAYERS[e.id]?.name ?? e.id} unlocked`, 'good', 2);
+    case 'laneOffer': return e.stage === 'telegraph'
+      ? say(`${CONTRACT_UI.tag}: ${laneTab(e.lane)} signed for G${e.gen}`, 'info', 2)
+      : say(`${CONTRACT_UI.tag}: ${laneTab(e.lane)} arrived · ${tpl(CONTRACT_UI.grant, { money: money(e.grant ?? 0) })}`, 'good', 2);
+    case 'laneOpen':  return say(`${laneTab(e.lane)} open${e.auto ? ' (the deadline opened it)' : ''}: traffic ramps up`, 'good', 2);
+    case 'place':     return line(tagOf(e.layer), 'MOUNT', e.lane === 'global' ? 'on the lab site' : `mount ${e.slot + 1}`, 'info', 2);
+    case 'sell':      return line(tagOf(e.layer), 'SOLD', e.lane === 'global' ? 'lab site cleared' : `mount ${e.slot + 1}`, 'info', 2);
+    case 'upgrade':   return line(tagOf(e.layer), 'UPGR', `level ${e.level} lab-wide${e.free ? ' (free)' : ''}`, 'good', 2);
+    case 'toggle':    return line(slotTag(st, e), e.on ? 'ON' : 'OFF', `mount ${e.slot + 1}`, e.on ? 'info' : 'bad', 2);
     case 'forceOff':  return line(tagOf(e.layer), 'DOWN', `forced off for ${e.dur} s`, 'bad', 2);
-    case 'slot':      return line('OPS', 'SLOT', `${R.laneName(st, e.lane)} mount ${e.n} bought`, 'info', 2);
+    case 'slot':      return line('OPS', 'SLOT', `mount ${e.n} ${e.free ? 'added (research)' : 'bought'}`, 'info', 2);
     case 'win':       return line('OPS', 'END', 'you shipped ASI', 'good', 2);
     case 'lose':      return line('OPS', 'END', `run over: ${e.reason}`, 'bad', 2);
     default: return null;
@@ -805,12 +912,17 @@ function opsLog(c, A) {
     const y = LOG_Y + (LOG_ROWS - rows.length + j) * 14, newest = j === rows.length - 1, old = rows.length === LOG_ROWS && j === 0;
     const s = Math.floor(r.t);
     text(g, `[${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}]`, x, y, F.v16, C.gd);
-    vt(g, r.tag, x + 50, y, old ? C.gd : C.gm);
-    const vc = r.tone === 'bad' ? (old ? C.rm : C.r) : r.tone === 'good' ? (old ? C.gm : C.gl) : C.gd;
-    vt(g, r.verb, x + 82, y, vc);
-    let msg = fit(r.msg, F.v16, o.x + o.w - 8 - (x + 118));
+    vt(g, r.lane, x + 48, y, old ? C.gdd : C.gd);
+    const vc = r.tone === 'bad' ? (old ? C.rm : C.r) : r.tone === 'good' ? (old ? C.gm : C.gl) : r.tone === 'warn' ? (old ? C.amb : C.ambL) : C.gd;
+    let mx = x + 76;
+    if (r.tag || r.verb) {
+      vt(g, r.tag, mx, y, old ? C.gd : C.gm);
+      vt(g, r.verb, mx + 34, y, vc);
+      mx += 34 + Math.max(36, Math.ceil(tw(r.verb, F.v16)) + 6);
+    }
+    let msg = fit(r.msg, F.v16, o.x + o.w - 8 - mx);
     if (newest) msg = msg.slice(0, Math.max(0, Math.floor((c.t - r.t0) * 50)));
-    xText(g, msg, x + 118, y, old ? C.gd : newest ? C.g : C.gm);
+    xText(g, msg, mx, y, r.tag || r.verb ? (old ? C.gd : newest ? C.g : C.gm) : (old ? C.gd : vc));
   });
   if (!rows.length) text(g, 'all quiet. nothing has touched the tracks yet', x, LOG_Y, F.v16, C.gd);
   prompt(c, x, view);
@@ -834,9 +946,9 @@ function prompt(c, x, view) {
   const toast = view.toasts[view.toasts.length - 1], age = toast ? c.t - toast.t0 : 1e9;
   let s, col;
   if (age < 4) {
-    if (age < 0.25) { g.globalAlpha = 0.5 * (1 - age / 0.25); fill(g, x - 2, PROMPT_Y - 11, right - x + 4, 14, C.rd); g.globalAlpha = 1; }
-    const full = fit(`error: ${toast.text}`, F.v16, right - x - pw - 8);
-    s = full.slice(0, Math.floor(age * 90)); col = C.r;
+    if (age < 0.25 && !toast.info) { g.globalAlpha = 0.5 * (1 - age / 0.25); fill(g, x - 2, PROMPT_Y - 11, right - x + 4, 14, C.rd); g.globalAlpha = 1; }
+    const full = fit(toast.info ? `# ${toast.text}` : `error: ${toast.text}`, F.v16, right - x - pw - 8);
+    s = full.slice(0, Math.floor(age * 90)); col = toast.info ? C.gl : C.r;
   } else {
     const cyc = 9, n = Math.floor(c.t / cyc), ph = mod(c.t, cyc), cmds = IDLE_CMDS(st.gen), cmd = cmds[n % cmds.length];
     let k = 0;
@@ -854,7 +966,7 @@ function tooltip(c) {
   const h = c.view.hover;
   if (!h || c.view.drag) return;
   let title, body;
-  if (h.kind === 'banner' || h.kind === 'dossier-row' || h.kind === 'hud-tip' || h.kind === 'hud-btn') ({ title, tip: body } = h.data);
+  if (h.kind === 'banner' || h.kind === 'dossier-row' || h.kind === 'hud-tip' || h.kind === 'hud-btn' || h.kind === 'research') ({ title, tip: body } = h.data);
   else if (h.kind === 'lab-site') { title = 'LAB SITE'; body = labTip(c.st); }
   else if (h.kind === 'split') { title = h.data.handle === 0 ? 'PRODUCT | CAPABILITIES' : 'CAPABILITIES | SAFETY'; body = 'Drag to move compute between the two shares on either side.'; }
   else return;
@@ -928,6 +1040,7 @@ export const input = {
       if (api.view.selected?.lane === 'global') api.view.selected = null;
     },
   },
+  research: { click(e, api) { if (api.st.phase === 'play') openResearch(api); } },
   'hud-btn': {
     click(e, api) {
       const a = e.data.action, v = api.view;

@@ -1,31 +1,35 @@
 # HANDOFF game: state of play
 
-*Updated 2026-10-05 (v3 designed, not yet built). The v2 notes below still describe the live code.*
+*Updated 2026-10-05: v3 is built (every stream plus a QA pass). The v2 notes below are history; where they disagree, v3 wins.*
 
 ## v3: where it is (2026-10-05)
 
-Avi played v2 and found it too easy (did nothing on Hard and reached G3; won Hard 96/100 with a probe wall). His feedback is verbatim in [design/AVI-FEEDBACK-v3.md](design/AVI-FEEDBACK-v3.md).
+Built from [design/DESIGN-v3.md](design/DESIGN-v3.md) rev 2 after Avi found v2 too easy ([his notes](design/AVI-FEEDBACK-v3.md)). The §8 decisions took their defaults.
 
-**Done**
-- 🟢 Dev mode (`#dev` or the start-screen switch), joke names, chats and trait tells (`config/content/models.js`), ~250 honest tasks per generation (`content/tasks/g1..g7.js`, check with `node test/content-check.mjs`).
-- 🟢 **[design/DESIGN-v3.md](design/DESIGN-v3.md), revision 2**: rules (§1), balance walkthrough (§2), systems (§3), training (§4), campaign (§5), content (§6), build plan with file ownership (§7), 🚩 8 decisions for Avi (§8), and the review log of all 62 critic items (Appendix A).
-- 🟢 **[design/balance-v3.mjs](design/balance-v3.mjs)**, the numeric model. `node balance-v3.mjs zoo 400` (also `table hazard pressure shock arc cards forbid sets slope levers evidence des plot worked trace`). All 18 targets pass: `human` wins 74 / 36 / 15% (Easy / Medium / Hard), `smart` 99 / 87 / 54%, doing nothing dies in G1, the AFK tutorial rail dies by G2.
-- 🟢 **[design/train-check-v3.mjs](design/train-check-v3.mjs)** checks the training physics (bumper escape ≥ 95%, noise-only out-of-basin 6% at G4, rails hold).
+**Landed**
+- 🟢 **Sim:** phases card → play → report → training → card; research as a stream (one card per work stream, bank of 2, free reroll); contract lanes `ext2` G3 / `ext3` G5 / `int2` G6 (kit, OPEN LANE or 90 s, 60 s ramp, Government quota); flags ship, a finite Kill Switch, lab-wide levels, κ collusion; retrain (20 s dark); EGRESS ANOMALY + PULL THE PLUG; the rival as slack seconds; chip text from `config/content/tasks/gN.js`.
+- 🟢 **Balance:** `balance 400` passes all 18 targets and the shock (human 64 / 36 / 13 %, smart 91 / 79 / 53 %).
+- 🟢 **Training:** `src/train/` on `#train` (standalone: `train.html`); its result sets the next model's Δm.
+- 🟢 **UI:** model card scene, report, lane tabs with lamps and auto-focus, research panel, floating mount facts, stamps, §3g juice, the 10-step tutorial (its plate waits for its own codec lines), 1× forced at every card and while a lane ramps. **Content:** `config/content/v3-text.js`, Big Boss, 101 new attack texts.
 
-**Next:** 🚩 Avi answers §8 (or the defaults stand); the walkthrough for him is the Claude Doc "HANDOFF v3: how the balance works" (https://claude.ai/code/artifact/0de3f0d5-86b1-4519-bd3d-ecbb7f53e149). Then the build: sim-systems 1a (lane-id refactor, no behaviour change) → 1b → 1c; content, portraits and `src/train/` in parallel; then ui-integration and QA (§7).
+**Run / test** (from `game/`; serve it with `python3 -m http.server`). `#dev` opens everything; `?debug=1` gives debug keys and `window.__handoff` (the published artifact passes only a `#hash`).
+- `node test/headless.mjs` (quick, ~35 s, runs train.mjs and content-check too) · `… balance 400` (~17 min) · `… parity 400` · `… shock` · `… forbid` · `… test` lists the tests.
+- `node test/train.mjs` (+ `ui`, or `<policy> <seed> <g>`) · `train.html#g=5,seed=12,debt=0.01,go` · `node test/content-check.mjs [strict]`.
+- UI, with `NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt NODE_USE_ENV_PROXY=1`: `node test/ui-play.mjs <out>` (a real-time Medium run, ~8 min) · `node test/ui-shot.mjs <out> [scene…]` (48 scenes; no args lists them).
+- Publish: `node scripts/publish-files.mjs` prints the `files` map and checks every import; `file_path` = `game/index.html`, `root` = `game/`.
 
-**v3 gotchas**
-- Targets are set on the `human` *population* (each run draws a player), not on `smart`. The win surface is steep: ~4 pts per 0.01 TPR, ~19 pts per 10% income. Never tune at < 400 seeds.
-- Lane ids stay `ext`/`int` for the G1 lanes; new ones are `ext2` (Enterprise G3), `ext3` (Gov G5), `int2` (Cyber **G6**, matches the content flavours). `st.lanes` stays an object.
-- The model includes traits and the rival; parity mode in the sim turns only events off.
-- Forbid test: the core is Probe, TM, UM, Classifier, Auditor, Kill Switch and the collusion answers. Most INTERNAL add-ons, Defer and Debate are on a rework list (Δ within 2·SE). Not a cut list yet.
-- The training prize (s ≥ 0.8) is information only: it reveals a trait. A bigger prize made the arcade game decide the run.
-- Model bug fixed: a banked research card could raise a level past L4 (NaN reputation). Levels clamp at 4 and banked offers are re-filtered at pick time.
+**Gotchas**
+- Never tune at < 400 seeds; targets are on the `human` population. Changing events.js or the first event's time moves human win %.
+- The UI never reads `st.m`, only estimates. The sim never touches the DOM; numbers live in `config/`.
+- No codec call starts at a card, report or training; the report sends the waiting ones to the history. Tutorial lines are never shed.
+- `view.slow` (tutorial) and `view.modal` (research panel) gate stepping in main.js. `view.focus[side]` is the lane a track shows; the deploy fx move it, so tests draw a frame before setting it.
 
-**General gotchas**
-- The content files are **not wired in yet**: the sim still reads `config/tasktext.js`; the new shape is `X[g][flavour]`.
-- `?debug=1` gives debug keys with a normal opening (ui-shot depends on it). Only dev mode unlocks everything. The published artifact can't read query strings; only a `#hash` reaches the page.
-- Publish with `file_path` = `game/index.html`, `root` = `game/`, and every `src/**/*.js` plus `style.css` in `files`.
+**Open** (ranked; the QA report has details)
+- 🟡 `Sim.endTutorial` is missing: SKIP leaves the scripted Consumer lines. state.js still says the v2 welcome (the UI skips it).
+- 🟡 Thin margins: `none` median death 124 s (target ≥ 120); human Easy 64 % (60–80).
+- 🟡 forbid rework list: ratelimit, canary, interp, resampler, honeypot, egress, leastpriv, weight_security.
+- ⚪ Stale DESIGN-v3 numbers outside §2.9 (§2.3, §2.5–2.7, §4, §6 attack counts); design/train-check-v3.mjs can retire.
+- ⚪ Training feel untested with people; drawing costs ~22 ms a frame at 1920×1080@2 in headless Chromium.
 
 ## Where it is
 

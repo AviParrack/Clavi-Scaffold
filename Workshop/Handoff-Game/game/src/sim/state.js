@@ -3,7 +3,6 @@
 import { BALANCE as B, SPLIT } from '../config/balance.js';
 import { STARTING_HAND } from '../config/layers.js';
 import { LANE_DEFS, START_LANES } from '../config/tasks.js';
-import { TUTORIAL } from '../config/events.js';
 import { say, fx } from './log.js';
 import { startGeneration, resolveDifficulty, newGenStats } from './phases.js';
 
@@ -92,7 +91,7 @@ export function createState({ seed = 1, difficulty = 'medium', tutorial = true }
     rsp: { ready: false, usedGen: 0, nudgedGen: 0 },   // the v2 card itself is st.upgrades.rsp
 
     // events & codec
-    mods: [], nextEventAt: 50, eventLog: [], pendingChoice: null, pendingResearch: null,
+    mods: [], nextEventAt: B.eventFirst, eventLog: [], pendingChoice: null, pendingResearch: null,
     timers: [], delayed: [], lastFired: {}, firedCount: {}, firedGen: {},
     activeEvents: [],                // banners: [{ id, title, icon, lane, effect, remaining, total, unit, until }]
     stego: 0,                        // Steganography Detected: 0, or the collusion multiplier while it runs
@@ -123,7 +122,6 @@ export function createState({ seed = 1, difficulty = 'medium', tutorial = true }
   resolveDifficulty(st, difficulty);
   startGeneration(st, 1);
   for (const id of START_LANES) placeFree(st, id, st.lanes[id].slots.length - 1, B.startRail[0]);   // Big Boss's red button
-  if (tutorial) for (const [who, text] of TUTORIAL) say(st, who, text);
   return st;
 }
 

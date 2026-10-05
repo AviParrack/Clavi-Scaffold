@@ -305,7 +305,7 @@ export function attackChance(st, lane, withUsers = false) {
 //   a Honeypot hold on the lane (c = 0 for holdSeconds after a UM was caught waving bait through),
 //   and the UM's level (collusionLevel). Promote Last Model: the Trusted Monitor colludes like the model it was.
 
-export const collusionBase = (st, m = st.m) => Math.min(B.collusionMax, genDef(st).kappa * m * traitMult(st, 'collusionMult') * (st.stego || 1));
+export const collusionBase = (st, m = st.m, hidden = true) => Math.min(B.collusionMax, genDef(st).kappa * m * (hidden ? traitMult(st, 'collusionMult') : 1) * (st.stego || 1));
 export const paraphraseMult = level => capstone('paraphraser', level).noCollusion ? 0 : LAYERS.paraphraser.collusionMult * lv('paraphraser', level, 'collusionMult');
 export const honeyHeld = (st, lane) => !!st.lanes[lane] && st.t < (st.lanes[lane].honeyHoldUntil ?? 0);
 const jamMult = (st, level) => (tech(st, 'jamming') ? TECH.jamming : 1) * (capstone('untrusted', level).collusionMult ?? 1);
@@ -323,8 +323,8 @@ export function collusion(st, lane, task, id, level = 1) {
 // the expected collusion on a lane, piece by piece (DESIGN-v3 §2.3 UM collusion; the §2.4 G6 worked example):
 // kappaM → × Paraphraser (one on the lane) → × Jamming → × (1 − the Honeypot hold share x/(1 + x)), x = rate·c·hold
 // → × the UM's level. effTPR: the UM's TPR on a normal model attack after it all.
-export function collusionParts(st, lane, level = labLevel(st, 'untrusted')) {
-  const kappaM = collusionBase(st);
+export function collusionParts(st, lane, level = labLevel(st, 'untrusted'), m = st.m, hidden = true) {
+  const kappaM = collusionBase(st, m, hidden);
   const para = st.lanes[lane].slots.find(s => s.layer === 'paraphraser' && slotActive(st, s));
   const afterPara = kappaM * (para ? paraphraseMult(para.level) : 1);
   const afterJam = afterPara * jamMult(st, level);
@@ -338,6 +338,9 @@ export function collusionParts(st, lane, level = labLevel(st, 'untrusted')) {
   const effTPR = nominalTPR(st, 'untrusted', level, lane) * (1 - c * levelMult);
   return { kappaM, afterPara, afterJam, held, c, levelMult, effTPR };
 }
+
+// the same, as the player sees it: at the m estimate, without hidden traits (the UI never reads the true m)
+export const collusionEstimate = (st, lane, level = labLevel(st, 'untrusted')) => collusionParts(st, lane, level, misalignmentEstimate(st).est, false);
 
 // =================== detectors ===================
 // One hidden stealth score per KIND per line (sim/tasks.js): a kind flags an attack it reads if the score is below its
@@ -765,7 +768,7 @@ export function laneStatus(st, id) {
   const within = (at, s) => at != null && t - at <= s;
   const lamp = within(L.lastIncidentT, B.lampRed) || within(L.lastGlitchT, B.lampRed) ? 'red' : within(L.lastShippedT, B.lampAmber) ? 'amber' : 'green';
   return {
-    lamp, flagsPerMin: 60 * rateNow(L.rates, 'flags', t), shippedPerMin: 60 * rateNow(L.rates, 'shippedFlagged', t),
+    lamp, flagsPerMin: 60 * rateNow(L.rates, 'flaggedLines', t), shippedPerMin: 60 * rateNow(L.rates, 'shippedFlagged', t),
     lastIncidentT: L.lastIncidentT, lastGlitchT: L.lastGlitchT, reviewedShare: reviewedShare(st, id),
     quota: D.quota ? { need: D.quota, now: reviewedShare(st, id), met: quotaMet(st, id) } : null,
     open: L.open, contract: !!L.contract, ramp: laneRampShare(st, id), ramping: laneRamping(st, id),

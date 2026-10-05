@@ -87,6 +87,7 @@ function finishRead(st, task) {
   st.genStats.flags++;
   if (task.flagged) return;
   task.flagged = true;
+  count(st, task.lane, 'flaggedLines');
   fx(st, 'flag', { lane: task.lane, slot: slotIdx, layer: id, task: task.id });
 }
 

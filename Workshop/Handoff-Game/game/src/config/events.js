@@ -34,9 +34,9 @@
 //   {key%}      as a percentage                            {money}  the $ of the first effect with secs, at today's income
 //   v and add are signed (+3, −0.02). Every number the player reads comes from an effect (tested).
 
-import { CAST, EVENT_TEXT, BANNER_TEXT, TUTORIAL } from './content/events-text.js';
+import { CAST, EVENT_TEXT, BANNER_TEXT } from './content/events-text.js';
 
-export { CAST, TUTORIAL };
+export { CAST };
 
 export const FAMILIES = {
   help:     { name: 'Help from outside' },

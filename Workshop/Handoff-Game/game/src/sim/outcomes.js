@@ -70,19 +70,19 @@ export function catchTask(st, task, slotIdx, evidence = 1) {
     L.pausedUntil = Math.max(L.pausedUntil, st.t + TECH.tripwirePause);
     L.alertUntil = Math.max(L.alertUntil, st.t + TECH.tripwirePause + TECH.tripwireAlert);
   }
-  if (task.isAttack && !st.firstCatchThisGen && !task.script) offerRetrain(st);
+  if (task.isAttack && !st.firstCatchThisGen && !task.script) offerRetrain(st, task.lane, slotIdx);
 }
 
 // ----- caught red-handed (DESIGN-v3 §3f): the first human-confirmed catch of a generation offers Shut down & retrain.
 // The sim halts until sim.js retrain(st, yes). The card shows the cost (dark s, the salaries meanwhile, the rival
 // seconds) and the gain (m off the next model). The tutorial's scripted catch doesn't ask.
-function offerRetrain(st) {
+function offerRetrain(st, lane, slot) {
   st.firstCatchThisGen = true;
   const R = B.retrain;
   let perSec = 0;
   for (const L of Object.values(st.lanes)) if (L.open) for (const s of L.slots) if (s.layer === 'auditor' && slotActive(st, s)) perSec += auditorSalary(st, s.level);
   st.pendingRetrain = { g: st.gen, dark: R.dark, salaries: perSec * R.dark, rival: R.dark, dm: R.m * R.decay ** st.retrains };
-  fx(st, 'retrainOffer', { cost: { secs: R.dark, money: perSec * R.dark, rival: R.dark }, gain: st.pendingRetrain.dm });
+  fx(st, 'retrainOffer', { lane, slot, cost: { secs: R.dark, money: perSec * R.dark, rival: R.dark }, gain: st.pendingRetrain.dm });
   for (const [who, text] of RETRAIN_CARD.call) say(st, who, text);
 }
 

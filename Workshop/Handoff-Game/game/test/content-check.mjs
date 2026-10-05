@@ -14,7 +14,7 @@ import { TASK_TYPES, LANE_DEFS, ATTACKS } from '../src/config/tasks.js';
 import { GENERATIONS } from '../src/config/generations.js';
 import { BALANCE as B, DIFFICULTY } from '../src/config/balance.js';
 import { LAYERS } from '../src/config/layers.js';
-import { CAST, TUTORIAL } from '../src/config/content/events-text.js';
+import { CAST } from '../src/config/content/events-text.js';
 import * as V3 from '../src/config/content/v3-text.js';
 import * as MODELS from '../src/config/content/models.js';
 import { TRAITS } from '../src/config/traits.js';
@@ -284,8 +284,6 @@ try {
     label(`ENDINGS.${k}.model`, e.model, 72, []);
     if (!CAST[e.speaker]) v3err(`ENDINGS.${k}.speaker '${e.speaker}' is not in the cast`);
   }
-  // the v2 codec tutorial (state.js still says it at the start, until ui/tutorial.js takes over)
-  codecLines('events-text TUTORIAL', TUTORIAL, []);
   if (CAST.ceo?.name !== 'BIG BOSS') v3err(`CAST.ceo.name is '${CAST.ceo?.name}', want 'BIG BOSS' (§6)`);
 } catch (e) { v3err(`v3-text.js: ${e.message.split('\n')[0]}`); }
 
@@ -308,7 +306,7 @@ v3errs.forEach(err);
 // Scans every string literal (quotes and backticks, not comments) under src/config and src/ui, plus main.js and
 // index.html. Files on the §6 rename list that belong to another stream are PENDING: their hits warn, until the
 // owner lands the rename (requests.md); `strict` fails on them too. A hit anywhere else is an error.
-const PENDING = { 'src/ui/codec.js': 'ui-integration', 'src/ui/overlays.js': 'ui-integration' };
+const PENDING = {};                                     // the §6 rename landed everywhere (QA, final pass)
 const walk = d => readdirSync(d).flatMap(f => { const p = join(d, f); return statSync(p).isDirectory() ? walk(p) : [p]; });
 const scanFiles = [...walk(join(GAME, 'src/config')), ...walk(join(GAME, 'src/ui')), join(GAME, 'src/main.js'), join(GAME, 'index.html')]
   .filter(p => /\.(m?js|html)$/.test(p));

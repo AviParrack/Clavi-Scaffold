@@ -24,7 +24,7 @@ export function bumpRate(rates, key, t, n = 1) {
   e.t = t;
 }
 // the lane counters the lamps and strips show as rates (lane.rates)
-const LIVE = ['flags', 'shippedFlagged', 'spawned', 'reviewed', 'killed', 'glitches'];
+const LIVE = ['flags', 'flaggedLines', 'shippedFlagged', 'spawned', 'reviewed', 'killed', 'glitches'];
 
 // --- per-lane counters, mirrored into the current generation's stats ---
 export function count(st, lane, key, n = 1) {

@@ -225,12 +225,3 @@ export const BANNER_TEXT = {
   tripwire: { title: 'Tripwire: High Alert', effect: 'auditors in this lane spot-check more often' },
 };
 
-// the v2 codec welcome (sim/state.js says it at the start of G1). The v3 tutorial steps are in v3-text.js.
-export const TUTORIAL = [
-  ['ceo', 'This is Big Boss. Our model is live: customer traffic on the left, our own R&D on the right.'],
-  ['audit', 'Every line rolling down is a task the model did. A few are attacks. Nobody will tell you which.'],
-  ['research', 'Click a card on the right, then an empty mount, to install a layer. Click a placed layer to toggle it.'],
-  ['audit', 'Detectors flag. Responders act on flags, top to bottom. A flag nobody below has room for ships anyway.'],
-  ['ceo', 'The red button at the bottom is mine: the Kill Switch. Every layer bills us per line. Do not bankrupt us.'],
-  ['research', 'Fill the R&D bar to train the next model. Each one is smarter, faster, sneakier. Space pauses. Good luck.'],
-];

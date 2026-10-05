@@ -18,7 +18,7 @@
 // lanes
 //   openLane(st, id)                 a contract lane opens (it also opens by itself after BALANCE.laneDeadline s of play)
 //   upcomingLane(st)                 { id, gen, deadlineT, left, label, side } or null
-//   laneStatus(st, id)               { lamp, flagsPerMin, shippedPerMin, lastIncidentT, lastGlitchT, reviewedShare, quota, ... }
+//   laneStatus(st, id)               { lamp, flagsPerMin (flagged lines), shippedPerMin, lastIncidentT, lastGlitchT, reviewedShare, quota, ... }
 //   sideOf(st, id), laneIds(st, side?)
 // readouts (sim/rules.js): what a player may know, never the hidden truth
 //   splitYields(st, split)           { incomePerS, rdPerS, rpPerS, evidencePerS, rivalDrainPerS }
@@ -26,9 +26,11 @@
 //   detectorStats(st, id, slot)      { tprRated, fprRated, flagsPerMin, tp, fa, precision, lo, hi, recall? }
 //   killStats(st, id, slot)          { operators, perMin, breakEven, precisionHere }
 //   debtEstimate(st, id?)            { landed, lo, hi, stopped, dmLanded, dmStopped, ... } (id null: every INTERNAL lane)
+//   collusionEstimate(st, lane, lv)  the UM's collusion step by step, at the m estimate, no hidden traits
 // the two alarm choices
 //   retrain(st, yes)                 answers st.pendingRetrain (Shut down & retrain: halts the sim until answered)
 //   pullPlug(st)                     answers st.alarm (EGRESS ANOMALY: counts down in play; at 0 the run ends)
+//   endTutorial(st)                  SKIP TUTORIAL: the scripted G1 opening stops
 // state the UI reads: st.phase, st.warmT, st.report (the reveal), st.research, st.rivalLeft, st.alarm, st.pendingRetrain,
 //   st.darkUntil (rules.js isDark), st.landedInt (the hidden truth: the debug overlay)
 // fx (st.fx) new in v3: glitch, falseAlarm, evidence {n, lane}, researchReady, laneOffer {stage}, laneOpen, unlock,
@@ -282,6 +284,12 @@ export function pullPlug(st) {
   fx(st, 'plugPulled', { lane: a.lane, rep: P.rep, dark: P.dark });
   sayLines(st, EGRESS.pulled);
   return { ok: true };
+}
+
+// =================== SKIP TUTORIAL (DESIGN-v3 §3h): the scripted G1 opening stops; the lines already rolling finish ===================
+
+export function endTutorial(st) {
+  st.tutorialScript = null;
 }
 
 // =================== Shut down & retrain (DESIGN-v3 §3f) ===================

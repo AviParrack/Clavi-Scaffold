@@ -17,20 +17,21 @@ export const BALANCE = {
   // --- reputation ---
   startRep: 100,
   repMax: 100,
-  regenPerLine: 0.15,        // reputation per honest EXTERNAL line delivered (a deferred line: half)
+  regenPerLine: 0.22,        // reputation per honest EXTERNAL line delivered (a deferred line: half). v3 retune: 0.15 → 0.22
+                             // pays for the events and the parity fixes (DESIGN-v3 §2.9 #17)
 
   // --- pacing ---
   warmup: 40,                // s: a generation ramps volume from the last model's lines/s to its own, and the model's
                              // attacks × 0.5 → × 1 (G1: volume 50% → 100%)
   tutorialGap: 1,            // s: a scripted tutorial line arrives within this once its cue is met (sim.js spawnLane)
-  rdPar: 0.9,                // R&D needed = rdPar × the R&D lane's default lines over T_g, warm-up included
+  rdPar: 0.8,                // R&D needed = rdPar × the R&D lane's default lines over T_g, warm-up included
   burst: { gen: 7, every: 45, len: 6, mult: 1.6, warn: 3 },   // G7 boss: attacks × mult for len s every `every` s, warned ahead
   trainingSeconds: 30,       // v2 name the old UI reads (training is a minigame now: DESIGN-v3 §4)
 
   // --- the race (DESIGN-v3 §2.3 (9)): Prometheus ships rivalSlack s of play after your planned finish ---
   // Slack drains 1 s per s of play past T_g (dark seconds included), plus rivalMarket × max(0, 1 − Product ÷ 0.5)
   // per s: the customers you turn away go to the rival. At 0, Prometheus ships.
-  rivalSlack: 180,
+  rivalSlack: 420,           // v3 retune 180 → 420: retrains (20 s dark each) and event delays both drain it (§2.9 #17)
   rivalMarket: 0.25,
   rivalWinsRace: 'instant',  // Prometheus ships → 'instant': the 'rival' ending at once (balance-v3) · 'grace': you get
                              // rivalGraceSeconds to finish yours, then it ends · 'off': nothing happens
@@ -109,7 +110,8 @@ export const BALANCE = {
   },
 
   // --- events ---
-  eventGap: [40, 70],        // seconds between random events
+  eventGap: [60, 100],       // seconds between random events (v3 retune: was [40, 70], about 4 per generation; now about 3)
+  eventFirst: 150,           // the first random event: after the G1 tutorial's opening, not in the middle of it (was 50)
   eventCooldown: 150,        // the same event can't fire again for this long (config can override per event)
   threatMRef: 0.2,           // weightByM events: weight × clamp(m' / threatMRef, threatWeightMin, threatWeightMax), where
   threatWeightMin: 0.1,      //   m' = max(m, the difficulty's lowest m): the world stays dangerous even when your model

@@ -20,7 +20,7 @@ import { EVENT_BY_ID, eligible, eventMoney, fill, pickLane } from '../src/sim/ev
 import { addLane, newSlot, placeFree } from '../src/sim/state.js';
 import { evalPhase, rdNeeded, hazardCount, trainSeed } from '../src/sim/phases.js';
 import { UPGRADES, MAX_LEVEL } from '../src/config/upgrades.js';
-import { BALANCE as B, SPLIT } from '../src/config/balance.js';
+import { BALANCE as B, SPLIT, DIFFICULTY } from '../src/config/balance.js';
 import { GENERATIONS } from '../src/config/generations.js';
 import { TRAITS, DOSSIER, TRUTH_NOISE } from '../src/config/traits.js';
 import { TASKS, ATTACK_TEXTS, DECOYS } from '../src/config/content/tasks.js';
@@ -611,6 +611,7 @@ function testKillAbove() {
   const st = lab1b({ g: 1, lanes: ALL_LANES, rails: Object.fromEntries(ALL_LANES.map(l => [l, ['killswitch', 'auditor']])) });
   setLines(st, 36);
   hold(st, 3000, flagShare(10 / 36, 7));
+  hold(st, 30);                                  // no new flags: the ones already rolling reach the Auditor before we count
   const taken = sumSlots(st, 0, 'taken'), waved = sumSlots(st, 0, 'waved'), n = taken + waved;
   const eb = erlangB(1, 10 / 60 * LAYERS.killswitch.tau), aud = sumSlots(st, 1, 'taken') + sumSlots(st, 1, 'waved');
   console.log(`    ${n} flags at 10/min: refused ${pct(taken / n, 1)} (1 − Erlang-B ${pct(1 - eb, 1)}); the Auditor below met ${aud} flags`);
@@ -2301,7 +2302,7 @@ function testDeployLength() {
   withoutCatastrophes(() => {
     for (let g = 1; g <= 7; g++) {
       let tot = 0;
-      const N = 4;
+      const N = 16;                              // 4 seeds left about ± 4% of Poisson noise against the ± 5% bar
       for (let seed = 1; seed <= N; seed++) {
         const st = fresh({ seed: 50 + seed });
         st.nextEventAt = Infinity; st.money = 1e12; debugUnlockAll(st); st.labMode = true;
@@ -2315,13 +2316,13 @@ function testDeployLength() {
         }
         tot += st.stats.gens[g - 1].len;
       }
-      const ratio = tot / N / GENERATIONS[g - 1].T;
+      const G = GENERATIONS[g - 1], ratio = tot / N / G.T, due = 1 + G.travel / G.T;   // the last line needed completes one travel after it spawns
       rows.push(`G${g} ${ratio.toFixed(3)}`);
-      ok = ok && Math.abs(ratio - 1) <= 0.05;
+      ok = ok && Math.abs(ratio - due) <= 0.05;
     }
   });
-  console.log(`    length ÷ T_g: ${rows.join(' · ')}`);
-  check('every generation: deployment length = T_g ± 5%', ok);
+  console.log(`    length ÷ T_g: ${rows.join(' · ')}  (due: 1 + travel ÷ T_g, 1.02–1.04)`);
+  check('every generation: deployment length = T_g (+ one travel) ± 5%', ok);
 }
 
 // ----- debt you can see (§3e): the empty and starter rails, the glitch share, the reveal, the meter -----
@@ -2433,9 +2434,9 @@ function testReadouts() {
     && near(y.rpPerS, B.research.base * 1.08) && near(y.evidencePerS, B.safetyEvidence * 0.1) && near(y.rivalDrainPerS, late + B.rivalMarket * 0.4)
     && y.rdPerS > splitYields(st).rdPerS);
   const ls = laneStatus(st, 'ext'), avg = ema.reduce((a, b) => a + b, 0) / ema.length;
-  const real = 60 * (st.stats.lanes.ext.flags || 0) / (st.genT - B.warmup);
+  const real = 60 * (st.stats.lanes.ext.flaggedLines || 0) / (st.genT - B.warmup);
   console.log(`    ext: lamp ${ls.lamp}, flags ${ls.flagsPerMin.toFixed(1)}/min now, ${avg.toFixed(2)}/min averaged over the run (counted: ${real.toFixed(2)}), reviewed ${pct(ls.reviewedShare, 1)}`);
-  check('laneStatus: lamp, flags/min (a moving average: over the run it matches the count ± 10%), reviewed share, no quota on Consumer', ['green', 'amber', 'red'].includes(ls.lamp)
+  check('laneStatus: lamp, flagged lines/min (a moving average: over the run it matches the count ± 10%), reviewed share, no quota on Consumer', ['green', 'amber', 'red'].includes(ls.lamp)
     && Math.abs(avg / real - 1) < 0.1 && near(ls.reviewedShare, reviewedShare(st, 'ext')) && ls.quota === null);
   st.lanes.ext.lastIncidentT = st.t; const red = laneStatus(st, 'ext').lamp;
   st.lanes.ext.lastIncidentT = st.t - 6; st.lanes.ext.lastShippedT = st.t - 6; st.lanes.ext.lastGlitchT = null; const amber = laneStatus(st, 'ext').lamp;
@@ -2451,8 +2452,8 @@ function testReadouts() {
     && ds.tp + ds.fa > 0 && near(ds.precision, ds.tp / (ds.tp + ds.fa)) && ds.lo <= ds.precision && ds.precision <= ds.hi && !('recall' in ds));
   const ks = killStats(st, 'int', 5), be = id => killBreakEven(lab1b({ g: 5, lanes: ALL_LANES }), id);
   console.log(`    kill switch break-even: Consumer ${pct(be('ext'), 1)} · Enterprise ${pct(be('ext2'), 1)} · Government ${pct(be('ext3'), 1)} · R&D ${be('int')}`);
-  check('killStats: operators, perMin, break-even precision (Consumer 3.5%, Enterprise 1.4%, Government 2.1%; INTERNAL none)', ks.operators === 1 && ks.breakEven === null
-    && Math.abs(be('ext') - 0.035) < 0.002 && Math.abs(be('ext2') - 0.014) < 0.002 && Math.abs(be('ext3') - 0.021) < 0.002);
+  check('killStats: operators, perMin, break-even precision (Consumer 4.1%, Enterprise 1.9%, Government 2.6%; INTERNAL none)', ks.operators === 1 && ks.breakEven === null
+    && Math.abs(be('ext') - 0.041) < 0.002 && Math.abs(be('ext2') - 0.019) < 0.002 && Math.abs(be('ext3') - 0.026) < 0.002);   // regenPerLine 0.22 (DESIGN-v3 §2.9 #17)
 }
 
 // ----- the G1 tutorial's scripted opening (§3h) -----
@@ -2555,6 +2556,7 @@ function shopZoo(st, z) {
     const b = nextBuy(st, z.pol, z.forbid);
     if (!b || st.money - Math.max(200, 20 * z.burn) < b.price) return;
     if (!buyItem(st, b)) return;
+    if (z.buys) z.buys.push({ t: Math.round(st.t), g: st.gen, what: b.lv ? `L${labLevel(st, b.lv)} ${b.lv}` : `${b.id} ${b.lane}`, price: Math.round(b.price) });
   }
 }
 
@@ -2595,6 +2597,7 @@ function researchZoo(st, z) {
   const r = c ? pickCard(st, R.banked[0].cards.indexOf(c), newCardTarget(st, z, CARD_BY_ID[c.id])) : { ok: false };
   if (!r.ok) { R.banked.shift(); return; }                         // nothing it can take: the offer goes (balance-v3 drops it too)
   z.picks++;
+  if (z.buys) z.buys.push({ t: Math.round(st.t), g: st.gen, what: `card ${c.id}`, price: 0 });
   if (r.lane && r.lane !== 'global') relay(st, r.lane);
 }
 
@@ -2639,7 +2642,7 @@ export function zooRun(name, difficulty, seed, opts = {}) {
   const pol = playerFor(opts.over ? { ...base, ...opts.over } : base, seed);
   const st = createState({ seed, difficulty, tutorial: false });
   const z = { pol, forbid: [opts.forbid ?? []].flat(), r: stream(seed * 7 + 1), picks: 0, burn: 0, wasted: 0, lastSec: -1,
-    lastSpend: 0, alarmT: null, minRep: [] };
+    lastSpend: 0, alarmT: null, minRep: [], buys: opts.trace ? [] : null };
   let stuck = 0;
   while (!st.over && st.t < (opts.maxT ?? 6000)) {
     if (answerZoo(st, z)) { if (++stuck > 50) throw new Error(`zooRun ${pol.name ?? name} seed ${seed}: stuck in ${st.phase}`); continue; }
@@ -2650,6 +2653,7 @@ export function zooRun(name, difficulty, seed, opts = {}) {
     step(st, DT);
     if (pol.waste) { const w = (laneIncome(st) - inc) * pol.waste; if (w > 0) { spend(st, w, 'waste'); z.wasted += w; } }
     if (st.rep < z.minRep[st.gen]) z.minRep[st.gen] = st.rep;
+    opts.onStep?.(st, z);                     // scratch probes (not through workers: functions don't cross threads)
   }
   const win = !!st.over?.win;
   return { win, reason: win ? 'W' : LOSS_LETTER[st.over?.reason] ?? 'P', g: st.gen, t: st.over?.t ?? st.t, m: st.m, st, z,
@@ -2660,7 +2664,7 @@ const compactRun = o => ({ win: o.win, reason: o.reason, g: o.g, t: o.t, m: o.m,
 
 // ----- worker threads: a job is { kind: 'sim' | 'model', pol, diff, from, to, parity, over, forbid, set } -----
 // set: [[path, value]] config changes for this job only (e.g. ['GENERATIONS.3.opp', 1.8]), put back afterwards.
-const ROOTS = { BALANCE: B, GENERATIONS, LAYERS, LANE_DEFS, UPGRADES, TECH, TRAITS };
+const ROOTS = { BALANCE: B, DIFFICULTY, GENERATIONS, LAYERS, LANE_DEFS, UPGRADES, TECH, TRAITS, EVENTS: EVENT_BY_ID };   // EVENTS.<id>.trigger=true: never at random
 function applySet(set = []) {
   const undo = [];
   for (const [path, v] of set) {
@@ -2772,7 +2776,7 @@ function zooLab(seed, g, m, open = g) {
 
 // ----- transition shock (§2.6, §7.5): walk into g + 1 with par_g; a lane new at g + 1 holds only its kit -----
 // From 100 reputation, no regen top-up: seconds until it hits 0 (capped at maxT). The model's `shock` gives the bleed.
-const MID_M = { easy: 0.21, medium: 0.34, hard: 0.46 };
+const MID_M = { easy: 0.21, medium: 0.34, hard: 0.46 };   // the middle of each DIFFICULTY range
 function shockRuns({ g, diff, from, to, maxT = 600 }) {
   const out = [];
   for (let seed = from; seed <= to; seed++) {
@@ -2802,10 +2806,12 @@ function forbidRuns({ g, drop, add, seeds, secs }) {
     placePar(st, g, { drop, add });
     st.rep = 50;
     for (let i = 0; i < secs / DT; i++) { step(st, DT); decline(st); st.money = 1e12; st.rivalLeft = 1e9; st.rep = 50; }
-    const mins = secs / 60, S = st.stats;
-    const rep = (Object.values(S.repLoss).reduce((a, b) => a + b, 0) - Object.values(S.repGain).reduce((a, b) => a + b, 0)) / mins;
+    const mins = secs / 60, S = st.stats, lost = Object.values(S.repLoss).reduce((a, b) => a + b, 0) / mins;
+    const rep = lost - Object.values(S.repGain).reduce((a, b) => a + b, 0) / mins;
     const alarms = (S.labLosses.catastrophe || 0) / mins, debtLine = debt(st);
-    out.push({ seed, rep, alarms, debt: debtLine, metric: rep + 20 * alarms + 1000 * debtLine });
+    out.push({ seed, rep, alarms, debt: debtLine, metric: rep + 20 * alarms + 1000 * debtLine,
+      gross: lost + 20 * alarms + 1000 * debtLine,                   // the harm alone (no regen): the scale of the "matters" bar
+      placed: add ? inPar(st, add) : true });                        // an added element needs a free mount (10 at most)
   }
   return out;
 }
@@ -2835,21 +2841,29 @@ function pressureTable(o) {
   }
   return table(['gen', 'runs finishing', 'EXTERNAL incidents', 'lowest rep', 'INTERNAL landed', 'Δm from debt', 'bank at end', 'deployment (s)'], rows);
 }
-async function shockReport(seeds = 20) {
-  const jobs = [];
-  for (const diff of DIFFS) for (let g = 1; g <= 6; g++) jobs.push({ kind: 'shock', g, diff, from: 1, to: seeds, parity: true });
+// Medium is the asserted row: 100 seeds, and its 5th percentile must survive 90 s. The fastest of 20 seeds was a lottery
+// on a ~1% Poisson tail (a burst of leaks on two EXTERNAL lanes), which any config change reshuffles (DESIGN-v3 §2.9 #18)
+const SHOCK_MIN_S = 90, SHOCK_Q = 0.05;
+async function shockReport(seeds = 20, mediumSeeds = 100) {
+  const jobs = [], blocks = [];
+  for (const diff of DIFFS) for (let g = 1; g <= 6; g++) {
+    const n = diff === 'medium' ? mediumSeeds : seeds, size = Math.ceil(n / 4), ids = [];
+    for (let from = 1; from <= n; from += size) { ids.push(jobs.length); jobs.push({ kind: 'shock', g, diff, from, to: Math.min(n, from + size - 1), parity: true }); }
+    blocks.push({ diff, g, ids });
+  }
   const rows = await runPool(jobs, 'shock');
   const out = [], fails = [];
-  jobs.forEach((j, k) => {
-    const r = rows[k], t = r.map(x => x.dead ?? Infinity).sort((a, b) => a - b), bleed = r.map(x => x.bleed).sort((a, b) => a - b);
-    const fmt = x => Number.isFinite(x) ? Math.round(x) + ' s' : '> 600 s';
-    out.push([j.diff, `G${j.g} → G${j.g + 1}`, (bleed[bleed.length >> 1]).toFixed(1), fmt(t[0]), fmt(t[t.length >> 1]), `${r.filter(x => x.dead != null).length}/${r.length}`]);
-    if (j.diff === 'medium' && t[0] < 90) fails.push(`G${j.g} → G${j.g + 1}: ${fmt(t[0])}`);
-  });
-  return { text: table(['difficulty', 'step', 'bleed rep/min (median)', 'fastest to 0', 'median to 0', 'runs that hit 0 in 600 s'], out), fails };
+  const fmt = x => Number.isFinite(x) ? Math.round(x) + ' s' : '> 600 s';
+  for (const { diff, g, ids } of blocks) {
+    const r = ids.flatMap(i => rows[i]), t = r.map(x => x.dead ?? Infinity).sort((a, b) => a - b), bleed = r.map(x => x.bleed).sort((a, b) => a - b);
+    const q = t[Math.floor(SHOCK_Q * t.length)];
+    out.push([diff, `G${g} → G${g + 1}`, r.length, (bleed[bleed.length >> 1]).toFixed(1), fmt(t[0]), fmt(q), fmt(t[t.length >> 1]), `${r.filter(x => x.dead != null).length}/${r.length}`]);
+    if (diff === 'medium' && q < SHOCK_MIN_S) fails.push(`G${g} → G${g + 1}: p5 ${fmt(q)}`);
+  }
+  return { text: table(['difficulty', 'step', 'seeds', 'bleed rep/min (median)', 'fastest to 0', '5th percentile', 'median to 0', 'runs that hit 0 in 600 s'], out), fails };
 }
 
-export const balanceLab = { placePar, zooLab, shockRuns, forbidRuns, relay, nextBuy };   // for scratch scripts
+export const balanceLab = { placePar, zooLab, shockRuns, forbidRuns, relay, nextBuy, zooPool, runPool, zooRun };   // for scratch scripts
 
 // forbid: every element and lab card par_g holds (dropped) or could hold (added), against par_g itself, per generation.
 // value = metric(without) − metric(with): what having it saves. It "matters" at g when value ≥ max(5% of par's metric,
@@ -2859,7 +2873,9 @@ const FORBID_IDS = [...Object.keys(LAYERS).filter(id => id !== 'killswitch'),
 function inPar(st, id) {
   return LAYERS[id] ? laneIds(st).some(l => countOn(st, l, id)) || st.global.slots.some(s => s.layer === id) : !!st.upgrades[id];
 }
-async function forbidReport(nSeeds = 8, secs = 120) {
+// An element "matters" at g when value ≥ max(5% of par's gross harm, 2·SE): the net metric can go negative (regen
+// outruns the losses on a good rail), so 5% of it is no bar. An added element with no free mount shows '·'.
+async function forbidReport(nSeeds = 24, secs = 240) {
   const seeds = Array.from({ length: nSeeds }, (_, i) => i + 1), jobs = [];
   for (let g = 1; g <= 7; g++) {
     const st = zooLab(1, g, MID_M.medium);
@@ -2878,17 +2894,19 @@ async function forbidReport(nSeeds = 8, secs = 120) {
   jobs.forEach((j, k) => {
     if (!j.drop && !j.add) return;
     const b = base[j.g], r = rows[k];
+    if (j.add && !r.every(x => x.placed)) { (val[j.add] ||= {})[j.g] = null; return; }
     const d = r.map((x, i) => j.drop ? x.metric - b[i].metric : b[i].metric - x.metric);
     const mean = d.reduce((a, x) => a + x, 0) / d.length, sd = Math.sqrt(d.reduce((a, x) => a + (x - mean) ** 2, 0) / Math.max(1, d.length - 1));
-    const parMetric = b.reduce((a, x) => a + x.metric, 0) / b.length;
-    (val[j.drop ?? j.add] ||= {})[j.g] = { mean, se: sd / Math.sqrt(d.length), bar: Math.max(0.05 * parMetric, 2 * sd / Math.sqrt(d.length)), added: !!j.add };
+    const parGross = b.reduce((a, x) => a + x.gross, 0) / b.length, se = sd / Math.sqrt(d.length);
+    (val[j.drop ?? j.add] ||= {})[j.g] = { mean, se, bar: Math.max(0.05 * parGross, 2 * se), added: !!j.add };
   });
   const fmt = v => v ? `${v.added ? '+' : ''}${v.mean.toFixed(1)}${v.mean >= v.bar ? '**' : ''}` : '·';
   const parRow = ['**par metric**', ...Array.from({ length: 7 }, (_, i) => (base[i + 1].reduce((a, x) => a + x.metric, 0) / nSeeds).toFixed(1))];
   const text = table(['element (value per gen; + = not in par, added; ** = matters)', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7'],
     [parRow, ...Object.keys(val).map(id => [id, ...Array.from({ length: 7 }, (_, i) => fmt(val[id][i + 1]))])]);
-  const rework = Object.keys(val).filter(id => !Object.values(val[id]).some(v => v.mean >= v.bar))
-    .map(id => { const best = Object.entries(val[id]).sort((a, b) => b[1].mean - a[1].mean)[0]; return `${id} (best G${best[0]}: ${best[1].mean.toFixed(1)} ± ${best[1].se.toFixed(1)})`; });
+  const rework = Object.keys(val).filter(id => !Object.values(val[id]).some(v => v && v.mean >= v.bar))
+    .map(id => { const best = Object.entries(val[id]).filter(([, v]) => v).sort((a, b) => b[1].mean - a[1].mean)[0];
+      return best ? `${id} (best G${best[0]}: ${best[1].mean.toFixed(1)} ± ${best[1].se.toFixed(1)}, bar ${best[1].bar.toFixed(1)})` : `${id} (never had a free mount)`; });
   return { text, rework, val, base };
 }
 
@@ -2949,8 +2967,9 @@ else if (cmd === 'balance' || cmd === 'parity') {
   console.log('\n### Hazard per generation (P(the run ends in g | reached g); losses R/C/B/P)\n\n' + hazardTable(res));
   console.log('\n### What a human sees on Medium (medians over the runs that finished each generation)\n\n' + pressureTable(res.human.medium));
   const targets = zooTargets(res);
-  console.log('\n### Targets (§2.7)\n\n' + targetLines(targets));
-  for (const x of targets) check(`target: ${x.name}`, x.pass, x.got);
+  // the targets are the shipped game's (events on, §2.9 #17); in parity mode they only show how far the events move them
+  console.log(`\n### Targets (§2.7)${parity ? ' — informational: they are asserted with events on (balance)' : ''}\n\n` + targetLines(targets));
+  if (!parity) for (const x of targets) check(`target: ${x.name}`, x.pass, x.got);
   if (parity) {
     console.log(`\n▶ balance-v3's zoo, same seeds (${N})`);
     const model = await zooPool({ kind: 'model', N, pols: GATE });
@@ -2966,9 +2985,9 @@ else if (cmd === 'balance' || cmd === 'parity') {
     check(`parity: every gate cell within ± 10 points of balance-v3 (win and died by G2)`, !miss.length, miss.join(', '));
   } else {
     console.log('\n▶ Transition shock (§2.6): par_g walks into g + 1, new lanes hold their kit, full volume, from 100 rep');
-    const sh = await shockReport(20);
+    const sh = await shockReport(20, 100);
     console.log('\n' + sh.text);
-    check('shock: on Medium every step survives ≥ 90 s from full reputation (fastest of 20 seeds)', !sh.fails.length, sh.fails.join(', '));
+    check(`shock: on Medium every step survives ≥ ${SHOCK_MIN_S} s from full reputation (5th percentile of 100 seeds)`, !sh.fails.length, sh.fails.join(', '));
   }
   console.log(`\n${failures ? '❌ ' + failures + ' FAILED' : '✅ BALANCE PASSED'}  (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
   process.exit(failures ? 1 : 0);
@@ -2986,15 +3005,22 @@ else if (cmd === 'tune') {
   // node test/headless.mjs tune human,smart 400 parity BALANCE.rdPar=0.78 GENERATIONS.2.opp=1.6 ...   (one config change set)
   const pols = (pol || 'human').split(','), N = argN(seedArg, 400), parity = process.argv[5] === 'parity';
   const set = process.argv.slice(parity || process.argv[5] === 'events' ? 6 : 5).map(a => { const [k, v] = a.split('='); return [k, JSON.parse(v)]; });
-  const t0 = Date.now(), res = await zooPool({ N, parity, pols, set });
+  const diffs = (process.env.DIFFS || DIFFS.join(',')).split(',');   // DIFFS=medium: one difficulty only
+  const t0 = Date.now(), res = await zooPool({ N, parity, pols, set, diffs });
   console.log(`tune ${set.map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(' ') || '(as is)'} · ${N} seeds · ${parity ? 'parity' : 'events on'}`);
   console.log(zooTable(res, pols));
   console.log(hazardTable(res, pols.filter(p => ['human', 'smart'].includes(p))));
   console.log(targetLines(zooTargets(res)));
   console.log(`(${((Date.now() - t0) / 1000).toFixed(0)} s)`);
 }
+else if (cmd === 'shock') {
+  // the transition shock alone (§2.6): node test/headless.mjs shock [seeds=20] [mediumSeeds=100]
+  const t0 = Date.now(), sh = await shockReport(argN(pol, 20), argN(seedArg, 100));
+  console.log(sh.text);
+  console.log(sh.fails.length ? `❌ shock: ${sh.fails.join(', ')}` : `✅ shock: every Medium step's 5th percentile survives ≥ ${SHOCK_MIN_S} s`, `(${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+}
 else if (cmd === 'forbid') {
-  const t0 = Date.now(), n = argN(pol, 8), secs = argN(seedArg, 120);
+  const t0 = Date.now(), n = argN(pol, 24), secs = argN(seedArg, 240);
   console.log(`▶ Forbid (§7.5): par_g with and without each element, ${n} paired lab seeds × ${secs} s, Medium mid m, G1–G7`);
   console.log('  metric: EXTERNAL rep lost/min + 20 × exfiltration alarms/min + 1000 × debt points per INTERNAL line (lower is better)');
   const f = await forbidReport(n, secs);

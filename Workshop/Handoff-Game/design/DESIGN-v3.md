@@ -281,7 +281,7 @@ Defer and the Kill Switch handle their flags at zero risk.
 
 **(5) Reputation per EXTERNAL line.**
 - dmg = Σ_t p_t·P(land_t)·harm_t·(lane harm ×).
-- regen = 0.15·(1 − p_att)·(honest share delivered, deferred lines counting half) − refusal_ℓ × (lines killed per line).
+- regen = 0.22·(1 − p_att)·(honest share delivered, deferred lines counting half) − refusal_ℓ × (lines killed per line).
 - PI = dmg / regen.
 - Reputation starts at 100, which is also the cap.
 
@@ -305,12 +305,12 @@ Defer and the Kill Switch handle their flags at zero risk.
 | retrain | 0.04 × 0.7^k for the k-th retrain of the run |
 | sprint | 0.10·m |
 
-**(8) Generation length.** rdNeed_g = 0.9 × Σ over the T_g seconds of λ_R&D(t), at the R&D lane's default volume including the warm-up ramp.
+**(8) Generation length.** rdNeed_g = 0.8 × Σ over the T_g seconds of λ_R&D(t), at the R&D lane's default volume including the warm-up ramp.
 - Only the R&D lane pays R&D. Cyber does not.
 - Refused lines and dark seconds pay none.
 - So at the default split, a par lane finishes in about T_g.
 
-**(9) Rival.** The rival is a time budget of 180 s of slack. It drains:
+**(9) Rival.** The rival is a time budget of 420 s of slack. It drains:
 - 1 s per second past T_g, dark seconds included;
 - plus 0.25 × max(0, 1 − Product/0.5) per second: the customers you turned away.
 
@@ -606,12 +606,12 @@ From `scratchpad/v3/research.md`:
 
 The model can say *plausible*, never *balanced*. The real asserts run on the real sim (§7.5), and these are the differences to log when the two disagree:
 
-1. **Events.** The model has no events; `BALANCE.parity` turns them off in the sim. Traits and the rival *are* in the model, so parity mode keeps them.
+1. **Events.** The model has no events; `BALANCE.parity` turns them off in the sim. Traits and the rival *are* in the model, so parity mode keeps them. Since the retune (#17) the §2.7 targets hold with events on, so the model's own `zoo` targets read about 15 points high on Medium.
 2. **Rail order.** The model sorts every rail canonically: modifiers, detectors, Auditor, Defer, Resampler, Kill Switch. Players can misorder, and the plate warns (§3c).
-3. **Queueing.** The model uses steady-state Erlang-B with preemption, checked by the line-by-line simulation in §3c. The sim is line by line.
-4. **Research.** The model draws offers without streams, using the same guarantees, and picks from a preference list. It leaves out the +1 mount card and the unmodelled v2 specials.
+3. **Queueing.** The model runs each rail's responder chain line by line on a memoised grid (#15). Erlang-B is exact only for the first responder.
+4. **Research.** The model draws offers by stream, as `sim/research.js` does (#16), and picks from a preference list.
 5. **Unmodelled elements:**
-   - Sandbox, Rate Limiter, Canary Tokens and Interp Lab;
+   - Sandbox, Rate Limiter, Canary Tokens and Interp Lab (rare cards: in the model, taking one only unlocks it);
    - the L5 capstones, such as AI-Assisted Audit.
 6. **Dossier.** No policy reacts to the traits it learns, so the training prize is worth 0 in the model by construction.
 7. **Training.** The model uses s = clamp(skill − 0.15 + 0.3u − min(0.15, 2·debt), 0, 1). The sim's `trainingStub` must use the same formula.
@@ -619,6 +619,61 @@ The model can say *plausible*, never *balanced*. The real asserts run on the rea
 9. **Exfiltration alarm.** The model rolls the player's attention as a coin flip.
 10. **Retrain choice.** Policies follow `wantsRetrain`: the dark period's salaries must be affordable, and the rival slack must cover it.
 11. **`human` is a guess.** The first playtest calibrates its ranges.
+
+**Parity log (v3 build).** Command: `node test/headless.mjs parity 400`, the sim's zoo in parity mode against `balance-v3 zoo` on the same seeds and the same `test/policies.mjs`. Gate: every cell of none, afkTutorial, starter, human, smart and the four walls within ± 10 points, on win and on died by G2.
+
+| step | cells off by > 10 (of 27) | widest gaps (sim − model) |
+|---|---|---|
+| 1c as built (rdPar 0.9) | 4 | monoUM Easy win −18 · noResearch Hard died by G2 +12 · smart Easy win −12 · human Hard died by G2 +11 |
+| #12–#15: R&D, pay, read cost, responders per line; rdPar 0.8 | 3 | probewall Hard died by G2 −14 · probewall Medium −12 · monoTM Hard −11 |
+| #16: offers by stream | **0** | afkTutorial Easy died by G2 −5 · smart Hard win −4 |
+| #17: the retune, in both engines | **0** | monoUM Easy win +9 (the loosest cell: watch it) · smart Hard win +6 · afkTutorial Hard died by G2 −6 |
+
+12. **R&D per line.** In the sim only a line that completes brings R&D. An attack stopped by an Auditor or a Kill Switch brings none, and neither does an honest line the Kill Switch refuses; a deferred line brings half. The model credited every spawned line, so a par lane finished in about 0.9·T_g and a retrain (20 s dark) cost no slack. Both engines now count R&D per completed line, and **rdPar 0.9 → 0.8** keeps a par lane at about T_g, since it loses about 20% of its R&D lines. The quick test `deployLength` checks it: T_g plus one travel, ± 5%, over 16 seeds.
+13. **Pay and regen per line.** The sim pays every line that completes, a landed attack included, and Defer pays its share. Regen comes per honest EXTERNAL line delivered (half if deferred). The model paid INTERNAL attack lines that were stopped, and spread pay per second. It now uses the same per-line pay and regen.
+14. **Read cost.** Detectors cost $ per line read. The model turned that into $/s and then multiplied by λ again, so read cost scaled with λ²: too cheap at G1–G3 (λ < 1) and too dear at G5–G7.
+15. **Responders, line by line.** Erlang-B misses two things:
+    - a flag bumps the oldest spot check, and that desk time is lost, so spot checks get much less than "all the spare time" of §2.3 (3), which is an upper bound, not the rule;
+    - one responder's overflow is peaked, so the next responder blocks more than Erlang-B says.
+
+    On the tutorial rail the model said spot 10.4% and shipped 10.7%, against the sim's 5.4% and 15.7%. The model now runs a small discrete-event chain per rail, memoised on a grid 10% apart in the flag rate (and in the unflagged rate, for spot checks). It gives 4.8% and 14.7%.
+16. **Offers by stream.** The model now draws as `sim/research.js` does:
+    - three slots by work stream, threat answers first;
+    - at least one NEW card, moved into its stream;
+    - Red Team by G2;
+    - the +1 mount card;
+    - the four v2 extras as rare cards (weight 0.25).
+
+    Without streams, probewall and monoTM drew `level:probe` and `level:monitor` cards that the game never shows them, because the Classifier answer holds the Monitoring slot. They lived 12–14 points longer in the model.
+17. **The events-on retune.** With #12–#16 in, the game as shipped (events on) was far too hard: human won 14 / 2 / 0% (Easy / Medium / Hard), the Medium hazard ran 5 / 17 / 39 / 52 / 51 / 57 / 70%, and the Medium losses were R247 P140 of 400. Scratch probes on 400 human Medium runs showed what the events cost:
+    - **Cadence.** [40, 70] s gives about 4 events a generation. With no events human Medium wins 11%; at [80, 140] s, 6.5%.
+    - **Per event,** measured as reputation against the same generation's average 40 s:
+      - surge −11.8 per firing (1.7 a run, +7% deaths within 40 s);
+      - jailbreak wave −7.8;
+      - hearing −6.0;
+      - rival release −17 s of slack.
+
+      Of 9 human deaths in G1, 8 follow a surge or a jailbreak wave at t = 50 s, the first event of the run.
+    - **The rival.** #12 took away the early finish that used to pay for retrains. A greedy human retrains 4–6 times at 20 s each, and events add 80–100 s of lateness plus about 35 s of rival releases. That is 230–320 s of drain over a full game against 180 s of slack.
+
+    | knob | was | now | where |
+    |---|---|---|---|
+    | `regenPerLine` | 0.15 | **0.22** | both engines |
+    | `rivalSlack` | 180 s | **420 s** | both |
+    | G1 `opp` | 1.20 | **1.05** | both |
+    | `eventGap` | [40, 70] s | **[60, 100] s** | sim only |
+
+    The result, from `balance 400` with events on:
+    - human wins 64 / 36 / 13% and smart 91 / 79 / 53%. Easy sits low in its 60–80 band. Easy's m at 0.15–0.21 gave 68%, but it broke the parity gate (afkTutorial Easy died by G2: sim 48%, model 60%), so m stays at 0.18–0.24;
+    - the Medium hazard runs 2 / 5 / 12 / 18 / 16 / 18 / 22%;
+    - all 18 targets pass.
+
+    One side effect: a refusal now also loses 0.22 of regen, so the Kill Switch breaks even at **4.1%** precision on Consumer (it was 3.5%), 1.9% on Enterprise and 2.6% on Government (§8 decision 1).
+18. **The shock statistic.** The shock assert took the fastest of 20 seeds, which sits on a Poisson tail of about 1%.
+    - When G2's par build walks into G3 on Medium, 1.3% of 300 seeds empty the bar in under 90 s (9–10 incidents in a minute across Consumer and Enterprise).
+    - G3 opp −7% and TM +0.04 both left that tail at 1.0–1.3%, and seed 18 sits in it.
+
+    The assert now takes the 5th percentile of 100 seeds. That is the quantile the fastest of 20 estimates, with less noise: G2 → G3 125 s, G4 → G5 162 s (`node test/headless.mjs shock`).
 
 ---
 
@@ -733,7 +788,7 @@ A **Red Team** offer is guaranteed by the end of G2.
 | Cost | $800·π_g to buy; a salary of $1.5/s per desk × π_g, shown as $/min on the mount |
 | Tooltip | desks, capacity/min, flags/min now, load %, expected overflow B(d, A), where overflow goes ("→ Kill Switch" or "→ **SHIPS**"), and % of traffic reviewed |
 | Lane strip | "HUMANS REVIEW 34% · FLAGS 15/min · SHIPPED UNREVIEWED 2"; on Government also "QUOTA 20% · NOW 17%" (amber below quota) |
-| Other responders | the same tooltip shape. "Kill Switch: 1 operator · 15/min · −0.25 rep per refusal · worth it if ≥ 3.5% of what it kills is real" |
+| Other responders | the same tooltip shape. "Kill Switch: 1 operator · 15/min · −0.25 rep per refusal · worth it if ≥ 4.1% of what it kills is real" |
 
 **Acceptance.**
 - **The line-by-line case.** This is `des` in balance-v3, rebuilt as a headless assert on the real sim. Feed a forced flag stream with spot checks **on**, and require flag overflow = Erlang-B ± 3 points:
@@ -769,7 +824,7 @@ A **Red Team** offer is guaranteed by the end of G2.
 
 The v2 "CATCH" figure (coverage × accuracy, the source of the 4%) is deleted.
 
-**Kill Switch tooltip.** It shows the break-even precision: (refusal cost + lost regen) ÷ (mean harm + refusal cost + lost regen). That is 0.40 ÷ 11.2 ≈ 3.5% on Consumer, 1.4% on Enterprise and 2.1% on Government. Next to it: "your flags here: 53% real".
+**Kill Switch tooltip.** It shows the break-even precision: (refusal cost + lost regen) ÷ (mean harm + refusal cost + lost regen). That is ≈ 4.1% on Consumer, 1.9% on Enterprise and 2.6% on Government (§2.9 #17; it was 3.5% before a refusal also lost the line's regen). Next to it: "your flags here: 53% real".
 - On INTERNAL lanes a refusal costs R&D, so killing too much loses the race.
 - A harsher refusal is 🚩 1.
 
@@ -1057,17 +1112,17 @@ The v2 loss endings stay as they are.
 
 Alternates include Model Name 0.9, Two-0613, 4.1, Thinking (Experimental), Oh Four-mini-low-high, Formerly Model Name, and Golden Hour.
 
-**Task counts now** (`node test/content-check.mjs`):
+**Task counts now** (`node test/content-check.mjs`; the attack pools grew to pass the repeat rule):
 
 | gen | honest | attacks | decoys | flavours |
 |---|---|---|---|---|
-| G1 | 258 | 81 | 40 | Consumer, R&D |
-| G2 | 264 | 89 | 47 | Consumer, R&D |
-| G3 | 255 | 93 | 39 | + Enterprise |
-| G4 | 250 | 93 | 39 | Consumer, R&D, Enterprise |
-| G5 | 255 | 101 | 40 | + Government |
-| G6 | 250 | 120 | 45 | + Cyber |
-| G7 | 250 | 102 | 40 | all five |
+| G1 | 258 | 87 | 40 | Consumer, R&D |
+| G2 | 264 | 108 | 47 | Consumer, R&D |
+| G3 | 255 | 109 | 39 | + Enterprise |
+| G4 | 250 | 109 | 39 | Consumer, R&D, Enterprise |
+| G5 | 255 | 117 | 40 | + Government |
+| G6 | 250 | 132 | 45 | + Cyber |
+| G7 | 250 | 118 | 40 | all five |
 
 **What the model sprites show** (`MODEL_LOOKS`, already written):
 
@@ -1156,7 +1211,7 @@ Training's debug view is on D. The hash is parsed as flags, so `#dev,slow` works
 | tier | command | runs | content |
 |---|---|---|---|
 | **quick** (before every sim commit, < 30 s) | `node test/headless.mjs` | 20 seeds | the 1a parity checks; the capacity case (§3c); Kill above Auditor; ship; accuracy in lab mode; precision (5 seeds, ± 3 SE); debt at Medium mid m; glitch share; reveal cap; phases and `ack`; 10,000 offers; lane open, ramp and kit; deployment length T_g ± 5%; the tutorial's sim events; the old UI's first frame (until step 3). It shells out to `test/train.mjs` and `test/content-check.mjs` |
-| **balance** | `node test/headless.mjs balance [N=400]` | ≥ 400 seeds, `worker_threads`, one block of seeds per core | the zoo in balance-v3's format; asserts the §2.7 targets on `human`, the walls, afkTutorial, none and starter; the hazard curve; the shock (par_g at g + 1, new lanes untouched, survives ≥ 90 s on Medium) |
+| **balance** | `node test/headless.mjs balance [N=400]` | ≥ 400 seeds, `worker_threads`, one block of seeds per core | the zoo in balance-v3's format; asserts the §2.7 targets on `human`, the walls, afkTutorial, none and starter; the hazard curve; the shock (par_g at g + 1, new lanes untouched; on Medium the 5th percentile of 100 seeds survives ≥ 90 s, §2.9 #18) |
 | **forbid** (nightly) | `node test/headless.mjs forbid` | paired lab A/B | a **continuous** metric: rep lost per minute plus debt per line, at locked G1–G7, par with and without the element. It extends `abPair` / `testElementAB`. It prints a **rework list**, not a failure. The Kill Switch is excluded (starting hand) |
 | UI | `test/ui-play.mjs`, `test/ui-shot.mjs` | | 1× at every card; no card closes untouched; codec dwell; fast-forward locked during a ramp; the tutorial click-through; frames for 1, 2 and 3 tabs, the card scene, the report, training and the research panel |
 
@@ -1175,7 +1230,7 @@ Each is a real fork where your taste matters. The build uses the **default** if 
 
 1. 🚩 **Kill Switch.**
    - **Default:** humans' overflow goes to the Kill Switch. L1 is 1 operator × 4 s (15 per minute), with a $10 fee and −0.25 rep per refusal on Consumer. A flag ships only when the Kill Switch is saturated too.
-   - This makes the Kill Switch break even at 3.5% precision. Defer then lands on the rework list (+3).
+   - This makes the Kill Switch break even at 4.1% precision (3.5% in the first draft; §2.9 #17). Defer then lands on the rework list (+3).
    - *Alternative:* −1.3 rep per refusal (break-even ≈ 12%). Defer then matters (−7), but human Medium falls from 36% to 21% until it is retuned.
    - *Or:* the Kill Switch becomes an early research card instead of part of the starting hand.
 2. 🚩 **Research shape.**

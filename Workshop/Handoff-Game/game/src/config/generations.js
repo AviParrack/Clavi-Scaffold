@@ -15,7 +15,7 @@
 //           which starts before any research can be taken)
 
 export const GENERATIONS = [
-  { g: 1, name: 'Autocomplete',          lam: 0.60, travel: 8.0, opp: 1.20, sub: 0.03, kappa: 1.60, exfil: 0.000, alpha: 0.998, deferPay: 0.60, price: 1.00, T: 270,
+  { g: 1, name: 'Autocomplete',          lam: 0.60, travel: 8.0, opp: 1.05, sub: 0.03, kappa: 1.60, exfil: 0.000, alpha: 0.998, deferPay: 0.60, price: 1.00, T: 270,
     bundle: 1,   textStealth: 0.05, palette: 'green',
     voice: 'ok. task done. next task?' },
   { g: 2, name: 'Junior Engineer',       lam: 0.75, travel: 7.5, opp: 1.70, sub: 0.05, kappa: 1.75, exfil: 0.000, alpha: 0.998, deferPay: 0.55, price: 1.10, T: 210,

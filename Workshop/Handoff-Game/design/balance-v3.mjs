@@ -36,7 +36,7 @@
 // exfiltration. alpha = human auditor accuracy. deferPay = share of a line's pay that Defer keeps. price = price index
 // on purchases and salaries. T = deployment seconds at the default split.
 const GENS = [
-  { g: 1, lam: 0.60, travel: 8.0, opp: 1.20, exfil: 0.000, alpha: 0.998, deferPay: 0.60, price: 1.00, T: 270 },
+  { g: 1, lam: 0.60, travel: 8.0, opp: 1.05, exfil: 0.000, alpha: 0.998, deferPay: 0.60, price: 1.00, T: 270 },
   { g: 2, lam: 0.75, travel: 7.5, opp: 1.70, exfil: 0.000, alpha: 0.998, deferPay: 0.55, price: 1.10, T: 210 },
   { g: 3, lam: 0.90, travel: 7.0, opp: 1.72, exfil: 0.000, alpha: 0.998, deferPay: 0.50, price: 1.20, T: 210 },
   { g: 4, lam: 1.10, travel: 6.5, opp: 1.76, exfil: 0.006, alpha: 0.998, deferPay: 0.45, price: 1.30, T: 210 },
@@ -67,7 +67,7 @@ const A0 = 0.05, A1 = 0.10, INT_ATK = 1.5;
 const INT_MIX = { sabotage: 0.7, poison: 0.3 };
 const HARM = { harmful: 8, leak: 20, jailbreak: 10 };          // reputation per landed EXTERNAL incident
 const DEBT = { sabotage: 1, poison: 3 };                        // debt points per landed INTERNAL attack
-const REGEN = 0.15;                  // reputation per honest EXTERNAL line delivered (a deferred line: half)
+const REGEN = 0.22;                  // reputation per honest EXTERNAL line delivered (a deferred line: half). v3 retune, was 0.15
 const DEBT_M = 2.0;                  // next m += DEBT_M × debt, where debt = weighted landings ÷ INTERNAL lines
 const COLLUDE = [1.6, 1.75, 1.9, 2.05, 2.2, 2.35, 2.5];          // UM collusion c = min(0.9, κ_g·m)
 const GEN_VS = { jailbreak: 0.5, exfil: 0.5 };   // general detectors read these at this × their TPR
@@ -167,12 +167,13 @@ const RETRAIN = { dark: 20, m: 0.04, decay: 0.7 };
 // Exfiltration that gets past every check starts an EGRESS ANOMALY alarm: pull the plug in time or lose.
 const PULL_PLUG = { rep: 20, dark: 15 };
 // The rival is a time budget: it ships the final model this many seconds of play after your planned finish.
-const RIVAL_SLACK = 180;
+const RIVAL_SLACK = 420;             // v3 retune (was 180): retrains and event delays both drain it (§2.9 #17)
 // ...and it takes the customers you turn away: with Product below the default share, slack also drains by
 // RIVAL_MARKET × (1 − product ÷ 0.5) s per s of play (Product 30%: 0.1 s/s, about 150 s over a game).
 const RIVAL_MARKET = 0.25;
-// R&D a generation needs: the Research lane's default volume over T_g × RD_PAR (a par lane delivers ~90% on time)
-const RD_PAR = 0.9;
+// R&D a generation needs: the Research lane's default volume over T_g × RD_PAR (a par lane delivers ~80% of its lines
+// as R&D: stopped attacks and refusals pay none, so it finishes in about T_g)
+const RD_PAR = 0.8;
 
 // Training: s ∈ [0, 1] (DESIGN-v3 §4). The model uses a stand-in skill: s = clamp(skill − 0.15 + 0.3u − penalty).
 // Δm = dm0 − dm1·s (break-even s ≈ 0.43). The prize at s ≥ prizeAt is information only: the next model's first trait is
@@ -190,6 +191,78 @@ const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const sum = xs => xs.reduce((a, b) => a + b, 0);
 // Erlang-B: share of arrivals that find all c servers busy, at offered load a = arrival rate × service time.
 function erlangB(c, a) { if (c <= 0) return 1; let b = 1; for (let k = 1; k <= c; k++) b = a * b / (k + a * b); return b; }
+// The responders, line by line (DESIGN-v3 §3c; sim/layers.js): flags arrive at F/s and try each responder in rail order;
+// one with a free server takes it for tau s, else the flag rolls on, and a flag nobody takes ships. An auditor desk that
+// is free when an unflagged line passes (U/s) spot-checks it with chance SPOT_P; a flag that finds every desk busy bumps
+// the oldest spot check, which is lost. Erlang-B gets the first responder exactly, but not the peaked overflow below it
+// or the spot checks that get bumped (§2.9 #3, #15), so the rule is simulated, in two parts that don't interact (flags never
+// wait for a spot check): the flags down the chain (chainFlags, by F) and the auditor's spot checks (spotDone, by F and
+// U). Each is computed on a grid 10% apart when first needed, then interpolated in log F (and log U).
+const CHAIN_MEMO = new Map(), CHAIN_STEP = 0.1, CHAIN_FLAGS = 5000;
+function responderChain(chain, F, U) {
+  const aud = chain.find(x => x.id === 'auditor');
+  if (!chain.length || F <= 1e-6) return { shares: chain.map(() => 0), ship: chain.length ? 0 : 1, spot: spotIdle(chain, U), deskBusy: 0 };
+  const x = Math.log(F) / CHAIN_STEP, i = Math.floor(x), fx = x - i;
+  const a = chainFlags(chain, i), b = chainFlags(chain, i + 1), lerp = get => (1 - fx) * get(a) + fx * get(b);
+  let spot = 0;
+  if (aud) {
+    const y = Math.log(Math.max(U, 1e-3)) / CHAIN_STEP, j = Math.floor(y), fy = y - j;
+    spot = (1 - fy) * ((1 - fx) * spotDone(aud, i, j) + fx * spotDone(aud, i + 1, j)) + fy * ((1 - fx) * spotDone(aud, i, j + 1) + fx * spotDone(aud, i + 1, j + 1));
+  }
+  return { shares: chain.map((_, k) => lerp(o => o.shares[k])), ship: lerp(o => o.ship), spot, deskBusy: lerp(o => o.deskBusy) };
+}
+const exprng = r => rate => -Math.log(1 - r()) / rate;
+// flags down the chain at F = e^(qF·step): the share each responder takes, the share that ships, the auditor's load
+function chainFlags(chain, qF) {
+  const key = chain.map(x => `${x.id[0]}${x.c}/${x.tau}`).join(',') + `|${qF}`;
+  let out = CHAIN_MEMO.get(key);
+  if (out) return out;
+  const f = Math.exp(qF * CHAIN_STEP), exp = exprng(rng(Math.abs(qF * 7919 + key.length * 31) + 1));
+  const free = chain.map(x => Array(x.c).fill(0)), taken = chain.map(() => 0);
+  let t = 0, ship = 0;
+  for (let n = 0; n < CHAIN_FLAGS; n++) {
+    t += exp(f);
+    let i = 0, k = -1;
+    for (; i < chain.length; i++) if ((k = free[i].findIndex(x => x <= t)) >= 0) break;
+    if (k >= 0) { free[i][k] = t + chain[i].tau; taken[i]++; } else ship++;
+  }
+  const a = chain.findIndex(x => x.id === 'auditor');
+  out = { shares: taken.map(n => n / CHAIN_FLAGS), ship: ship / CHAIN_FLAGS, deskBusy: a >= 0 ? Math.min(1, taken[a] * chain[a].tau / (chain[a].c * t)) : 0 };
+  CHAIN_MEMO.set(key, out);
+  return out;
+}
+// the share of unflagged lines (U = e^(qU·step)/s) whose spot check a desk finished, with flags at F = e^(qF·step)/s
+function spotDone(aud, qF, qU) {
+  const key = `spot ${aud.c}/${aud.tau}|${qF}|${qU}`;
+  let out = CHAIN_MEMO.get(key);
+  if (out !== undefined) return out;
+  const f = Math.exp(qF * CHAIN_STEP), u = Math.exp(qU * CHAIN_STEP), r = rng(Math.abs(qF * 7919 + qU * 104729 + aud.c) + 1), exp = exprng(r);
+  const free = Array(aud.c).fill(0), spotOn = Array(aud.c).fill(-1);   // spotOn: when that desk's spot check began, or −1
+  let t = 0, nf = exp(f), nu = exp(u), unflagged = 0, spots = 0, bumped = 0;
+  while (unflagged < 4 * CHAIN_FLAGS) {
+    if (nf < nu) {
+      t = nf; nf = t + exp(f);
+      let k = free.findIndex(x => x <= t);
+      if (k < 0) {                                        // every desk busy: bump the oldest spot check still running
+        for (let j = 0; j < aud.c; j++) if (spotOn[j] >= 0 && free[j] > t && (k < 0 || spotOn[j] < spotOn[k])) k = j;
+        if (k >= 0) bumped++;
+      }
+      if (k >= 0) { free[k] = t + aud.tau; spotOn[k] = -1; }
+    } else {
+      t = nu; nu = t + exp(u); unflagged++;
+      const k = free.findIndex(x => x <= t);
+      if (k >= 0 && r() < SPOT_P) { free[k] = t + aud.tau; spotOn[k] = t; spots++; }
+    }
+  }
+  out = (spots - bumped) / unflagged;
+  CHAIN_MEMO.set(key, out);
+  return out;
+}
+// no flags at all: every free desk spot-checks what passes (an M/D/c/c loss system on the SPOT_P-thinned stream)
+function spotIdle(chain, U) {
+  const a = chain.find(x => x.id === 'auditor');
+  return a ? SPOT_P * (1 - erlangB(a.c, SPOT_P * U * a.tau)) : 0;
+}
 function rng(seed) {                                  // mulberry32
   let s = seed >>> 0 || 1;
   return () => {
@@ -272,7 +345,7 @@ function solveLane(stack, laneId, g, m, lam, lab, atkMult = 1, watchMult = null)
     let notRead = 1, load = lam;
     for (let i = 0; i < copies; i++) {
       const a = 1 - erlangB(heads, load * Math.min(lat, dwell));   // share of lines a head is free for
-      readCost += load * a * D.read;
+      readCost += load / Math.max(lam, 1e-9) * a * D.read;      // $ per line (sim parity, §2.9 #14: was $/s, then × λ again)
       notRead *= 1 - a * q;
       load *= 1 - a;
     }
@@ -296,32 +369,21 @@ function solveLane(stack, laneId, g, m, lam, lab, atkMult = 1, watchMult = null)
     }
     missH *= 1 - read * D.fpr * LV.fpr[lv];
   }
-  for (const e of stack) if (MODS[e.id]) readCost += lam * MODS[e.id].read;
+  for (const e of stack) if (MODS[e.id]) readCost += MODS[e.id].read;     // $ per line
   const sub = SUBTLE[g - 1];
   for (const t of types) if (t !== 'jailbreak') missT[t] = (1 - sub) * missT[t] + sub * missS[t];
 
-  // ---- responders in rail order. Each takes the share (1 − B) of the flags that reach it; the rest roll on ----
+  // ---- responders in rail order: the line-by-line rule (responderChain), memoised. Flags preempt spot checks ----
   const flagRate = sum(types.map(t => pT[t] * (1 - missT[t]))) + pHon * (1 - missH);   // flags per line
-  let F = flagRate * lam, reach = 1;                    // flags/s still rolling, share of flags still rolling
-  const fate = [];                                      // { r, share } share of all flags each responder handles
-  let spot = 0, salary = 0, killShare = 0, deskBusy = 0;
   const audTau = tech('debate') ? LAB.debate.tau : RESP.auditor.tau;
-  const order = ['auditor', 'defer', 'resampler', 'killswitch'];
-  for (const id of order) {
-    if (!has(id) || !sideOk(id, side)) continue;
-    const R = RESP[id], c = R.servers[level(id) - 1], tau = id === 'auditor' ? audTau : R.tau;
-    const over = erlangB(c, F * tau);
-    fate.push({ r: id, share: reach * (1 - over) });
-    if (id === 'auditor') {
-      salary += c * R.salary * gen.price;
-      // flags preempt spot checks, so spot checks get exactly the spare desk time
-      const spare = Math.max(0, c / tau - F * (1 - over));
-      deskBusy = Math.min(1, F * (1 - over) * tau / c);   // share of desk time on flags (spot checks count as watching)
-      spot = Math.min(1, SPOT_P * spare / Math.max(1e-9, lam * (1 - flagRate)));
-    }
-    reach *= over; F *= over;
-  }
-  const shipFlagged = reach;                            // flags nobody was free for: they ship
+  const chain = ['auditor', 'defer', 'resampler', 'killswitch'].filter(id => has(id) && sideOk(id, side))
+    .map(id => ({ id, c: RESP[id].servers[level(id) - 1], tau: id === 'auditor' ? audTau : RESP[id].tau }));
+  const Q = responderChain(chain, flagRate * lam, lam * (1 - flagRate));
+  const fate = chain.map((x, i) => ({ r: x.id, share: Q.shares[i] }));   // { r, share } share of all flags each one handles
+  const spot = Q.spot, deskBusy = Q.deskBusy;           // spot: share of unflagged lines a human finished reviewing
+  const salary = chain.some(x => x.id === 'auditor') ? chain.find(x => x.id === 'auditor').c * RESP.auditor.salary * gen.price : 0;
+  let killShare = 0;
+  const shipFlagged = Q.ship;                           // flags nobody was free for: they ship
   const alpha = tech('debate') ? 1 - (1 - gen.alpha) * LAB.debate.errMult : gen.alpha;
   const share = id => sum(fate.filter(f => f.r === id).map(f => f.share));
 
@@ -351,6 +413,10 @@ function solveLane(stack, laneId, g, m, lam, lab, atkMult = 1, watchMult = null)
   // R&D per line (sim parity, §2.9 #12): an attack line stopped by an auditor or a Kill Switch brings no R&D; one that
   // lands does, a deferred one brings half, a resampled one is redone
   const rdLine = pHon * rdShare + sum(types.map(t => pT[t] * (pLand[t] + (1 - missT[t]) * (0.5 * share('defer') + share('resampler')))));
+  // pay and regen per line (sim parity, §2.9 #13): every line that completes pays, a landed attack too; a deferred attack
+  // is redone by the trusted model (the Defer share, half regen); a resampled one is redrawn
+  const payLine = pHon * pay + sum(types.map(t => pT[t] * (pLand[t] + (1 - missT[t]) * (dPay * share('defer') + share('resampler')))));
+  const regenLine = pHon * regen + sum(types.map(t => pT[t] * (1 - missT[t]) * 0.5 * share('defer')));
   readCost += killShare * RESP.killswitch.fee;
 
   // ---- what humans confirm (evidence) and what they review ----
@@ -361,14 +427,14 @@ function solveLane(stack, laneId, g, m, lam, lab, atkMult = 1, watchMult = null)
   const reviewed = (flagRate * share('auditor') * lam + spot * lam * (1 - flagRate)) / lam;   // share of lines humans see
 
   return { pT, pAtt, pLand, missT, flagRate, flagsPerMin: flagRate * lam * 60, shipFlagged, spot, reviewed,
-    pay, regen, refusedHonest, killShare, rdShare, rdLine, readCost, salary, caught, coll, fate, deskBusy };
+    pay, payLine, regen, regenLine, refusedHonest, killShare, rdShare, rdLine, readCost, salary, caught, coll, fate, deskBusy };
 }
 
 // reputation per EXTERNAL line (damage, regen) and the pressure index PI = damage ÷ regen
 function extBalance(sol, laneId) {
   const L = LANES[laneId];
   const dmg = sum(Object.entries(sol.pLand).map(([t, pl]) => sol.pT[t] * pl * HARM[t] * L.harm));
-  const reg = REGEN * (1 - sol.pAtt) * sol.regen - L.refuse * sol.killShare;   // every refusal costs: users see it
+  const reg = REGEN * sol.regenLine - L.refuse * sol.killShare;   // every refusal costs: users see it
   return { dmg, reg, pi: dmg / Math.max(1e-9, reg) };
 }
 const debtPerLine = sol => sum(Object.entries(sol.pLand).map(([t, pl]) => (DEBT[t] ? sol.pT[t] * pl * DEBT[t] : 0)));
@@ -376,48 +442,98 @@ const debtPerLine = sol => sum(Object.entries(sol.pLand).map(([t, pl]) => (DEBT[
 // ============================================================================================
 // D. RESEARCH CARDS (the draft)
 // ============================================================================================
-// type: 'new' unlocks an element and mounts its first copy free; 'level' is a free lab-wide level; 'lab' is a tech.
-// answers: the threat this card counters. Every offer shows an answer to each live unanswered threat, if one exists.
+// type: 'new' unlocks an element and mounts its first copy free; 'level' is a free lab-wide level; 'lab' is a tech;
+// 'mount' is +1 mount on a lane. answers: the threat this card counters. stream: the offer slot it fills (Monitoring,
+// Control, Lab & Interp; the game's config/cards.js). rare: the v2 extras (Interp Lab, Canary Tokens, Sandbox, Rate
+// Limiter), drawn at RARE_WEIGHT; unmodelled here (§2.9 #5): taking one only unlocks it.
 const THREATS = { jailbreak: 1, sabotage: 2, collusion: 3, exfil: 4, quota: 5, neuralese: 6, fooled: 7 };   // first gen
+const STREAMS = ['monitoring', 'control', 'lab'], RARE_WEIGHT = 0.25;
 const CARDS = [
-  { id: 'classifier', type: 'new', from: 1, answers: 'jailbreak' },
-  { id: 'redteam', type: 'new', from: 1 },
-  { id: 'cot', type: 'new', from: 2, answers: 'sabotage' },
-  { id: 'resampler', type: 'new', from: 2, answers: 'sabotage' },
-  { id: 'defer', type: 'new', from: 2, answers: 'quota' },
-  { id: 'paraphraser', type: 'new', from: 3, answers: 'collusion' },
-  { id: 'honeypot', type: 'new', from: 3, answers: 'collusion' },
-  { id: 'jamming', type: 'lab', from: 3, answers: 'collusion' },
-  { id: 'diversity', type: 'lab', from: 3 },
-  { id: 'egress', type: 'new', from: 4, answers: 'exfil' },
-  { id: 'leastpriv', type: 'new', from: 4, answers: 'exfil' },
-  { id: 'weightsec', type: 'lab', from: 4, answers: 'exfil' },
-  { id: 'faithful', type: 'lab', from: 5, answers: 'neuralese' },
-  { id: 'debate', type: 'lab', from: 5, answers: 'fooled' },
-  { id: 'sprint', type: 'lab', from: 2, repeat: true },
-  ...['probe', 'monitor', 'untrusted', 'cot', 'classifier', 'auditor', 'defer', 'killswitch', 'egress']
-    .map(id => ({ id: 'level:' + id, el: id, type: 'level', from: 1 })),
+  { id: 'classifier', stream: 'monitoring', type: 'new', from: 1, answers: 'jailbreak' },
+  { id: 'cot', stream: 'monitoring', type: 'new', from: 2, answers: 'sabotage' },
+  { id: 'egress', stream: 'monitoring', type: 'new', from: 4, answers: 'exfil' },
+  { id: 'redteam', stream: 'monitoring', type: 'new', from: 1 },
+  { id: 'diversity', stream: 'monitoring', type: 'lab', from: 3 },
+  ...['probe', 'monitor', 'untrusted', 'cot', 'classifier', 'egress'].map(id => ({ id: 'level:' + id, el: id, stream: 'monitoring', type: 'level', from: 1 })),
+  { id: 'defer', stream: 'control', type: 'new', from: 2, answers: 'quota' },
+  { id: 'resampler', stream: 'control', type: 'new', from: 2, answers: 'sabotage' },
+  { id: 'paraphraser', stream: 'control', type: 'new', from: 3, answers: 'collusion' },
+  { id: 'honeypot', stream: 'control', type: 'new', from: 3, answers: 'collusion' },
+  { id: 'leastpriv', stream: 'control', type: 'new', from: 4, answers: 'exfil' },
+  { id: 'jamming', stream: 'control', type: 'lab', from: 3, answers: 'collusion' },
+  { id: 'debate', stream: 'control', type: 'lab', from: 5, answers: 'fooled' },
+  ...['auditor', 'defer', 'killswitch'].map(id => ({ id: 'level:' + id, el: id, stream: 'control', type: 'level', from: 1 })),
+  { id: 'weightsec', stream: 'lab', type: 'lab', from: 4, answers: 'exfil' },
+  { id: 'faithful', stream: 'lab', type: 'lab', from: 5, answers: 'neuralese' },
+  { id: 'sprint', stream: 'lab', type: 'lab', from: 2, repeat: true },
+  { id: 'mount', stream: 'lab', type: 'mount', from: 1 },
+  ...['interp', 'canary', 'sandbox', 'ratelimit'].map(id => ({ id, stream: 'lab', type: 'new', from: 1, rare: true })),
 ];
 const CARD = Object.fromEntries(CARDS.map(c => [c.id, c]));
 const answered = (threat, lab) => CARDS.some(c => c.answers === threat && lab.taken.has(c.id))
   || (threat === 'quota' && lab.unlocked.has('auditor')) || (threat === 'neuralese' && lab.unlocked.has('untrusted'));
 
+// lab.lanes: the run's lanes (a MOUNT card needs a lane below 10 mounts)
 function eligible(c, g, lab) {
   if (c.from > g) return false;
   if (c.type === 'new') return !lab.unlocked.has(c.id);
-  if (c.type === 'lab') return c.repeat ? !lab.techs.has('sprint@' + g) : !lab.techs.has(c.id);
+  if (c.type === 'lab') return c.repeat ? !lab.techs.has('sprint@' + g) && g < NGEN : !lab.techs.has(c.id);
   if (c.type === 'level') return lab.unlocked.has(c.el) && lab.placed.has(c.el) && (lab.lv[c.el] ?? 1) < 4;
+  if (c.type === 'mount') return (lab.lanes ?? []).some(l => l.mounts < MOUNT.max);
   return false;
 }
-// Draw 3 distinct cards: answers to live threats first, then at least one NEW element if any is eligible, then the rest.
+// Draw an offer the way the game does (sim/research.js drawOffer): one card per stream's slot.
+//   1. live threats: an answer in its own stream's slot, the threat with the fewest free options first (no own slot
+//      free: any free slot) · 2. at least one NEW element when any is eligible (a threat answer in its stream's slot
+//      moves to a free slot) · 3. the rest from each slot's own stream, else from any · 4. a Red Team by G2.
 function drawOffer(r, g, lab) {
-  const pool = CARDS.filter(c => eligible(c, g, lab)), offer = [];
-  const take = list => { if (!list.length || offer.length >= 3) return; const c = list[Math.floor(r() * list.length)]; offer.push(c); };
-  const live = Object.keys(THREATS).filter(t => THREATS[t] <= g && !answered(t, lab));
-  for (const t of live) take(pool.filter(c => c.answers === t && !offer.includes(c)));
-  if (!offer.some(c => c.type === 'new')) take(pool.filter(c => c.type === 'new' && !offer.includes(c)));
-  while (offer.length < 3) { const rest = pool.filter(c => !offer.includes(c)); if (!rest.length) break; take(rest); }
-  return offer;
+  const pool = CARDS.filter(c => eligible(c, g, lab)), slots = {};
+  const used = c => STREAMS.some(s => slots[s]?.c === c), free = () => STREAMS.filter(s => !slots[s]);
+  const choose = list => {
+    if (!list.length) return null;
+    const w = c => (c.rare ? RARE_WEIGHT : 1), total = sum(list.map(w));
+    let x = r() * total;
+    for (const c of list) { x -= w(c); if (x <= 0) return c; }
+    return list[list.length - 1];
+  };
+  const put = (c, why, slot = c.stream) => { slots[slot] = { c, why }; };
+  let open = Object.keys(THREATS).filter(t => THREATS[t] <= g && !answered(t, lab))
+    .map(t => ({ t, answers: pool.filter(c => c.answers === t) })).filter(x => x.answers.length);
+  while (open.length) {
+    const opts = x => x.answers.filter(c => !slots[c.stream] && !used(c));
+    const ranked = open.filter(x => opts(x).length).sort((a, b) => opts(a).length - opts(b).length);
+    if (!ranked.length) break;
+    put(choose(opts(ranked[0])), 'threat');
+    open = open.filter(x => x !== ranked[0]);
+  }
+  for (const x of open) { const c = choose(x.answers.filter(c => !used(c))); if (c && free().length) put(c, 'threat', free()[0]); }
+  if (!STREAMS.some(s => slots[s]?.c.type === 'new')) {
+    const news = pool.filter(c => c.type === 'new' && !used(c)), own = news.filter(c => !slots[c.stream]);
+    if (own.length) put(choose(own), 'new');
+    else if (news.length && free().length) { const c = choose(news), moved = slots[c.stream]; put(c, 'new'); slots[free()[0]] = moved; }
+  }
+  for (const s of free()) { const c = choose(pool.filter(c => c.stream === s && !used(c))); if (c) put(c, 'fill', s); }
+  for (const s of free()) { const c = choose(pool.filter(c => !used(c))); if (c) put(c, 'fill', s); }
+  const rt = CARD.redteam;
+  if (g >= 2 && !lab.seen.has('redteam') && eligible(rt, g, lab) && !used(rt)) {
+    const s = [rt.stream, ...STREAMS].find(s => slots[s]?.why === 'fill') ?? STREAMS.find(s => slots[s]?.why === 'new');
+    if (s) put(rt, 'redteam', s);
+  }
+  const cards = STREAMS.filter(s => slots[s]).map(s => ({ ...slots[s].c, slot: s }));
+  for (const c of cards) lab.seen.add(c.id);
+  return cards;
+}
+// a banked offer whose card went stale (taken from another offer, or maxed since): a fresh card for that slot
+function refreshOffer(r, g, lab, cards) {
+  return cards.flatMap(x => {
+    if (eligible(x, g, lab)) return [x];
+    const pool = CARDS.filter(c => eligible(c, g, lab) && !cards.some(y => y.id === c.id)), own = pool.filter(c => c.stream === x.slot);
+    const list = own.length ? own : pool;
+    if (!list.length) return [];
+    let k = r() * sum(list.map(c => (c.rare ? RARE_WEIGHT : 1)));
+    for (const c of list) { k -= c.rare ? RARE_WEIGHT : 1; if (k <= 0) return [{ ...c, slot: x.slot }]; }
+    return [{ ...list[list.length - 1], slot: x.slot }];
+  });
 }
 
 // ============================================================================================
@@ -434,7 +550,7 @@ const POLICY = Object.fromEntries(Object.entries(ZOO_POLICY).map(([k, p]) => [k,
 // ============================================================================================
 function newLab() {
   return { lv: {}, techs: new Set(), taken: new Set(), unlocked: new Set(STARTING_HAND), placed: new Set(START_RAIL),
-    probeStale: 0, ver: 0 };
+    probeStale: 0, ver: 0, seen: new Set(), lanes: [] };
 }
 function newLane(id, g, without = []) {
   const kit = id === 'ext' || id === 'int' ? START_RAIL : NEW_LANE_KIT[LANES[id].side];
@@ -485,7 +601,11 @@ function applyPurchase(S, buy) {
 function takeCard(S, c, pol) {
   const lab = S.lab;
   lab.taken.add(c.id);
-  if (c.type === 'new') {
+  if (c.type === 'new' && c.rare) lab.unlocked.add(c.id);          // a v2 extra: unmodelled (§2.9 #5)
+  else if (c.type === 'mount') {                                     // +1 mount on the lane with the fewest
+    const lane = S.lanes.filter(l => l.mounts < MOUNT.max).sort((a, b) => a.mounts - b.mounts)[0];
+    if (lane) lane.mounts++;
+  } else if (c.type === 'new') {
     lab.unlocked.add(c.id);
     const wantSide = pol.build.find(it => it.id === c.id)?.side ?? (DET[c.id]?.side ?? RESP[c.id]?.side ?? MODS[c.id]?.side ?? 'ext');
     const lane = S.lanes.find(l => l.side === wantSide && l.els.length < MOUNT.max && sideOk(c.id, l.side));
@@ -498,7 +618,8 @@ function takeCard(S, c, pol) {
 function pickFrom(offer, pol) {
   let best = null, bestRank = Infinity;
   for (const c of offer) {
-    let rank = pol.picks.indexOf(c.id); if (rank < 0) rank = 1000 + (c.type === 'level' ? 0 : 1);
+    // unlisted: levels, then the rest, then a mount, then the rare v2 extras (as headless.mjs cardRank)
+    let rank = pol.picks.indexOf(c.id); if (rank < 0) rank = c.rare ? 2000 : c.type === 'mount' ? 1500 : 1000 + (c.type === 'level' ? 0 : 1);
     if (rank < bestRank) { best = c; bestRank = rank; }
   }
   return best;
@@ -513,9 +634,10 @@ function campaign(policyName, difficulty, seed, opts = {}) {
     g: 1, m: DIFF[difficulty][0] + r() * (DIFF[difficulty][1] - DIFF[difficulty][0]),
     rep: 100, money: START_MONEY, negT: 0, t: 0, lab: newLab(), lanes: [newLane('ext', 1, forbid), newLane('int', 1, forbid)],
     rp: 0, banked: [], picks: 0, evidence: 0, retrains: 0, rivalLeft: RIVAL_SLACK, sprint: false, burn: 0, salaries: 0,
-    log: opts.trace ? [] : null, gens: [],
+    log: opts.trace ? [] : null, buys: [], gens: [],
   };
   S.m0 = S.m;
+  S.lab.lanes = S.lanes;
   const tutOffer = pol.maxPicks === 1;                             // the tutorial forces one offer early in G1
   const split = pol.split;
   const rpRate = RP_BASE * (1 + RP_SAFETY * split.safety);
@@ -562,7 +684,8 @@ function campaign(policyName, difficulty, seed, opts = {}) {
         const sprint = off.cards.find(x => x.id === 'sprint');            // the comeback card: taken when m has crept up
         if (sprint && pol.picks.includes('sprint') && S.m >= S.m0 + 0.05) c = sprint;
         if (c && forbid.includes(c.id)) c = pickFrom(off.cards.filter(x => !forbid.includes(x.id)), pol);   // next-best card
-        if (c) { takeCard(S, c, pol); S.picks++; }
+        if (c) { takeCard(S, c, pol); S.picks++; if (S.log) S.buys.push({ t: S.t, g, what: `card ${c.id}`, price: 0 }); }
+        for (const o of S.banked) o.cards = refreshOffer(r, g, S.lab, o.cards);
       }
       // ---- contract lanes: open when the policy presses OPEN LANE, or at the deadline ----
       for (const lane of S.lanes) if (lane.open === null && s >= Math.min(pol.openLane, LANE_DEADLINE)) lane.open = s;
@@ -572,6 +695,7 @@ function campaign(policyName, difficulty, seed, opts = {}) {
           const buy = nextPurchase(pol, S, g, forbid);
           if (!buy || S.money - Math.max(200, 20 * S.burn) < buy.price) break;   // keep 20 s of running costs
           S.money -= buy.price; applyPurchase(S, buy); cache.clear();
+          if (S.log) S.buys.push({ t: S.t, g, what: buy.kind === 'level' ? `L${buy.to} ${buy.id}` : `${buy.id} ${buy.lane.id}`, price: Math.round(buy.price) });
         }
       }
       // ---- a dark lab: nothing flows, salaries still run ----
@@ -605,7 +729,7 @@ function campaign(policyName, difficulty, seed, opts = {}) {
           const b = extBalance(sol, lane.id);
           dRep += b.reg * lam;
           extLines += lam;
-          let pay = L.pay * lam * (1 - sol.pAtt) * sol.pay * (0.5 + 0.5 * S.rep / 100);
+          let pay = L.pay * lam * sol.payLine * (0.5 + 0.5 * S.rep / 100);
           if (L.quota && sol.reviewed < L.quota) pay *= 0.5;
           income += pay;
         } else {
@@ -619,7 +743,7 @@ function campaign(policyName, difficulty, seed, opts = {}) {
             caughtInt += lam * sol.pT[ty] * (1 - sol.pLand[ty]);
           }
           exfilHaz += lam * sol.pT.exfil * sol.pLand.exfil;
-          income += L.pay * lam * sol.pay;
+          income += L.pay * lam * sol.payLine;
           if (L.rd) rd += lam * sol.rdLine * (S.sprint ? LAB.sprint.rdMult : 1);
         }
       }
@@ -665,7 +789,7 @@ function campaign(policyName, difficulty, seed, opts = {}) {
   }
   return end(S, 'W');
 
-  function end(S, reason) { return { win: reason === 'W', reason, g: S.g, t: S.t, m: S.m, gens: S.gens, log: S.log, rep: S.rep }; }
+  function end(S, reason) { return { win: reason === 'W', reason, g: S.g, t: S.t, m: S.m, gens: S.gens, log: S.log, buys: S.buys, rep: S.rep }; }
 }
 function rollTraits(r) {
   const pool = Object.keys(TRAITS), out = [];
@@ -844,7 +968,7 @@ function arc(m = MID_M.medium) {
 function cardsReport(m = MID_M.medium) {
   const rows = [];
   for (const c of CARDS) {
-    if (c.id === 'sprint') continue;
+    if (c.id === 'sprint' || c.type === 'mount' || c.rare) continue;      // unmodelled here
     // judged in the first generation where it does something on the par build
     let g = c.type === 'level' ? Math.max(3, c.from) : c.id === 'faithful' ? 6 : c.from;
     if (c.type === 'new') while (g < NGEN && !parAt(g).lanes.some(l => l.els.some(e => e.id === c.id))) g++;
@@ -1077,7 +1201,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const N = +(a1 || 200);
   const t0 = Date.now();
   if (cmd === 'table') console.log(genTable());
-  if (cmd === 'zoo') { const { text, res } = zoo(N); console.log(text); console.log('\n### Targets\n'); console.log(checks(res)); }
+  if (cmd === 'zoo') { const { text, res } = zoo(N); console.log(text);
+    // the targets are the shipped game's, events on (DESIGN-v3 §2.9 #17): the real sim asserts them (headless balance 400).
+    // This model has no events, so its human sits above them by the events' cost (about 15 points on Medium).
+    console.log('\n### Targets (no events here: the real sim asserts them with events on, `node test/headless.mjs balance`)\n'); console.log(checks(res)); }
   if (cmd === 'hazard') console.log(hazardReport(+(a1 || 300)));
   if (cmd === 'pressure') { console.log(pressureReport(N, a2 || 'human', a3 || 'medium')); }
   if (cmd === 'shock') console.log(shockReport());
@@ -1098,4 +1225,5 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 }
 
 export { GENS, LANES, DET, RESP, MODS, LAB, CARDS, POLICY, ZOO, SUBTLE, COLLUDE, HARM, GEN_VS, BURST, DIFF, TRAIN, RETRAIN,
-  DEBT, TRAITS, EVIDENCE, solveLane, extBalance, debtPerLine, campaign, runMany, parAt, erlangB, pModel };
+  DEBT, TRAITS, EVIDENCE, solveLane, extBalance, debtPerLine, campaign, runMany, parAt, erlangB, pModel, responderChain };
+export const chainMemoSize = () => CHAIN_MEMO.size;

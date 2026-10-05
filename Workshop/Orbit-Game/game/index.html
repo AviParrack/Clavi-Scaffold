@@ -2,25 +2,28 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap">
 <title>Pocket Orbit</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #0b0d21; color-scheme: dark; overflow: hidden; touch-action: none; }
+  html, body { margin: 0; height: 100%; background: #171238; color-scheme: dark; overflow: hidden; touch-action: none; }
   #game { display: block; width: 100%; height: 100%; }
   #touch { display: none; position: fixed; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); left: 0; right: 0; justify-content: space-between; padding: 0 16px; pointer-events: none; }
   #touch div { display: flex; gap: 10px; }
   #touch button { pointer-events: auto; width: 64px; height: 64px; border-radius: 50%; border: 2px solid #8ea0c8;
-                  background: rgba(10,14,40,0.6); color: #e8f1ff; font: bold 16px monospace; user-select: none; }
+                  background: rgba(10,14,40,0.6); color: #e8f1ff; font: 600 16px Fredoka, sans-serif; user-select: none; }
   @media (pointer: coarse) { #touch { display: flex; } }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="touch">
-  <div><button data-touch="left">⟲</button><button data-touch="right">⟳</button></div>
-  <div><button data-touch="pro">PRO</button><button data-touch="map">MAP</button><button data-touch="thrust">🔥</button></div>
+  <div><button data-touch="rotL">⟲</button><button data-touch="kill">■</button><button data-touch="rotR">⟳</button></div>
+  <div><button data-touch="map">MAP</button><button data-touch="spawn">↻</button><button data-touch="thrust">🔥</button></div>
 </div>
 <script src="js/config.js"></script>
+<script src="js/world.js"></script>
 <script src="js/physics.js"></script>
 <script src="js/game.js"></script>
 <script src="js/render.js"></script>

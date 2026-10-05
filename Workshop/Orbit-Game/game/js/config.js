@@ -1,51 +1,58 @@
 // ======================================================================
-//  CONFIG  —  all game-scaled constants live here (SI-ish, 1 unit = 1 m)
+//  CONFIG  —  game-scaled constants (1 unit = 1 m, 1 s = 1 s)
+//  A shrunken Ceres neighbourhood: real gravity, toy distances.
 // ======================================================================
 
 const CONFIG = {
 
-  // ---------------- planet "Pebble" ----------------
-  planet: {
-    name: 'Pebble',
-    R: 1000,                  // radius [m]
-    g0: 4.0,                  // surface gravity [m/s^2]  ->  mu = g0 R^2
-    atmoTop: 120,             // altitude where drag goes to zero [m]
-    rho0: 1.0,                // surface density (game units)
-    scaleH: 30,               // density scale height [m]
-  },
+  // ---------------- big bodies (on circular rails around their parent) ----------------
+  //  g = surface gravity [m/s^2], mu = g R^2.   a = orbit radius around parent [m]
+  bodies: [
+    { id: 'ceres',  name: 'Ceres',  parent: null,    a: 0,    phase: 0,   R: 300, g: 2.0,
+      shape: 0.02, color: ['#9aa7c7', '#5f6a92', '#d6def2'] },
+    { id: 'dorito', name: 'Dorito', parent: 'ceres', a: 780,  phase: 0.9, R: 34,  g: 2.0,
+      shape: 0.25, color: ['#e6a45e', '#a8643a', '#ffd29a'] },
+    { id: 'kiwi',   name: 'Kiwi',   parent: 'ceres', a: 1150, phase: 2.6, R: 52,  g: 2.0,
+      shape: 0.12, color: ['#a6c36f', '#5f8044', '#dcf0a6'] },
+    { id: 'seed',   name: 'Seed',   parent: 'kiwi',  a: 150,  phase: 0.0, R: 11,  g: 0.3, 
+      shape: 0.2,  color: ['#ee9cbf', '#a95a86', '#ffd3e6'] },
+  ],
 
-  // ---------------- starter rocket "Mk1 Pip" ----------------
-  rocket: {
-    name: 'Mk1 Pip',
+  // ---------------- rubble belt around Ceres (no gravity, they just move and hurt) ----------------
+  rubble: { count: 170, rMin: 470, rMax: 630, sizeMin: 2.5, sizeMax: 9, around: 'ceres' },
+  rubbleKiwi: { count: 18, rMin: 72, rMax: 100, sizeMin: 1.5, sizeMax: 4, around: 'kiwi' },
+
+  // ---------------- mining ship "Prospector" ----------------
+  ship: {
+    name: 'Prospector',
     dry: 1.0,                 // dry mass [t]
-    fuel: 3.0,                // fuel mass [t]
-    ve: 125,                  // exhaust velocity [m/s]   (Isp * g)
-    thrust: 28,               // max thrust [kN]  ->  liftoff TWR = 28 / (4 * 4) = 1.75
-    CdA: 0.003,               // drag area (game units)
-    turnRate: 2.2,            // rotation speed [rad/s]
-    fineThrottle: 0.2,        // throttle while holding Shift
-    length: 14,               // drawn length [m]
-    crashSpeed: 6,            // touchdown faster than this = boom [m/s]
+    fuel: 1.4,                // main propellant [t]
+    ve: 150,                  // exhaust velocity [m/s]
+    thrust: 7,                // main engine [kN]   ->  2.9 m/s^2 full, TWR 1.46 on Ceres
+    fine: 0.15,               // throttle while holding Shift
+    rotAccel: 2.4,            // RCS angular acceleration at full mass [rad/s^2]
+    transAccel: 0.4,          // RCS translation at full mass [m/s^2]
+    rcs: 30,                  // RCS monoprop [units]
+    rcsRotUse: 1.0,           // units/s while rotating
+    rcsTransUse: 1.5,         // units/s while translating
+    radius: 4,                // collision radius [m]
+    length: 9,                // drawn length [m]
+    landSpeed: 2.5,           // touchdown below this = gentle landing [m/s]
+    crashSpeed: 7,            // above this into a big body = destroyed [m/s]
+    bounce: 0.4,              // restitution for bumps
+    hull: 100,
+    bumpDamage: 6,            // hull lost per m/s of impact speed
   },
 
   // ---------------- simulation ----------------
   sim: {
-    dt: 1 / 240,              // fixed physics step [s]
+    dt: 1 / 240,              // physics step [s]
     warps: [1, 2, 4, 8, 16, 32],
-    maxWarpBurning: 1,        // warp is forced to this while the engine is on
-    maxWarpAtmo: 4,
-  },
-
-  // ---------------- flight-school goals ----------------
-  goals: {
-    space: 120,               // "reach space" altitude [m] (= atmoTop)
-    orbitPe: 120,             // stable orbit = periapsis above the atmosphere
-    highAp: 1500,             // boost goal: apoapsis altitude [m]
-    highCircE: 0.05,          // circular = eccentricity below this
-    highCircAlt: 1200,        // ... with periapsis above this altitude
+    nearWarp: 4,              // max warp within 60 m of rubble or a surface
+    predictSteps: 1500,       // trajectory preview resolution
+    predictMin: 60,           // preview horizon bounds [s]
+    predictMax: 420,
   },
 };
-
-CONFIG.planet.mu = CONFIG.planet.g0 * CONFIG.planet.R ** 2;
 
 if (typeof module !== 'undefined') module.exports = CONFIG;

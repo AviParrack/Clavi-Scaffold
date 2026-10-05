@@ -17,7 +17,7 @@ const Combat = (() => {
   const LIFE = 4, SUB = 1 / 60, MAX_SUB = 24, MAX_BULLETS = 160;     // bullet life [s], substep [s]
   const DIG_R = 0.4, DIG_POWER = 0.3;                                  // the crater one bullet leaves
   const A_MAX = 3, RCS_A = 0.5, TURN = 2.4;                            // pirate engine, RCS [m/s^2], turn rate [rad/s]
-  const KV = 0.9, BRAKE = 1.2, VMAX = 28;                              // steering gain [1/s], braking budget [m/s^2], closing cap [m/s]
+  const KV = 0.9, BRAKE = 1.2, VMAX = 28, ROCK_V = 9;                 // steering gain [1/s], braking budget [m/s^2], closing cap, speed vs rubble [m/s]
   const AI_DT = 0.1, PRED_T = 6, PRED_H = 0.5, CLEAR = 8;              // think period, crash look-ahead [s], ground margin [m]
   const P_LEN = 9, P_R = 3.4, P_T = 1.8, CRASH_V = 9;                  // pirate length, hit radius [m], mass [t], crash speed [m/s]
   const SEE_R = 650, FIRE_R = 150, LEASH = 380, HOVER_ALT = 26;       // notice / shoot / give-up ranges, standoff height [m]
@@ -28,7 +28,7 @@ const Combat = (() => {
   const BULLET_KG = [0, 0.02, 0.04, 0.15];                            // per gun level [kg]: honest (tiny) recoil
   const GUN_NAMES = ['', 'Pea shooter', 'Rivet gun', 'Mass driver'];
   const GUN_COL = ['#ffd166', '#8fe36b', '#ffd166', '#7cf5d6'], BARREL = ['#8c84b3', '#78a85a', '#8c84b3', '#4f9e96'];
-  const PIRATE_COL = '#ff5d8f', RADIO_COL = '#ff8ae2', BAD = '#e63946', INK = '#1b1433';
+  const PIRATE_COL = '#ff5d8f', LOOT_COL = '#ffd166', RADIO_COL = '#ff8ae2', BAD = '#e63946', INK = '#1b1433';
   const HULL = ['#7448c2', '#4b2a86', '#c3a6ff'], TRIM = '#ff5d8f', BONE = '#f6ecd6', FLAME = ['#ff5dd8', '#ffe066'];
   const RIM = ['rgba(255,93,216,0.16)', 'rgba(255,93,143,0.9)'];    // danger glow + neon rim: dark hulls vanish on the night sky otherwise
   const MIN_PX = 44;                                                   // pirate ships stay at least this long on screen [px]
@@ -42,12 +42,13 @@ const Combat = (() => {
   // ---------------- crews ----------------
   //  hold: standoff [m] · acc: aim spread [rad] · burst shots, gap between bursts [s], rate within a burst [s]
   //  flee: hp fraction that sends them home · strafe: lead angle around you [rad] · dmg per bullet · speed: muzzle [m/s]
+  //  range: they open fire inside this [m] (about 2x hold: close enough that nose guns can answer back)
 
   const PERS = {
-    brash:   { hold: 36, acc: 0.12,  burst: 3, gap: [2.4, 3.2], rate: 0.17, flee: 0.2,  strafe: 0.32, dmg: [5, 7], speed: 70 },
-    sniper:  { hold: 68, acc: 0.045, burst: 2, gap: [2.4, 3.4], rate: 0.3,  flee: 0.3,  strafe: 0.12, dmg: [7, 8], speed: 95 },
-    coward:  { hold: 55, acc: 0.08,  burst: 3, gap: [2.2, 3.0], rate: 0.2,  flee: 0.5,  strafe: 0.2,  dmg: [5, 6], speed: 70 },
-    showoff: { hold: 42, acc: 0.11,  burst: 4, gap: [2.3, 3.0], rate: 0.14, flee: 0.25, strafe: 0.5,  dmg: [5, 7], speed: 75 },
+    brash:   { hold: 36, acc: 0.12,  burst: 3, gap: [2.4, 3.2], rate: 0.17, flee: 0.2,  strafe: 0.32, dmg: [5, 7], speed: 70, range: 85 },
+    sniper:  { hold: 68, acc: 0.045, burst: 2, gap: [2.4, 3.4], rate: 0.3,  flee: 0.3,  strafe: 0.12, dmg: [7, 8], speed: 95, range: 130 },
+    coward:  { hold: 55, acc: 0.08,  burst: 3, gap: [2.2, 3.0], rate: 0.2,  flee: 0.5,  strafe: 0.2,  dmg: [5, 6], speed: 70, range: 105 },
+    showoff: { hold: 42, acc: 0.11,  burst: 4, gap: [2.3, 3.0], rate: 0.14, flee: 0.25, strafe: 0.5,  dmg: [5, 7], speed: 75, range: 95 },
   };
 
   const CREW = [
@@ -76,6 +77,7 @@ const Combat = (() => {
     docked: ["HIDING? WE'LL WAIT.", 'COME OUT, COME OUT!', 'NOBODY STAYS DOCKED FOREVER.'],
     hub:    ['HUB PATROL! SCRAM!', 'NOT NEAR THE HUB. NEXT TIME!'],
     rusts:  ["RUST'S IS NEUTRAL. FINE. FINE!", 'RUST WOULD SKIN US. LATER, ROOKIE.'],
+    cheap:  ['CHEAP SHOT FROM THE SAFE ZONE!', 'NO FAIR! THAT BUBBLE IS NEUTRAL!', 'SNIPING FROM SANCTUARY? RUDE.'],
     leash:  ['BAH. NOT WORTH THE FUEL.', 'GO ON THEN. RUN.', "YOU'LL BE BACK. THE ROCKS ARE HERE."],
     gloat:  ['SAY HI TO THE TOW TRUCK!', 'EASY PICKINGS!', "YARR! THAT'S A WRAP!"],
     banter: ["KEPLER'S LAWS? MORE LIKE SUGGESTIONS!", 'OUR ISP IS LOW. OUR MORALS: LOWER.',
@@ -122,7 +124,7 @@ const Combat = (() => {
       pirates: [], bullets: [], flashes: [], booms: [], shards: [], n: 0, rand: World.rng(g.w.seed * 977 + 13),
       kills: 0, bounty: 0, crashes: 0, fled: [], lastSpawn: -1e9, zoneT: {}, radioT: -1e9, banterT: 0, breakT: -1e9,
       cd: 0, trigger: false, spaceWas: false, toldNoGun: false, barrel: 1, aim: null, aimAng: Math.PI / 2,
-      nearD: Infinity, nearN: 0, shotT: -1e9, bands: rockBands(g.w),
+      nearD: Infinity, nearN: 0, shotT: -1e9, bands: rockBands(g.w), loot: [], lootNear: false,
     };
   }
   const st = (g) => g.mod.combat || null;
@@ -269,6 +271,7 @@ const Combat = (() => {
       if (!(T > 0)) continue;
       const n = Math.min(MAX_SUB, Math.max(1, Math.ceil(T / SUB - 1e-9))), h = T / n;
       for (let i = 0; i < n && !b.dead; i++) stepBullet(g, M, b, h);
+      if (b.team === 'pirate' && !b.dead && safeAt(g, b.x, b.y)) fizzle(g, b);
     }
     M.bullets = M.bullets.filter((b) => !b.dead);
   }
@@ -286,6 +289,12 @@ const Combat = (() => {
     }
     b.x += dx; b.y += dy; b.t += h; b.age += h;
     if (b.age >= LIFE || !isFinite(b.x + b.y + b.vx + b.vy)) b.dead = true;
+  }
+
+  // point defence: pirate rounds that stray into a no-fight bubble get zapped
+  function fizzle(g, b) {
+    b.dead = true;
+    Game.burst(g, 'spark', b.x, b.y, 5, { vx: b.vx * 0.1, vy: b.vy * 0.1, speed: 4, col: '#7cf5d6', life: 0.3 });
   }
 
   // first rubble rock along a segment -> null | { t, x, y, rk, vx, vy }
@@ -526,7 +535,7 @@ const Combat = (() => {
     if (q && d < 400) { p.look = [(q.x - p.x) / (d || 1), (q.y - p.y) / (d || 1)]; if (p.state !== 'attack') p.aimAng = Math.atan2(p.look[1], p.look[0]); }
 
     // -------- guns & chatter --------
-    if (p.state === 'attack' && !why && q && d < FIRE_R) shoot(g, M, p, q, d);
+    if (p.state === 'attack' && !why && q && d < Math.min(FIRE_R, p.P.range || FIRE_R)) shoot(g, M, p, q, d);
     if (p.state === 'attack' && g.real - M.banterT > BANTER_GAP && M.rand() < 0.02) { M.banterT = g.real; say(g, M, p, 'banter'); }
   }
 
@@ -542,9 +551,10 @@ const Combat = (() => {
 
   // plan = target point moving at a constant velocity (or a velocity to hold, when fleeing) + gravity there (feed-forward)
   function planFor(g, p, q) {
+    const flow = rubbleFlow(g, st(g), p.x, p.y, 25);
     if (p.state === 'flee') {
       const from = q || me(g), dx = p.x - from.x, dy = p.y - from.y, d = Math.hypot(dx, dy) || 1;
-      return { flee: true, vx: (q ? q.vx : p.vx) + dx / d * 35, vy: (q ? q.vy : p.vy) + dy / d * 35, fx: p.gx, fy: p.gy, t0: g.t };
+      return { flee: true, vx: (q ? q.vx : p.vx) + dx / d * 35, vy: (q ? q.vy : p.vy) + dy / d * 35, fx: p.gx, fy: p.gy, t0: g.t, flow };
     }
     let tx, ty, tvx, tvy, vmax = VMAX, ff;
     if (p.state === 'attack' && q) {
@@ -556,8 +566,8 @@ const Combat = (() => {
       ff = World.gravity(g.w, tx, ty, g.t);
     }
     [tx, ty] = detour(g, p, tx, ty);
-    if (inRubble(g, st(g), p, 25)) vmax = Math.min(vmax, 9);                // pick through rubble slowly
-    return { tx, ty, vx: tvx, vy: tvy, vmax, fx: ff[0], fy: ff[1], t0: g.t };
+    if (flow) vmax = Math.min(vmax, ROCK_V);
+    return { tx, ty, vx: tvx, vy: tvy, vmax, fx: ff[0], fy: ff[1], t0: g.t, flow };
   }
 
   // the controller: velocity-matching steer with a braking curve, plus the gravity difference to the target
@@ -568,6 +578,10 @@ const Combat = (() => {
       const ex = P.tx + P.vx * (t - P.t0) - x, ey = P.ty + P.vy * (t - P.t0) - y, d = Math.hypot(ex, ey);
       const sp = d > 1e-6 ? Math.min(P.vmax, Math.sqrt(2 * BRAKE * d), 0.5 * d) : 0;
       wx = P.vx + (d > 1e-6 ? ex / d * sp : 0); wy = P.vy + (d > 1e-6 ? ey / d * sp : 0);
+    }
+    if (P.flow) {                                                         // in rubble: never outrun the rocks' own flow by much
+      const ux = wx - P.flow[0], uy = wy - P.flow[1], u = Math.hypot(ux, uy);
+      if (u > ROCK_V) { wx = P.flow[0] + ux * ROCK_V / u; wy = P.flow[1] + uy * ROCK_V / u; }
     }
     let ax = (wx - vx) * KV + P.fx - gx, ay = (wy - vy) * KV + P.fy - gy;
     const am = Math.hypot(ax, ay);
@@ -595,7 +609,7 @@ const Combat = (() => {
 
   // the most urgent rubble rock on a collision course within 3 s -> full burn sideways out of its way, else null
   function rockDodge(g, M, p) {
-    const stt = World.states(g.w, g.t), reach = 3 * Math.hypot(p.vx, p.vy) + 30;
+    const stt = World.states(g.w, g.t), reach = 4 * Math.hypot(p.vx, p.vy) + 30;
     let best = null, tBest = Infinity;
     for (const band of M.bands) {
       const [hx, hy] = stt[band.host.idx], dh = Math.hypot(p.x - hx, p.y - hy);
@@ -603,22 +617,28 @@ const Combat = (() => {
       for (const rk of band.rocks) {
         if (Math.abs(dh - rk.a) > rk.r + reach) continue;
         const [rx, ry, rvx, rvy] = World.rockState(g.w, rk, g.t), dx = p.x - rx, dy = p.y - ry, vx = p.vx - rvx, vy = p.vy - rvy;
-        const v2 = vx * vx + vy * vy, tc = v2 > 1e-9 ? clamp(-(dx * vx + dy * vy) / v2, 0, 3) : 0;
+        const v2 = vx * vx + vy * vy, tc = v2 > 1e-9 ? clamp(-(dx * vx + dy * vy) / v2, 0, 4) : 0;
         const mx = dx + vx * tc, my = dy + vy * tc, md = Math.hypot(mx, my);
-        if (md < rk.r + p.r + 4 && tc < tBest) {
+        if (md < rk.r + p.r + 6 && tc < tBest) {
           tBest = tc;
-          const ox = md > 0.3 ? mx / md : -vy / Math.sqrt(v2 || 1), oy = md > 0.3 ? my / md : vx / Math.sqrt(v2 || 1);
-          const vn = vx * ox + vy * oy, brake = Math.sqrt(v2) > 6 ? 0.5 : 0;          // sideways, and shed speed if fast
-          best = [ox * A_MAX - vx / Math.sqrt(v2 || 1) * A_MAX * brake - (vn < 0 ? 0 : 0), oy * A_MAX - vy / Math.sqrt(v2 || 1) * A_MAX * brake];
+          const v = Math.sqrt(v2) || 1, ox = md > 0.3 ? mx / md : -vy / v, oy = md > 0.3 ? my / md : vx / v;
+          const brake = v > 6 ? 0.5 : 0;                                    // sideways, and shed speed if fast
+          best = [ox * A_MAX - vx / v * A_MAX * brake, oy * A_MAX - vy / v * A_MAX * brake];
         }
       }
     }
     return best;
   }
-  const inRubble = (g, M, p, pad) => M.bands.some((band) => {
-    const [hx, hy] = World.bodyState(g.w, band.host, g.t), dh = Math.hypot(p.x - hx, p.y - hy);
-    return dh > band.lo - pad && dh < band.hi + pad;
-  });
+  // inside (or within pad of) a rubble band -> the rocks' local circular velocity there, else null
+  function rubbleFlow(g, M, x, y, pad) {
+    for (const band of M.bands) {
+      const [hx, hy, hvx, hvy] = World.bodyState(g.w, band.host, g.t), dx = x - hx, dy = y - hy, dh = Math.hypot(dx, dy);
+      if (dh < band.lo - pad || dh > band.hi + pad) continue;
+      const v = Math.sqrt(band.host.mu / dh) / dh;
+      return [hvx - dy * v, hvy + dx * v];
+    }
+    return null;
+  }
 
   // small pushes: keep apart from friends, stay out of the Hub's and Rust's bubbles
   function nudges(g, M, p, a) {
@@ -717,8 +737,11 @@ const Combat = (() => {
       Game.popup(g, w, '#ffd166', p.x, p.y, 22);
     }
     if (p.hp <= 0) { kill(g, M, p, kind, where); return; }
-    if (kind !== 'bump' && p.state === 'lurk' && !hostileTo(g)) setState(g, p, 'attack', 'shot at');
-    if (kind !== 'bump' && M.rand() < 0.2) say(g, M, p, 'hit');
+    if (kind === 'bump') return;
+    const why = hostileTo(g);
+    if ((why === 'hub' || why === 'rusts') && p.state !== 'flee') { setState(g, p, 'flee', `shot from ${why}`); say(g, M, p, 'cheap', true); return; }
+    if (p.state === 'lurk' && !why) setState(g, p, 'attack', 'shot at');
+    if (M.rand() < 0.2) say(g, M, p, 'hit');
   }
 
   function kill(g, M, p, why, where = '') {
@@ -732,12 +755,14 @@ const Combat = (() => {
     say(g, M, p, 'die', true);
     if (yours) {
       g.money += p.bounty; M.bounty += p.bounty;
+      const P = me(g);
+      Game.popup(g, `+$${p.bounty}`, '#8ff0b0', P.x, P.y, 30);
       Game.toast(g, `BOUNTY +$${p.bounty}`, '#8ff0b0', 'bounty');
       Game.log(g, `pirate ${p.name} ${where ? `crashed into ${where}` : 'destroyed'}: bounty +$${p.bounty} (${M.kills} beaten)`);
       Game.goal(g, 'pirate');
     } else Game.log(g, `pirate ${p.name} crashed into ${where || 'the rubble'} (no bounty: you never touched them)`);
     if (MILESTONES[M.kills]) Game.toast(g, MILESTONES[M.kills], RADIO_COL);
-    if (g.navId === 'pirate:' + p.id) g.navId = null;
+    if (g.navId === 'pirate:' + p.id) g.navId = M.loot.some((L) => L.id === p.id) ? 'loot:' + p.id : null;
   }
 
   function boom(g, M, p) {
@@ -759,10 +784,37 @@ const Combat = (() => {
   function loot(g, M, p, z) {
     const drops = [['scrap', 2 + Math.floor(M.rand() * 3)], ['parts', 1 + Math.floor(M.rand() * 2)]];
     if (M.rand() < z.core) drops.push(['core', 1]);
+    const pks = [];
     for (const [item, n] of drops) for (let i = 0; i < n; i++) {
-      const a = M.rand() * 2 * Math.PI, v = 1 + 2.5 * M.rand();
-      Game.spawnPickup(g, { x: p.x + Math.cos(a) * 0.8, y: p.y + Math.sin(a) * 0.8, vx: p.vx + Math.cos(a) * v, vy: p.vy + Math.sin(a) * v, item, qty: 1 });
+      const a = M.rand() * 2 * Math.PI, v = 0.4 + 0.9 * M.rand();
+      const pk = Game.spawnPickup(g, { x: p.x + Math.cos(a) * 0.8, y: p.y + Math.sin(a) * 0.8, vx: p.vx + Math.cos(a) * v, vy: p.vy + Math.sin(a) * v, item, qty: 1 });
+      if (pk && typeof pk === 'object') pks.push(pk);
     }
+    if (pks.length) M.loot.push({ id: p.id, name: p.name, pks, pred: null });
+    if (M.loot.length > 4) M.loot.shift();
+  }
+
+  // pickups still floating about (not scooped, not expired)
+  function tidyLoot(g, M) {
+    if (!M.loot.length) return;
+    const live = new Set(g.pickups);
+    for (const L of M.loot) L.pks = L.pks.filter((pk) => pk.qty > 0 && live.has(pk));
+    M.loot = M.loot.filter((L) => L.pks.length);
+  }
+
+  // where a loot cluster's middle will be at time t: riding a body if it all settled, else coasting (cached per frame)
+  function lootAt(g, L, t) {
+    const n = L.pks.length;
+    if (!n) return L.last || [0, 0, 0, 0];                               // all scooped up: a stale target asks one last time
+    const b = L.pks[0].rest && L.pks[0].rest.b;
+    if (b && L.pks.every((pk) => pk.rest && pk.rest.b === b)) {
+      const [bx, by, bvx, bvy] = World.bodyState(g.w, b, t);
+      const lx = L.pks.reduce((s, pk) => s + pk.rest.lx, 0) / n, ly = L.pks.reduce((s, pk) => s + pk.rest.ly, 0) / n;
+      return [bx + lx, by + ly, bvx, bvy];
+    }
+    const c = ['x', 'y', 'vx', 'vy'].map((k) => L.pks.reduce((s, pk) => s + pk[k], 0) / n);
+    if (Math.abs(t - g.t) < 1e-9) L.last = c;
+    return coast(g, L, { x: c[0], y: c[1], vx: c[2], vy: c[3], r: 1 }, t);
   }
 
   function escape(g, M, p) {
@@ -780,12 +832,14 @@ const Combat = (() => {
   function after(g, inp, dt, simDt) {
     const M = st(g); if (!M) return;
     moveBullets(g, M);
+    tidyLoot(g, M);
     if (simDt) { zones(g, M, simDt); tidy(g, M, simDt); }
     for (const sd of M.shards) { sd.x += sd.vx * simDt; sd.y += sd.vy * simDt; sd.ang += sd.om * simDt; }
     M.shards = M.shards.filter((sd) => g.real - sd.real < 2.5);
     M.booms = M.booms.filter((b) => g.real - b.real < 1.1);
     M.flashes = M.flashes.filter((f) => g.real - f.real < 0.08);
     const P = me(g);
+    M.lootNear = M.loot.some((L) => L.pks.some((pk) => Math.hypot(pk.x - P.x, pk.y - P.y) < 250));
     M.nearD = Infinity; M.nearN = 0;
     for (const p of M.pirates) {
       const d = Math.hypot(p.x - P.x, p.y - P.y);
@@ -836,21 +890,26 @@ const Combat = (() => {
   }
 
   function navTargets(g) {
-    const M = st(g); if (!M || !M.pirates.length) return null;
-    const P = me(g);
-    return M.pirates.filter((p) => !p.gone && Math.hypot(p.x - P.x, p.y - P.y) < NAV_R).map((p) => ({
+    const M = st(g); if (!M || (!M.pirates.length && !M.loot.length)) return null;
+    const P = me(g), near = (x, y) => Math.hypot(x - P.x, y - P.y) < NAV_R;
+    return M.pirates.filter((p) => !p.gone && near(p.x, p.y)).map((p) => ({
       id: 'pirate:' + p.id, name: `Pirate: ${p.name}`, col: PIRATE_COL, r: p.r, kind: 'pirate', state: (t) => pirateAt(g, p, t),
-    }));
+    })).concat(M.loot.filter((L) => L.pks.length && near(L.pks[0].x, L.pks[0].y)).map((L) => ({
+      id: 'loot:' + L.id, name: `Loot from ${L.name}`, col: LOOT_COL, r: 2, kind: 'loot', state: (t) => lootAt(g, L, t),
+    })));
   }
 
   // where a pirate will be at time t if it coasts (honest ballistic guess; cached per frame)
-  function pirateAt(g, p, t) {
+  const pirateAt = (g, p, t) => coast(g, p, p, t);
+
+  // ballistic guess for s = { x, y, vx, vy, r } at time t; the path is cached on `memo` for this frame
+  function coast(g, memo, p, t) {
     if (Math.abs(t - g.t) < 1e-9) return [p.x, p.y, p.vx, p.vy];
-    if (!p.pred || p.pred.t0 !== g.t) {
+    if (!memo.pred || memo.pred.t0 !== g.t) {
       const pr = Physics.predict({ x: p.x, y: p.y, vx: p.vx, vy: p.vy }, g.t, g.w, CONFIG.sim.predictMax, 300, p.r);
-      p.pred = { t0: g.t, pts: pr.pts, h: CONFIG.sim.predictMax / 300 };
+      memo.pred = { t0: g.t, pts: pr.pts, h: CONFIG.sim.predictMax / 300 };
     }
-    const P = p.pred.pts, f = (t - p.pred.t0) / p.pred.h;
+    const P = memo.pred.pts, f = (t - memo.pred.t0) / memo.pred.h;
     if (!(f > 0)) return [p.x, p.y, p.vx, p.vy];
     const i = Math.min(P.length - 2, Math.floor(f));
     if (i < 0) return [p.x, p.y, p.vx, p.vy];
@@ -867,12 +926,14 @@ const Combat = (() => {
   }
 
   function hint(g) {
-    const M = st(g); if (!M || g.ui || g.status === 'dead' || !(M.nearD < HINT_R)) return null;
+    const M = st(g); if (!M || g.ui || g.status === 'dead') return null;
+    if (!(M.nearD < HINT_R)) return M.lootNear && g.mode === 'ship' && g.status === 'flying'
+      ? { pri: 52, text: 'Pirate loot! Fly through the sparkles to scoop it up. Tab targets it so you can match speed.' } : null;
     const why = hostileTo(g), near = M.pirates.filter((p) => !p.gone), fleeing = near.find((p) => p.state === 'flee');
     const shop = stationsOn() ? "Rust's (Big Potato's L5)" : 'the shop';
     if (why === 'docked') return { pri: 35, text: 'Pirates are waiting outside. They never shoot docked ships, so take your time.' };
     if (why) return null;
-    if (g.mode === 'eva') return { pri: 60, text: 'Pirates! Get back in the ship (E), or zap them with the laser if they come close.' };
+    if (g.mode === 'eva') return { pri: 60, text: `Pirates! On foot you're a sitting duck: your laser only reaches ${Math.round(g.S.laserRange || 7)} m. Board the ship (E)!` };
     if (!armed(g)) return { pri: 62, text: `No guns! Run, or buy one at ${shop}. Pirates give up once you leave their patch.` };
     if (fleeing) return { pri: 55, text: `${fleeing.name} is running away! Chase them for the bounty, or let them go.` };
     if (g.S.turret) return { pri: 54, text: `Pirates! Hold left click: your ${gunName(g)} turret shoots at the mouse. Lead a moving ship.` };
@@ -892,7 +953,8 @@ const Combat = (() => {
 
   function controls(g) {
     if (!armed(g) || g.mode !== 'ship' || (g.status !== 'flying' && g.status !== 'landed')) return null;
-    return `W engine · A/D spin · S stop spin · ${g.S.turret ? 'click: fire at the mouse' : 'Space fire'} · arrows nudge · Tab target · , . warp · M map · P pause`;
+    const extra = `${g.S.ionThrust ? ' · X ion' : ''}${g.S.orionCount ? ' · N pulse' : ''}`;
+    return `W engine · A/D spin · S stop spin · ${g.S.turret ? 'click: fire at the mouse' : 'Space fire'} · arrows nudge${extra} · Tab target · , . warp · M map · P pause`;
   }
 
   function respawn(g) {
@@ -935,6 +997,23 @@ const Combat = (() => {
     const view = kit.viewRect(30);
     for (const p of M.pirates) if (p.x > view[0] && p.x < view[2] && p.y > view[1] && p.y < view[3]) drawPirate(g, kit, M, p);
     drawShards(g, kit, M);
+    drawLoot(g, kit, M, view);
+  }
+
+  function drawLoot(g, kit, M, view) {
+    if (!M.loot.length) return;
+    const ctx = kit.ctx, px = kit.px(), k = 0.5 + 0.5 * Math.sin(g.real * 5);
+    for (const L of M.loot) for (const pk of L.pks) {
+      if (pk.x < view[0] || pk.x > view[2] || pk.y < view[1] || pk.y > view[3]) continue;
+      const R = Math.max(1.1, 10 * px) * (1 + 0.12 * k), a = g.real * 1.5 + pk.x;
+      ctx.globalAlpha = 0.75 + 0.25 * k;
+      ctx.beginPath(); ctx.arc(pk.x, pk.y, R, 0, 2 * Math.PI);
+      ctx.strokeStyle = INK; ctx.lineWidth = Math.max(0.2, 4.5 * px); ctx.stroke();
+      ctx.strokeStyle = LOOT_COL; ctx.lineWidth = Math.max(0.1, 2.2 * px); ctx.stroke();
+      ctx.fillStyle = '#fffbe8'; ctx.strokeStyle = INK; ctx.lineWidth = Math.max(0.06, 1.2 * px);
+      for (let i = 0; i < 2; i++) { const b = a + i * Math.PI; star(ctx, pk.x + Math.cos(b) * R, pk.y + Math.sin(b) * R, R * 0.42, R * 0.12, 4, b); ctx.fill(); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+    }
   }
 
   function drawWorldTop(g, kit) {
@@ -1081,7 +1160,7 @@ const Combat = (() => {
       if (b.x < view[0] || b.x > view[2] || b.y < view[1] || b.y > view[3]) continue;
       const rvx = b.vx - V.vx, rvy = b.vy - V.vy, rv = Math.hypot(rvx, rvy) || 1;
       if (b.style === 'pea') {
-        const r = Math.max(0.28, 3.5 * px), tl = Math.min(2.5, rv * 0.03);
+        const r = Math.max(0.28, 4.5 * px), tl = Math.min(2.5, rv * 0.03);
         ctx.strokeStyle = 'rgba(143,227,107,0.35)'; ctx.lineWidth = r * 1.6;
         ctx.beginPath(); ctx.moveTo(b.x - rvx / rv * tl, b.y - rvy / rv * tl); ctx.lineTo(b.x, b.y); ctx.stroke();
         ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 2 * Math.PI); ctx.fillStyle = b.col; ctx.fill();
@@ -1161,35 +1240,48 @@ const Combat = (() => {
     }
   }
 
-  // -------- screen space: hp bars, name tags, red arrows to off-screen pirates --------
+  // -------- screen space: hp bars and name tags (under the HUD), red arrows to off-screen pirates (over it) --------
 
   function drawScreen(g, kit) {
     const M = st(g); if (!M || !M.pirates.length) return;
-    const ctx = kit.ctx, W = kit.W, H = kit.H, P = me(g);
+    const ctx = kit.ctx, P = me(g);
     for (const p of M.pirates) {
       const d = Math.hypot(p.x - P.x, p.y - P.y), [sx, sy] = kit.toScreen(p.x, p.y);
+      if (!kit.onScreen(sx, sy, -8)) continue;
       const rs = Math.max(P_LEN * kit.cam.zoom, MIN_PX) * 0.5;
-      if (kit.onScreen(sx, sy, -8)) {
-        if (p.hp < p.hpMax) {
-          const w = 46, x = sx - w / 2, y = sy - rs - 18, f = clamp(p.hp / p.hpMax, 0, 1);
-          ctx.fillStyle = INK; kit.roundRect(x - 2, y - 2, w + 4, 10, 4); ctx.fill();
-          ctx.fillStyle = '#4a3a66'; kit.roundRect(x, y, w, 6, 3); ctx.fill();
-          ctx.fillStyle = f > 0.5 ? '#8fe36b' : f > 0.25 ? '#ffd166' : BAD; kit.roundRect(x, y, Math.max(0.5, w * f), 6, 3); ctx.fill();
-        }
-        if (d < 260 && g.navId !== 'pirate:' + p.id) kit.tag(sx, sy + rs + 18, p.state === 'flee' ? `${p.name} (fleeing!)` : p.name, PIRATE_COL);
-        continue;
+      if (p.hp < p.hpMax) {
+        const w = 46, x = sx - w / 2, y = sy - rs - 18, f = clamp(p.hp / p.hpMax, 0, 1);
+        ctx.fillStyle = INK; kit.roundRect(x - 2, y - 2, w + 4, 10, 4); ctx.fill();
+        ctx.fillStyle = '#4a3a66'; kit.roundRect(x, y, w, 6, 3); ctx.fill();
+        ctx.fillStyle = f > 0.5 ? '#8fe36b' : f > 0.25 ? '#ffd166' : BAD; kit.roundRect(x, y, Math.max(0.5, w * f), 6, 3); ctx.fill();
       }
-      if (d > ARROW_R) continue;
-      const a = Math.atan2(sy - H / 2, sx - W / 2), m = 38;
-      const ex = clamp(W / 2 + Math.cos(a) * W, m, W - m), ey = clamp(H / 2 + Math.sin(a) * H, m + 40, H - m - 110);
-      const pulse = 1 + 0.12 * Math.sin(g.real * 8);
+      if (d < 260 && g.navId !== 'pirate:' + p.id) kit.tag(sx, sy + rs + 18, p.state === 'flee' ? `${p.name} (fleeing!)` : p.name, PIRATE_COL);
+    }
+  }
+
+  // arrows sit where the line of sight leaves a frame inset clear of the side panels
+  function drawHUD(g, kit) {
+    const M = st(g); if (!M || !M.pirates.length || g.ui) return;
+    const ctx = kit.ctx, W = kit.W, H = kit.H, P = me(g), [cx, cy] = kit.toScreen(P.x, P.y);
+    const x0 = W > 640 ? 280 : 40, x1 = W - 44, y0 = 70, y1 = H - 140;
+    for (const p of M.pirates) {
+      const d = Math.hypot(p.x - P.x, p.y - P.y), [sx, sy] = kit.toScreen(p.x, p.y);
+      const underPanels = W > 640 && sx < 252 && sy < H * 0.62;
+      if (d > ARROW_R || (kit.onScreen(sx, sy, -8) && !underPanels)) continue;
+      const a = Math.atan2(sy - cy, sx - cx), c = Math.cos(a), s = Math.sin(a);
+      const ox = clamp(cx, x0, x1), oy = clamp(cy, y0, y1);
+      const t = Math.min(c > 1e-6 ? (x1 - ox) / c : c < -1e-6 ? (x0 - ox) / c : Infinity, s > 1e-6 ? (y1 - oy) / s : s < -1e-6 ? (y0 - oy) / s : Infinity);
+      let ex = ox + c * t, ey = oy + s * t;
+      if (ex > W - 330 && ey < 170 && W > 760) ey = 170;                    // under the jobs panel
+      ex = clamp(ex, x0, x1); ey = clamp(ey, y0, y1);
+      const pulse = 1 + 0.12 * Math.sin(g.real * 8 + p.id), hot = p.state === 'attack';
       ctx.save(); ctx.translate(ex, ey); ctx.rotate(a); ctx.scale(pulse, pulse);
-      ctx.fillStyle = BAD; ctx.strokeStyle = INK; ctx.lineWidth = 3; ctx.lineJoin = 'round';
-      ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-7, -11); ctx.lineTo(-3, 0); ctx.lineTo(-7, 11); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = hot ? BAD : '#ff8fab'; ctx.strokeStyle = INK; ctx.lineWidth = 3.5; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(24, 0); ctx.lineTo(-9, -16); ctx.lineTo(-3, 0); ctx.lineTo(-9, 16); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.restore();
-      const tx = ex - Math.cos(a) * 34, ty = ey - Math.sin(a) * 26;
-      ctx.save(); ctx.translate(tx - 30, ty - 4); drawSkull(ctx, 6, 1.2); ctx.restore();
-      kit.tag(tx + 8, ty + 1, `${kit.fmtDist(d)}`, '#ff8fab');
+      const tx = ex - c * 44, ty = ey - s * 34;
+      ctx.save(); ctx.translate(tx, ty - 14); drawSkull(ctx, 7, 1.3); ctx.restore();
+      kit.tag(tx, ty + 10, `${p.short} ${kit.fmtDist(d)}`, hot ? '#ff8fab' : '#ffd1dc');
     }
   }
 
@@ -1200,7 +1292,7 @@ const Combat = (() => {
 
   const mod = Game.register({
     id: 'combat', init, load, save, frame, step, after, onKey, onMouse, respawn, died,
-    targets, navTargets, warpLimit, hint, hudRows, controls, drawWorld, drawWorldTop, drawScreen,
+    targets, navTargets, warpLimit, hint, hudRows, controls, drawWorld, drawWorldTop, drawScreen, drawHUD,
   });
   if (Game.mods.includes(mod)) {
     Game.addGoals([{ id: 'pirate', order: 85, reward: 300, text: 'Beat a pirate (try Big Potato)' }]);

@@ -2,11 +2,15 @@
 //  COMBAT TESTS  —  ship guns, real bullets (gravity, hits, craters),
 //  pirates (approach, damage, crash avoidance, leash, flee), zones and
 //  spawning, warp caps, docked / Hub safety, death loot + bounty + job,
-//  64x warp, save / load, respawn cleanup.     node tests/test_combat.js
+//  64x warp, save / load, respawn cleanup, loot, sanctuaries.
+//  Then re-runs itself with --full: the real stations / eva / mobs modules
+//  (Rust's bubble, Ceres Hub, the EVA laser, bullets vs bugs).
+//                                                node tests/test_combat.js
 // ======================================================================
 
 const H = require('./harness');
-H.load({ only: 'economy,shop,combat,testgun' });
+const FULL = process.argv.includes('--full');
+H.load({ only: FULL ? 'economy,shop,stations,eva,mobs,combat,testgun' : 'economy,shop,combat,testgun' });
 
 // test-only stats module: g.testGun = { gun, gunDmg, gunRate, gunSpeed, turret } fits guns without the shop
 Game.register({ id: 'testgun', stats: (g, S) => { if (g.testGun) Object.assign(S, g.testGun); } });
@@ -40,6 +44,8 @@ function orbitAt(g, id, r, th) { Game.circularAround(g, g.w.byId[id], r, th); g.
 // freeze a pirate's brain (it coasts; tests then move it by hand)
 const lobotomize = (p) => { p.thinkT = 1e12; p.ax = 0; p.ay = 0; p.state = 'test'; };
 
+
+if (!FULL) {
 
 // ---------------- 1. registration, job, zones ----------------
 {
@@ -149,9 +155,11 @@ const lobotomize = (p) => { p.thinkT = 1e12; p.ax = 0; p.ay = 0; p.state = 'test
 // ---------------- 5. crash avoidance around Big Potato ----------------
 {
   let crashes = 0, minAlt = Infinity, alive = 0, n = 0;
-  for (const [setup, pers] of [['low orbit', 'brash'], ['landed', 'showoff'], ['low orbit', 'sniper'], ['landed', 'coward']]) {
+  // 'fast exit': you scoot out through Potato's rubble ring (115-190 m) at 1.3x orbital speed and they give chase
+  for (const [setup, pers] of [['low orbit', 'brash'], ['landed', 'showoff'], ['low orbit', 'sniper'], ['landed', 'coward'], ['fast exit', 'brash']]) {
     const g = fresh('potato'); quiet(g);
     if (setup === 'landed') Game.landAt(g, g.w.byId.potato, 2.0);
+    else if (setup === 'fast exit') { orbitAt(g, 'potato', 100, 3.0); g.sh.vx *= 1.3; g.sh.vy *= 1.3; }
     else orbitAt(g, 'potato', 85, 1.0);
     g.sh.hull = 1e6; g.S.hull = 1e6;                               // a tank: keep the fight going for 60 s
     const crew = Combat.CREW.filter((c) => c.pers === pers);
@@ -160,9 +168,9 @@ const lobotomize = (p) => { p.thinkT = 1e12; p.ax = 0; p.ay = 0; p.state = 'test
       H.run(g, 1, {});
       if (f % 10 === 0) for (const p of Combat.list(g)) minAlt = Math.min(minAlt, altOf(g, p.x, p.y));
     }
-    crashes += M(g).crashes; alive += ps.filter((p) => !p.gone).length; n += 2;
+    crashes += M(g).crashes + g.events.filter((e) => /crashed into/.test(e.msg)).length; alive += ps.filter((p) => !p.gone).length; n += 2;
   }
-  check('pirates never crash into Big Potato in 60 s (4 fights)', crashes === 0, `${crashes} crashes`);
+  check('pirates never crash into Big Potato or its rubble (5 fights, 60 s)', crashes === 0, `${crashes} crashes`);
   check('...and stay above the ground', minAlt > 0, `lowest ${minAlt.toFixed(1)} m above the surface`);
   check('...and survive the rubble', alive === n, `${alive}/${n} alive`);
 }
@@ -391,6 +399,192 @@ const lobotomize = (p) => { p.thinkT = 1e12; p.ax = 0; p.ay = 0; p.state = 'test
         rows.map((r) => `${r.label}: ${r.val}`).join(' | '));
   check('hint with a gun: Space fires', /Space fires/.test(Game.hint(g)), Game.hint(g));
   void p;
+}
+
+
+// ---------------- 15. loot you can scoop, instant bounty feedback, sanctuaries, controls ----------------
+{
+  const g = fresh('orbit'); quiet(g); arm(g, RIVET); orbitAt(g, 'ceres', 1300, 1.0);
+  const fx = Math.cos(g.sh.ang), fy = Math.sin(g.sh.ang);
+  const p = Combat.spawn(g, 'glimmer', { quiet: true, x: g.sh.x + fx * 25, y: g.sh.y + fy * 25, vx: g.sh.vx, vy: g.sh.vy, hp: 40 });
+  lobotomize(p);
+  g.navId = 'pirate:' + p.id;
+  for (let f = 0; f < 120 && !p.gone; f++) H.run(g, 1, { keys: ['Space'] });
+  check('a kill pops "+$<bounty>" at your ship straight away', p.gone && g.popups.some((q) => q.text === `+$${p.bounty}`), g.popups.map((q) => q.text).join(' '));
+  const L = M(g).loot.find((l) => l.id === p.id);
+  const spread = L ? Math.max(...L.pks.map((pk) => Math.hypot(pk.vx - p.vx, pk.vy - p.vy))) : Infinity;
+  check('loot sprays gently (<= 1.3 m/s) so you can scoop it', L && L.pks.length >= 3 && spread <= 1.31, `${L ? L.pks.length : 0} pieces, fastest ${spread.toFixed(2)} m/s`);
+  const nt = Game.navTarget(g);
+  check('...the nav target hops from the pirate to its loot', g.navId === 'loot:' + p.id && nt && /^Loot from /.test(nt.name) && finite(...nt.state(g.t + 90)), `${g.navId} ${nt ? nt.name : ''}`);
+  H.run(g, 2, {});
+  check('...with a hint to scoop it up', /Pirate loot!/.test(Game.hint(g)), Game.hint(g));
+  const cen = () => { const n = L.pks.length || 1; return ['x', 'y', 'vx', 'vy'].map((k) => L.pks.reduce((s2, pk) => s2 + pk[k], 0) / n); };
+  for (let f = 0; f < 90 && L.pks.length; f++) { const [x, y, vx, vy] = cen(); Object.assign(g.sh, { x, y, vx, vy }); H.run(g, 1, {}); }
+  check('flying through the loot scoops it into the hold', (g.cargo.scrap || 0) >= 2 && (g.cargo.parts || 0) >= 1 && !M(g).loot.length, JSON.stringify(g.cargo));
+  H.run(g, 1, {});
+  check('...and the empty loot target clears itself', g.navId === null, String(g.navId));
+}
+{
+  // pirate rounds fizzle inside the Hub patrol radius; sniping from it sends pirates packing
+  const g = fresh('orbit'); quiet(g); orbitAt(g, 'ceres', 690, 0.3);
+  const ux = g.sh.x / 690, uy = g.sh.y / 690, h0 = g.sh.hull;
+  const b = Combat.fire(g, { x: g.sh.x + ux * 70, y: g.sh.y + uy * 70, vx: g.sh.vx - ux * 80, vy: g.sh.vy - uy * 80, team: 'pirate', dmg: 8 });
+  H.run(g, 60, {});
+  check('pirate bullets fizzle inside the Hub patrol radius', g.sh.hull === h0 && !M(g).bullets.includes(b), `hull ${g.sh.hull}`);
+  const p = Combat.spawn(g, 'ring', { quiet: true, x: g.sh.x + ux * 80, y: g.sh.y + uy * 80, vx: g.sh.vx, vy: g.sh.vy });
+  lobotomize(p);
+  Combat.fire(g, { x: p.x - ux * 10, y: p.y - uy * 10, vx: p.vx + ux * 60, vy: p.vy + uy * 60, team: 'player', dmg: 8 });
+  H.run(g, 20, {});
+  check('sniping from the safe zone: the pirate flees in a huff', p.hp < p.hpMax && p.state === 'flee' && g.events.some((e) => /radio .*(CHEAP SHOT|NO FAIR|SANCTUARY)/.test(e.msg)), p.state);
+}
+{
+  const g = fresh('orbit'); quiet(g); deepSpace(g);
+  g.testGun = { ...PEA, ionThrust: 0.25, ionVe: 1300, ionTank: 0.2 }; Game.recalc(g);
+  const ctl = Game.first(g, 'controls') || '';
+  check('controls line: Space fire, and X ion is still listed', /Space fire/.test(ctl) && /X ion/.test(ctl), ctl);
+}
+
+}   // !FULL
+
+
+// ======================================================================
+//  --full: with the real stations, eva and mobs modules
+// ======================================================================
+
+if (FULL) {
+
+const pinTo = (g, x, y, vx, vy) => { Object.assign(g.sh, { x, y, vx, vy }); g.status = 'flying'; g.attach = null; g.landedOn = null; g.land = null; g.everFlew = true; };
+const pirateShots = (g, seen) => { let n = 0; for (const b of M(g).bullets) if (b.team === 'pirate' && !seen.has(b)) { seen.add(b); n++; } return n; };
+
+// ---------------- F1. Ceres Hub ----------------
+{
+  const g = Game.create(7, null, { fresh: true });
+  const hub = Stations.byId(g, 'hub'), [hx, hy] = hub.state(g.t);
+  check('[full] new game: docked at Ceres Hub, pirates stand down', g.spawn === 'hub' && g.status === 'docked' && Combat.hostileTo(g) === 'docked', `${g.spawn} ${g.status}`);
+  check('[full] the Hub orbits well inside the pirate-free radius', Math.hypot(hx, hy) + 150 < Combat.SAFE_CERES, `Hub at r ${Math.hypot(hx, hy).toFixed(0)} m, safe to ${Combat.SAFE_CERES} m`);
+  // a pirate dragged right up to the Hub with you hanging about outside the dock: it will not fight
+  const [x, y, vx, vy] = hub.state(g.t);
+  pinTo(g, x + 30, y, vx, vy);
+  const p = Combat.spawn(g, 'ring', { quiet: true, state: 'attack', x: x + 90, y, vx, vy });
+  const seen = new Set(); let shots = 0, attackT = 0;
+  for (let f = 0; f < 60 * 15; f++) { const [x2, y2, vx2, vy2] = hub.state(g.t); pinTo(g, x2 + 30, y2, vx2, vy2); H.run(g, 1, {}); shots += pirateShots(g, seen); if (p.state === 'attack') attackT++; }
+  check('[full] a pirate next to the Hub holds fire and backs off', shots === 0 && attackT < 5 && Combat.hostileTo(g) === 'hub', `${shots} shots, ${p.state}`);
+  const g2 = Game.create(7, 'orbit', { fresh: true });                 // low Ceres orbit, under the Hub
+  for (let f = 0; f < 300; f++) { g2.warpIdx = 6; H.run(g2, 1, {}); }
+  check('[full] 3+ min under the Hub at 64x: no pirates ever show up', Combat.list(g2).length === 0 && g2.t > 150, `t ${g2.t.toFixed(0)} s, ${g2.status}`);
+}
+
+// ---------------- F2. Rust's: the real Stations.pirateFree bubble ----------------
+{
+  const g = Game.create(7, 'potato', { fresh: true }); quiet(g); arm(g, PEA);
+  const ru = Stations.byId(g, 'rusts');
+  check('[full] Stations.pirateFree exists and Rust\'s is pirate-free', typeof Stations.pirateFree === 'function' && !!ru && Stations.pirateFree(g, ...ru.state(g.t).slice(0, 2)));
+  Stations.dock(g, 'rusts', true);
+  const [rx, ry, rvx, rvy] = ru.state(g.t);
+  const p = Combat.spawn(g, 'potato', { quiet: true, state: 'attack', crew: Combat.CREW[0], x: rx + 150, y: ry, vx: rvx, vy: rvy });
+  const h0 = g.sh.hull, seen = new Set(); let shots = 0;
+  for (let f = 0; f < 60 * 20; f++) { H.run(g, 1, {}); shots += pirateShots(g, seen); }
+  check('[full] docked at Rust\'s: no shots, the pirate drifts off', g.status === 'docked' && shots === 0 && g.sh.hull === h0 && p.state !== 'attack', `${shots} shots, ${p.state}, ${Math.hypot(p.x - g.sh.x, p.y - g.sh.y).toFixed(0)} m`);
+  // undocked but inside the 260 m bubble
+  const hover = (dx) => { const [x, y, vx, vy] = ru.state(g.t); pinTo(g, x + dx, y, vx, vy); };
+  hover(200);
+  check('[full] 200 m from Rust\'s: inside the bubble; 300 m: fair game', Combat.hostileTo(g) === 'rusts' && (hover(300), Combat.hostileTo(g) === null), String(Combat.hostileTo(g)));
+  p.state = 'attack'; Object.assign(p, { x: g.sh.x + 120, y: g.sh.y, vx: g.sh.vx, vy: g.sh.vy, aggro: 30 });
+  shots = 0;
+  for (let f = 0; f < 60 * 10; f++) { hover(150); H.run(g, 1, {}); shots += pirateShots(g, seen); }
+  check('[full] hovering inside the bubble undocked: still no shots', shots === 0 && g.sh.hull === h0 && p.state !== 'attack', `${shots} shots, ${p.state}`);
+  // a stray pirate round flying into the bubble is zapped before it reaches you
+  hover(150);
+  const b = Combat.fire(g, { x: g.sh.x + 140, y: g.sh.y, vx: g.sh.vx - 80, vy: g.sh.vy, team: 'pirate', dmg: 8 });
+  for (let f = 0; f < 60; f++) { hover(150); H.run(g, 1, {}); }
+  check('[full] stray pirate rounds fizzle at the bubble\'s edge', g.sh.hull === h0 && !M(g).bullets.includes(b), `hull ${g.sh.hull}`);
+}
+
+// ---------------- F3. the EVA laser (team 'player') zaps pirates ----------------
+{
+  const g = Game.create(7, 'potato', { fresh: true }); quiet(g);
+  Game.landAt(g, g.w.byId.potato, 1.0);
+  H.run(g, 2, {}); H.run(g, 1, { pressed: ['KeyE'] }); H.run(g, 20, {});
+  check('[full] stepped out on Big Potato', EVA.isOut(g), g.mode);
+  const A = g.astro, nb = Game.nearestBody(g, A.x, A.y), up = [nb.ux, nb.uy];
+  const p = Combat.spawn(g, 'potato', { quiet: true, x: A.x, y: A.y, vx: A.vx, vy: A.vy });
+  lobotomize(p);
+  const pin = () => { const n = Game.nearestBody(g, g.astro.x, g.astro.y); Object.assign(p, { x: g.astro.x + up[0] * 5.5, y: g.astro.y + up[1] * 5.5, vx: n.bvx, vy: n.bvy }); };
+  const hp0 = p.hp;
+  for (let f = 0; f < 60; f++) { pin(); H.run(g, 1, { mouse: { x: p.x, y: p.y, sx: 0, sy: 0, down: true, pressed: f === 0, released: false, button: 0, px: 0.05 } }); }
+  check('[full] EVA laser hurts a pirate (~18 dmg/s)', hp0 - p.hp > 10 && hp0 - p.hp < 26 && g.popups.some((q) => q.text === 'ZZT!'), `hp ${hp0} -> ${p.hp.toFixed(1)}`);
+  const hA = A.hp;
+  Combat.fire(g, { x: A.x + up[0] * 6, y: A.y + up[1] * 6, vx: A.vx - up[0] * 40, vy: A.vy - up[1] * 40, team: 'player', dmg: 8 });
+  H.run(g, 20, {});
+  const hA1 = g.astro.hp;
+  Combat.fire(g, { x: g.astro.x + up[0] * 6, y: g.astro.y + up[1] * 6, vx: g.astro.vx - up[0] * 40, vy: g.astro.vy - up[1] * 40, team: 'pirate', dmg: 6 });
+  H.run(g, 20, {});
+  check('[full] your own bullets pass you by; pirate rounds hurt the astronaut', hA1 === hA && g.astro.hp < hA1, `hp ${hA} -> ${hA1} -> ${g.astro.hp}`);
+}
+
+// ---------------- F4. bullets vs bugs (team 'bug') ----------------
+{
+  const g = Game.create(7, 'kiwi', { fresh: true }); quiet(g);
+  const kiwi = g.w.byId.kiwi, home = Mobs.home(g, 'kiwi');
+  Game.landAt(g, kiwi, home.nests[0].th + 0.4);
+  H.run(g, 2, {});
+  const shootAt = (bug, team) => {
+    const tg = Game.targets(g).find((t) => t.id === bug.id), [, , bvx, bvy] = World.bodyState(g.w, kiwi, g.t);
+    const [bx, by] = World.bodyState(g.w, kiwi, g.t), d = Math.hypot(tg.x - bx, tg.y - by), ux = (tg.x - bx) / d, uy = (tg.y - by) / d;
+    Combat.fire(g, { x: tg.x + ux * 5, y: tg.y + uy * 5, vx: bvx - ux * 50, vy: bvy - uy * 50, team, dmg: 8 });
+  };
+  const b1 = Mobs.spawn(g, 'kiwi', home.nests[2].th), hp1 = b1.hp;
+  shootAt(b1, 'player'); H.run(g, 12, {});
+  check('[full] a player bullet hits a space bug', b1.hp < hp1 || b1.dead, `${b1.name}: hp ${hp1} -> ${b1.hp}${b1.dead ? ' (squished)' : ''}`);
+  for (let k = 0; k < 4 && !b1.dead; k++) { shootAt(b1, 'player'); H.run(g, 12, {}); }
+  check('[full] ...a few peas squish a muncher (jelly + the bug job)', b1.dead && g.pickups.some((q) => q.item === 'jelly') && g.done.bug !== undefined);
+  const b2 = Mobs.spawn(g, 'kiwi', home.nests[3].th), hp2 = b2.hp;
+  shootAt(b2, 'pirate'); H.run(g, 12, {});
+  check('[full] a stray pirate round hits bugs too (a bullet is a bullet)', b2.hp < hp2 || b2.dead, `hp ${hp2} -> ${b2.hp}`);
+}
+
+// ---------------- F5. 64x with everything on; save / load ----------------
+{
+  const g = Game.create(7, 'potato', { fresh: true }); arm(g, PEA);
+  let bad = 0;
+  for (let s = 0; s < 200; s++) {
+    g.warpIdx = 6;
+    H.run(g, 6, { keys: s % 9 === 0 ? ['Space'] : [] });
+    for (const p of Combat.list(g)) if (!finite(p.x, p.y, p.vx, p.vy, p.hp)) bad++;
+    for (const b of M(g).bullets) if (!finite(b.x, b.y, b.vx, b.vy)) bad++;
+    if (!finite(g.sh.x, g.sh.y)) bad++;
+    if (g.status === 'dead') H.run(g, 1, { pressed: ['KeyR'] });
+  }
+  check('[full] warp requested at Big Potato with every module: no NaN', bad === 0 && !g.err, `${bad} bad, t ${g.t.toFixed(0)} s (capped near pirates), ${g.err || 'no errors'}`);
+  // real 64x: you cruise outside the zones while pirates lurk on their haunts far away
+  const g3 = Game.create(7, 'orbit', { fresh: true }); quiet(g3); orbitAt(g3, 'ceres', 1300, 1.0);
+  const lurkers = [Combat.spawn(g3, 'ring', { quiet: true }), Combat.spawn(g3, 'glimmer', { quiet: true }), Combat.spawn(g3, 'potato', { quiet: true })];
+  let bad3 = 0, w64 = 0, minAlt = Infinity;
+  for (let f = 0; f < 300; f++) {
+    for (const p of lurkers) if (p) p.farT = 0;                       // keep them from going home
+    g3.warpIdx = 6; H.run(g3, 1, {}); if (g3.warp === 64) w64++;
+    for (const p of Combat.list(g3)) { if (!finite(p.x, p.y, p.vx, p.vy)) bad3++; minAlt = Math.min(minAlt, altOf(g3, p.x, p.y)); }
+  }
+  check('[full] 5 min at real 64x with three lurkers far off: finite, no crashes', bad3 === 0 && w64 > 250 && M(g3).crashes === 0 && minAlt > 5 && lurkers.every((p) => p && !p.gone && p.state === 'lurk'),
+        `${w64} frames at 64x, t ${g3.t.toFixed(0)} s, lowest pirate ${minAlt.toFixed(0)} m up, ${lurkers.map((p) => p.gone ? 'gone' : p.state).join('/')}`);
+  const store = {};
+  global.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+  Object.assign(M(g), { kills: 3, bounty: 610, fled: [{ name: 'Kessler Kate', short: 'KATE', pers: 'showoff', hpMax: 70 }] });
+  g.dev = false; Game.save(g);
+  const g2 = Game.create(7, null);
+  check('[full] save / load round trip next to the other modules', M(g2).kills === 3 && M(g2).bounty === 610 && M(g2).fled[0].name === 'Kessler Kate' && Combat.list(g2).length === 0 && !g2.err);
+  Game.wipeSave(); delete global.localStorage;
+}
+
+}   // FULL
+
+if (!FULL) {
+  const r = require('child_process').spawnSync(process.execPath, [__filename, '--full'], { encoding: 'utf8', maxBuffer: 1 << 26 });
+  const out = r.stdout || '', lines = out.split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
+  if (lines.length) console.log(lines.join('\n'));
+  nPass += lines.filter((l) => l.startsWith('PASS')).length;
+  nFail += lines.filter((l) => l.startsWith('FAIL')).length;
+  if (r.status !== 0 && !lines.some((l) => l.startsWith('FAIL'))) check('--full run finished', false, (r.stderr || '').split('\n').slice(0, 6).join(' | '));
 }
 
 console.log(`\n${nPass} passed, ${nFail} failed`);

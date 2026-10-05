@@ -8,7 +8,7 @@ Built from [design/DESIGN-v3.md](design/DESIGN-v3.md) rev 2 after Avi found v2 t
 
 **Landed**
 - 🟢 **Sim:** phases card → play → report → training → card; research as a stream (one card per work stream, bank of 2, free reroll); contract lanes `ext2` G3 / `ext3` G5 / `int2` G6 (kit, OPEN LANE or 90 s, 60 s ramp, Government quota); flags ship, a finite Kill Switch, lab-wide levels, κ collusion; retrain (20 s dark); EGRESS ANOMALY + PULL THE PLUG; the rival as slack seconds; chip text from `config/content/tasks/gN.js`.
-- 🟢 **Balance:** `balance 400` passes all 18 targets and the shock (human 68 / 36 / 14 %, smart 93 / 80 / 52 %). The Kill Switch is a costly last resort: −1.3 rep per Consumer refusal, break-even 14 % (DESIGN-v3 §2.9 #19).
+- 🟢 **Balance:** `balance 400` passes all 18 targets and the shock (human 68 / 36 / 14 %, smart 93 / 80 / 52 %). The Kill Switch is a costly last resort: −1.3 rep per Consumer refusal, break-even 14 % (DESIGN-v3 §2.9 #19). Rerun on 2026-10-05: `balance 400` and `parity 400` both pass. The [balance walkthrough](https://claude.ai/code/artifact/0de3f0d5-86b1-4519-bd3d-ecbb7f53e149) (Claude Doc) now shows these real-game numbers.
 - 🟢 **Training:** `src/train/` on `#train` (standalone: `train.html`); its result sets the next model's Δm.
 - 🟢 **UI:** model card scene, report, lane tabs with lamps and auto-focus, research panel, floating mount facts, stamps, §3g juice, the 10-step tutorial (its plate waits for its own codec lines), 1× forced at every card and while a lane ramps. **Content:** `config/content/v3-text.js`, Big Boss, 101 new attack texts.
 

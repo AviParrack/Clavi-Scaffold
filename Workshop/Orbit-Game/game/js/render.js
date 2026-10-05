@@ -75,10 +75,15 @@ const Render = (() => {
   const onScreen = (sx, sy, m = 30) => sx > -m && sx < W + m && sy > -m && sy < H + m;
 
   // predicted path, re-expressed relative to the reference body (so orbits around moving rocks close)
+  let relMemo = { pred: null, ref: null, t: NaN, path: [] };              // camera and draw both want it: build once per frame
   function relPath(g) {
     if (!g.pred) return [];
+    const M = relMemo;
+    if (M.pred === g.pred && M.ref === g.ref && M.t === g.t) return M.path;
     const [bx0, by0] = World.bodyState(g.w, g.ref, g.t);
-    return g.pred.pts.map(([x, y, t]) => { const [bx, by] = World.bodyState(g.w, g.ref, t); return [x - bx + bx0, y - by + by0, t]; });
+    const path = g.pred.pts.map(([x, y, t]) => { const [bx, by] = World.bodyState(g.w, g.ref, t); return [x - bx + bx0, y - by + by0, t]; });
+    relMemo = { pred: g.pred, ref: g.ref, t: g.t, path };
+    return path;
   }
   function relPoint(g, x, y, t) {
     const [bx0, by0] = World.bodyState(g.w, g.ref, g.t), [bx, by] = World.bodyState(g.w, g.ref, t);

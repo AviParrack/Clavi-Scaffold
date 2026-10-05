@@ -426,10 +426,10 @@ const Shop = (() => {
       <tr><td class="po-dim">Total with full tanks</td><td class="po-dim">${mFull.toFixed(2)} t</td></tr></tbody></table></div>`;
 
     html += `<div><h3 class="po-h">Can I lift off?</h3><table class="po-table"><thead><tr><th>Rock</th><th>Gravity</th>
-      <th><abbr title="Thrust-to-weight with what is aboard now">Now</abbr></th><th><abbr title="Thrust-to-weight with full tanks">Full</abbr></th></tr></thead><tbody>
-      ${g.w.bodies.map((b) => { const now = S.thrust / (mNow * b.g), full = S.thrust / (mFull * b.g);
-        return `<tr><td>${esc(b.name)}</td><td>${b.g.toFixed(1)} m/s²</td><td class="${liftCls(now)}">${now.toFixed(2)}×</td><td class="${liftCls(full)}">${full.toFixed(2)}×</td></tr>`; }).join('')}
-      </tbody></table><p class="po-dim">Above 1.2× is comfy, 1.0-1.2× is sluggish, below 1.0× you cannot take off (hold W to burn fuel off until you can).</p></div></div>`;
+      <th><abbr title="Thrust-to-weight with what is aboard now, in the deepest valley">Now</abbr></th><th><abbr title="Thrust-to-weight with full tanks, in the deepest valley">Full</abbr></th></tr></thead><tbody>
+      ${g.w.bodies.map((b) => { const gv = b.mu / (b.Rc || b.R) ** 2, now = S.thrust / (mNow * gv), full = S.thrust / (mFull * gv);
+        return `<tr><td>${esc(b.name)}</td><td>${b.g.toFixed(1)}–${gv.toFixed(1)} m/s²</td><td class="${liftCls(now)}">${now.toFixed(2)}×</td><td class="${liftCls(full)}">${full.toFixed(2)}×</td></tr>`; }).join('')}
+      </tbody></table><p class="po-dim">Lumpy rocks pull hardest in their deepest valleys, so these are worst cases. Above 1.2× is comfy, 1.0-1.2× is sluggish, below 1.0× you cannot take off (hold W to burn fuel off until you can).</p></div></div>`;
 
     const m0 = sh.fuel > 0 ? mNow : mFull, m1 = m0 - (sh.fuel > 0 ? sh.fuel : S.fuel);
     html += `<div class="po-eq"><h3 class="po-h">The rocket equation (Tsiolkovsky says hi)</h3>

@@ -229,13 +229,13 @@ const Econ = (() => {
       pack: S.packCap, o2: S.o2, jet: S.jet, jetFuel: S.jetFuel, suitHp: S.suitHp,
       laser: S.laserPower, laserRange: S.laserRange, laserDps: S.laserDps,
       gunDps: (S.gunDmg || 0) * (S.gunRate || 0), gunSpeed: S.gunSpeed || 0, turret: S.turret || 0,
-      orion: S.orionCount || 0, orionDv: S.orionJ / mFull,
+      orion: S.orionCount || 0, orionDv: S.orionJ / (mFull - (S.orionCount ? ORION.mass : 0)),   // the unit leaves before the kick
     };
   }
 
   // thrust-to-weight on body b right now (local gravity at the ship's distance)
   function twrOn(g, b, mass = Physics.mass(g.sh, g.S)) {
-    const [bx, by] = World.bodyState(g.w, b, g.t), r = Math.max(b.R, Math.hypot(g.sh.x - bx, g.sh.y - by));
+    const [bx, by] = World.bodyState(g.w, b, g.t), r = Math.max(b.Rc || b.R, Math.hypot(g.sh.x - bx, g.sh.y - by));   // valleys pull harder
     return g.S.thrust / (mass * (b.mu / (r * r)));
   }
 
@@ -641,7 +641,7 @@ const Econ = (() => {
       if (sh.fuel < 0.5 * S.fuel) return { pri: 45, text: `Tank is ${Math.round(100 * sh.fuel / S.fuel)}% full: press F, then Services, to refuel before you go.` };
     }
     if (m.orion > 0 && !m.stats.fired && g.status === 'flying' && g.mode === 'ship')
-      return { pri: 20, text: `N fires an Orion nuclear pulse: +${(S.orionJ / Physics.mass(sh, S)).toFixed(0)} m/s along your nose (${m.orion} carried).` };
+      return { pri: 20, text: `N fires an Orion nuclear pulse: +${(S.orionJ / (Physics.mass(sh, S) - ORION.mass)).toFixed(0)} m/s along your nose (${m.orion} carried).` };
     return null;
   }
 

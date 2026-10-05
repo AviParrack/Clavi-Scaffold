@@ -245,15 +245,15 @@ const EVA = (() => {
 
   // biggest kick along (ex, ey) that keeps the orbit energy under the governor cap
   function kickRoom(b, d, rvx, rvy, ex, ey) {
-    const vu = rvx * ex + rvy * ey, v2 = rvx * rvx + rvy * rvy, Emax = -b.mu / reach(b);
-    const disc = vu * vu - v2 + 2 * (Emax + b.mu / d);
+    const vu = rvx * ex + rvy * ey, v2 = rvx * rvx + rvy * rvy, Emax = World.phi(b, reach(b));
+    const disc = vu * vu - v2 + 2 * (Emax - World.phi(b, d));
     return disc > 0 ? Math.max(0, -vu + Math.sqrt(disc)) : 0;
   }
 
   // jet throttle 0..1 along (ex, ey): only energy-adding thrust is ever cut
   function governor(b, d, rvx, rvy, ex, ey) {
     if (rvx * ex + rvy * ey <= 0) return 1;
-    const R = reach(b), E = 0.5 * (rvx * rvx + rvy * rvy) - b.mu / d, Emax = -b.mu / R, band = 0.08 * b.mu / R;
+    const R = reach(b), E = 0.5 * (rvx * rvx + rvy * rvy) + World.phi(b, d), Emax = World.phi(b, R), band = 0.08 * b.mu / R;
     return Math.max(0, Math.min(1, (Emax - E) / band));
   }
 

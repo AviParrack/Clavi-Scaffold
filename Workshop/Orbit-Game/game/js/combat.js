@@ -255,7 +255,15 @@ const Combat = (() => {
 
   function onKey(g, code) {
     if (code !== 'KeyJ' || !g.dev || !st(g)) return false;
-    const P = me(g), z = zoneAt(g, P.x, P.y) || zoneById('potato'), a = Math.random() * 2 * Math.PI;
+    const P = me(g), z = zoneAt(g, P.x, P.y) || zoneById('potato'), a0 = Math.random() * 2 * Math.PI;
+    let a = a0, best = -Infinity;                                   // the clearest of 12 spots, so it does not spawn in a rock
+    for (let k = 0; k < 12; k++) {
+      const ak = a0 + k * Math.PI / 6, x = P.x + 120 * Math.cos(ak), y = P.y + 120 * Math.sin(ak);
+      let alt = Game.nearestBody(g, x, y).alt;
+      for (const rk of g.w.rocks) { const [rx, ry] = World.rockState(g.w, rk, g.t); alt = Math.min(alt, Math.hypot(x - rx, y - ry) - rk.r); }
+      if (alt > best) { best = alt; a = ak; }
+      if (alt > 60) break;
+    }
     const p = spawn(g, z.id, { x: P.x + 120 * Math.cos(a), y: P.y + 120 * Math.sin(a), vx: P.vx, vy: P.vy });
     if (p) Game.toast(g, `DEV: ${p.name.toUpperCase()} SUMMONED`, RADIO_COL, 'dev');
     return true;

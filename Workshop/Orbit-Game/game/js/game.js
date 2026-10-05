@@ -187,7 +187,8 @@ const Game = (() => {
     const paused = g.paused || !!g.ui;
     applyWarpCaps(g, ctrl);
     g.warp = Math.min(SIM.warps[g.warpIdx], g.warpMax);
-    const n = paused ? 0 : Math.max(1, Math.round(Math.min(frameDt, 1 / 20) * g.warp / SIM.dt));
+    const nMax = Math.round(SIM.warps[SIM.warps.length - 1] / 60 / SIM.dt);       // a slow frame lets sim time slip instead of piling up steps
+    const n = paused ? 0 : Math.max(1, Math.min(nMax, Math.round(Math.min(frameDt, 1 / 20) * g.warp / SIM.dt)));
     const simDt = n * SIM.dt;
     each(g, 'frame', inp, frameDt, simDt);
 
@@ -371,9 +372,10 @@ const Game = (() => {
       }
       return;
     }
+    const hostD = {};                                                         // distance to each rubble host, once per step
     for (const rk of w.rocks) {
-      const [hx, hy] = st[rk.host.idx];
-      if (Math.abs(Math.hypot(sh.x - hx, sh.y - hy) - rk.a) > rk.r + S.radius) continue;    // cheap band test
+      const hi = rk.host.idx, dh = hostD[hi] ?? (hostD[hi] = Math.hypot(sh.x - st[hi][0], sh.y - st[hi][1]));
+      if (Math.abs(dh - rk.a) > rk.r + S.radius) continue;                     // cheap band test
       const [rx, ry, rvx, rvy] = World.rockState(w, rk, g.t);
       const dx = sh.x - rx, dy = sh.y - ry, d = Math.hypot(dx, dy), hitR = rk.r * 0.9 + S.radius * 0.8;
       if (d >= hitR) continue;
@@ -481,8 +483,8 @@ const Game = (() => {
   // ======================================================================
 
   // body whose surface is closest -> { b, lx, ly, d, alt, bx, by, bvx, bvy, ux, uy }   (u = local up)
-  function nearestBody(g, x, y) {
-    const st = World.states(g.w, g.t);
+  function nearestBody(g, x, y, t = g.t) {
+    const st = World.states(g.w, t);
     let best = null;
     for (const b of g.w.bodies) {
       const [bx, by, bvx, bvy] = st[b.idx], lx = x - bx, ly = y - by, d = Math.hypot(lx, ly) || 1e-9;
@@ -567,16 +569,12 @@ const Game = (() => {
     const nSub = Math.min(60, Math.max(1, Math.ceil(simDt * 60))), h = simDt / nSub, A = g.astro, sh = g.sh, S = g.S;
     const shipR = S.radius + 1.2 + (S.tractor || 0);
     let packFull = false;
-    for (const p of g.pickups) {
-      p.age += simDt;
-      for (let s = 0; s < nSub && !p.kinematic; s++) {        // kinematic: a module moves it (EVA chunks riding the beam home)
-        if (p.rest) {
-          const [bx, by, bvx, bvy] = World.bodyState(g.w, p.rest.b, g.t);
-          p.x = bx + p.rest.lx; p.y = by + p.rest.ly; p.vx = bvx; p.vy = bvy;
-          if (A.on && Math.hypot(A.x - p.x, A.y - p.y) < 3.2) p.rest = null;
-          break;
-        }
-        let [ax, ay] = World.gravity(g.w, p.x, p.y, g.t);
+    // substep s ends at ts: the moons move during a warp frame, so each substep sees them where they really are then
+    for (let s = 0; s < nSub; s++) {
+      const ts = g.t - simDt + (s + 1) * h;
+      for (const p of g.pickups) {
+        if (p.kinematic || p.rest) continue;                       // kinematic: a module moves it (EVA chunks riding the beam home)
+        let [ax, ay] = World.gravity(g.w, p.x, p.y, ts);
         if (A.on) {
           const dx = A.x - p.x, dy = A.y - p.y, d = Math.hypot(dx, dy);
           if (d < 3.2 && d > 0.05) { ax += dx / d * 14 + (A.vx - p.vx) * 3; ay += dy / d * 14 + (A.vy - p.vy) * 3; }
@@ -586,7 +584,7 @@ const Game = (() => {
           if (d < shipR + 6 && d > 0.05) { ax += dx / d * 8 + (sh.vx - p.vx) * 2; ay += dy / d * 8 + (sh.vy - p.vy) * 2; }
         }
         p.vx += ax * h; p.vy += ay * h; p.x += p.vx * h; p.y += p.vy * h;
-        const nb = nearestBody(g, p.x, p.y);
+        const nb = nearestBody(g, p.x, p.y, ts);
         if (nb.alt > 2) continue;
         const hit = Terrain.collideCircle(Terrain.of(nb.b), nb.lx, nb.ly, 0.3);
         if (!hit) continue;
@@ -597,6 +595,14 @@ const Game = (() => {
           p.vx = nb.bvx + tx * 0.6 - vn * 0.25 * hit.nx; p.vy = nb.bvy + ty * 0.6 - vn * 0.25 * hit.ny;
         }
         if (Math.hypot(p.vx - nb.bvx, p.vy - nb.bvy) < 0.12) p.rest = { b: nb.b, lx: p.x - nb.bx, ly: p.y - nb.by };
+      }
+    }
+    for (const p of g.pickups) {
+      p.age += simDt;
+      if (p.rest && !p.kinematic) {                                  // resting on a moon: ride along with it
+        const [bx, by, bvx, bvy] = World.bodyState(g.w, p.rest.b, g.t);
+        p.x = bx + p.rest.lx; p.y = by + p.rest.ly; p.vx = bvx; p.vy = bvy;
+        if (A.on && Math.hypot(A.x - p.x, A.y - p.y) < 3.2) p.rest = null;
       }
       // -------- collect: astronaut's backpack first, else the ship's hold --------
       if (A.on && Math.hypot(A.x - p.x, A.y - p.y) < A.r + 0.5) {

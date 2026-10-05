@@ -34,6 +34,7 @@ const World = (() => {
       b.n = b.par ? Math.sqrt(b.par.mu / b.a ** 3) : 0;   // angular rate on the rail
       b.hill = b.par ? b.a * Math.cbrt(b.mu / (3 * b.par.mu)) : Infinity;
       b.out = outline(rand, b.shape, Math.max(40, Math.round(b.R * 1.2)));
+      b.Rc = b.R * Math.min(...b.out);                      // deepest valley: below it the pull falls off like a uniform core
       b.craters = Array.from({ length: Math.round(4 + b.R / 25) }, () =>
         ({ th: rand() * 2 * Math.PI, d: rand() * 0.75, r: (0.06 + rand() * 0.12) }));
     }
@@ -86,7 +87,7 @@ const World = (() => {
     let ax = 0, ay = 0, ref = 0, refHill = Infinity;
     for (let i = 0; i < bs.length; i++) {
       const dx = st[i][0] - x, dy = st[i][1] - y, r2 = dx * dx + dy * dy, r = Math.sqrt(r2);
-      const k = bs[i].mu / (r2 * r);
+      const Rc = bs[i].Rc, k = r > Rc ? bs[i].mu / (r2 * r) : bs[i].mu / (Rc * Rc * Rc);   // inside: g ∝ r, no blow-up at the centre
       ax += k * dx; ay += k * dy;
       if (r < bs[i].hill && bs[i].hill < refHill) { ref = i; refHill = bs[i].hill; }
     }
@@ -100,6 +101,9 @@ const World = (() => {
     }
     return [ax, ay];
   }
+
+  // potential of body b at distance r (matches gravity: point mass outside Rc, uniform core inside)
+  const phi = (b, r) => r > b.Rc ? -b.mu / r : -b.mu * (3 * b.Rc * b.Rc - r * r) / (2 * b.Rc ** 3);
 
   // outline radius of a body at polar angle th (local frame; bodies never rotate)
   function surfaceR(b, th) {
@@ -117,7 +121,7 @@ const World = (() => {
     return best;
   }
 
-  return { create, states, bodyState, rockState, gravity, refBody, surfaceR, rng };
+  return { create, states, bodyState, rockState, gravity, phi, refBody, surfaceR, rng };
 })();
 
 if (typeof module !== 'undefined') module.exports = World;

@@ -148,7 +148,7 @@ const Terrain = (() => {
       if (m < REG) return;
       const M = MATS[m], w = T.wear[k] + Math.max(1, Math.round(255 * power / M.hard));
       if (w < 255) { T.wear[k] = w; return; }
-      T.grid[k] = DUG; T.wear[k] = 0; out.cells++; T.touched = true;
+      T.grid[k] = DUG; T.wear[k] = 0; out.cells++; T.touched = T.snapDirty = true;
       out.mats[M.id] = (out.mats[M.id] || 0) + 1;
       if (M.item) out.yield[M.item] = (out.yield[M.item] || 0) + M.kg;
     });
@@ -161,7 +161,12 @@ const Terrain = (() => {
 
   // ---------------- save: dug cells as [start, length] runs + indexes of taken gems ----------------
 
-  function snapshot(T) {
+  function snapshot(T) {                                            // cached until the next dig
+    if (T.snap !== undefined && !T.snapDirty) return T.snap;
+    T.snapDirty = false;
+    return (T.snap = scan(T));
+  }
+  function scan(T) {
     const gems = [];
     T.gems.forEach((gm, i) => { if (gm.state !== 'buried') gems.push(i); });
     if (!T.touched && !gems.length) return null;
@@ -187,7 +192,7 @@ const Terrain = (() => {
       }
     }
     for (const i of Array.isArray(s.gems) ? s.gems : []) if (T.gems[i]) T.gems[i].state = 'taken';
-    T.touched = true;
+    T.touched = T.snapDirty = true;
   }
 
   function touchChunks(T, lx, ly, r) {

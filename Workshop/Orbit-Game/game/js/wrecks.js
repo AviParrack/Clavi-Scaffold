@@ -18,14 +18,15 @@ const Wrecks = (() => {
   const RUMMAGE_R = 3, RUMMAGE_KEEP = 5;     // on foot: reach to the hull to start / to keep going [m]
   const DRILL_R = 20;                        // no EVA module: a landed ship this close drills a crashed wreck open [m]
   const SEE_R = 400;                         // first sighting within this reveals the name [m]
-  const NEAR_WARP = 80;                      // warp capped at 4x this close to an unsalvaged wreck [m]
-  const HINT_R = 250;                        // salvage coaching inside this [m]
+  const NEAR_WARP = 40;                      // warp capped at 4x this close to an unsalvaged wreck [m] (like rubble)
+  const HINT_R = 250;                        // salvage coaching inside this [m] (the core's TGT markers show inside 300)
   const BUMP_V = 1;                          // ramming a wreck faster than this dents the hull [m/s]
   const ICON_PX = 12;                        // a wreck smaller than this on screen [px radius] is drawn as an icon
   const DETAIL_PX = 40;                      // ...and bigger than this gets ribs, cables and scorch marks
   const LOG_CPS = 42, LOG_HOLD = 9;          // crew log typewriter [chars/s], then it stays up this long [s]
   const LOOT_KEEP = 600;                     // wreck loot never ages past this (the core drops pickups at 900 s)
   const FACT_T = 8;                          // seconds a freshly targeted wreck shows its physics fact
+  const TETHER_BOB = 0.3;                    // tethered loot bobs in and out this much [m]
 
   const INK = '#1b1433', PAPER = '#fff4dc', PAPER2 = '#ffe2b0';
   const FONT = '"Fredoka", "Baloo 2", "Trebuchet MS", sans-serif';
@@ -53,21 +54,25 @@ const Wrecks = (() => {
     { id: 'esa4', name: 'ESA Intern Project #4', kind: 'probe', host: 'ceres', a: 380, ph: 0.4, spin: 0.11, size: 3.2,
       loot: { scrap: [1, 2], parts: [2, 3], core: 0, cash: 0.3 },
       who: 'INTERN (UNPAID)', log: 'If found, please tell my supervisor it worked for eleven glorious minutes.',
-      fact: (wr) => `${wr.name} is in low Ceres orbit, ${wr.a} m from the centre: one lap every ${lap(wr.period)}. Lower orbits are faster, so it laps the Hub.` },
+      fact: (wr) => `${wr.name} is in low Ceres orbit, ${wr.a} m from the centre: one lap every ${lap(wr.period)}. ` +
+        `Lower orbits are faster, so it laps ${hasMod('stations') ? 'Ceres Hub' : 'anything higher up'}.` },
 
-    { id: 'tuesday', name: 'The Plucky Tuesday', kind: 'hauler', host: 'ceres', needs: ['ceres', 'dorito'], spin: -0.035, size: 8,
+    //  Dorito's L4 is stable by Routh, but Kiwi kicks loose anything parked there within a lap or two
+    //  (tests/test_wrecks.js checks both), so the Tuesday's autopilot keeps puffing it back: keeper = RCS puffs
+    { id: 'tuesday', name: 'The Plucky Tuesday', kind: 'hauler', host: 'ceres', needs: ['ceres', 'dorito'], spin: -0.035, size: 8, keeper: true,
       a: (w) => w.byId.dorito.a, ph: (w) => w.byId.dorito.phase + Math.PI / 3,
       art: { cols: ['#ff9f43', '#c25f1c', '#ffd8a6'], stripe: '#7cf5d6', box: ['#7cf5d6', '#3c9f8a', '#d4fff4'] },
       loot: { bp: 1, core: 0.35 },
-      who: 'CAPT. MIRA OSEI', log: "Engines dead, but we coasted into Dorito's L4 point. Lagrange says we're safe here. Somebody will come by. Somebody always comes by on a Tuesday.",
-      fact: (wr, w) => `${wr.name} rides Dorito's L4 point, 60° ahead on Dorito's own orbit. Dorito is ${(100 * w.byId.dorito.mu / (w.byId.dorito.mu + w.byId.ceres.mu)).toFixed(1)}% ` +
-        "of the pair's mass, under Routh's 3.85% limit, so L4 is stable. Kiwi still shoves anyone parked there." },
+      who: 'CAPT. MIRA OSEI', log: "Engine's dead. The autopilot keeps puffing us back to Dorito's L4, and Lagrange says we're safe here. Somebody always comes by on a Tuesday.",
+      fact: (wr, w) => `The Tuesday holds Dorito's L4, 60° ahead: stable by Routh (Dorito is ${(100 * w.byId.dorito.mu / (w.byId.dorito.mu + w.byId.ceres.mu)).toFixed(1)}% ` +
+        "of the pair's mass, limit 3.85%), but Kiwi kicks things loose, so its autopilot puffs it back." },
 
-    { id: 'notpirates', name: 'Definitely Not Pirates', kind: 'pirate', host: 'potato', a: 280, ph: 1.0, dir: -1, spin: 0.05, size: 7,
+    //  past the rubble (115-190 m) Ceres' tide breaks up prograde orbits within a few laps; retrograde ones last (tested)
+    { id: 'notpirates', name: 'Definitely Not Pirates', kind: 'pirate', host: 'potato', a: 220, ph: 1.0, dir: -1, spin: 0.05, size: 7,
       loot: { bp: 1, cash: 1, cashMin: 150, cashMax: 300, scrap: [3, 6] },
       who: 'DEFINITELY NOT A PIRATE', log: 'Painted over the skull. Painted over the other skull. Flew backwards so nobody could follow us. Nobody followed us.',
-      fact: (wr) => `${wr.name} orbits Big Potato backwards, ${wr.a} m out. Past the rubble only retrograde orbits survive Ceres' tide. ` +
-        `To match it, cancel your orbit and go the other way (about ${(2 * wr.v).toFixed(0)} m/s).` },
+      fact: (wr) => `${wr.name} circles Big Potato backwards at ${wr.a} m. Out there Ceres' tide wrecks forward orbits; backward ones last. ` +
+        `Matching it costs ~${(2 * wr.v).toFixed(0)} m/s.` },
 
     { id: 'lettuce', name: 'Lettuce Pray', kind: 'pod', host: 'kiwi', a: 74, ph: 3.5, spin: 0.06, size: 6,
       art: { inside: 'plants' }, loot: { core: 0.15 },
@@ -82,27 +87,27 @@ const Wrecks = (() => {
     { id: 'lithobraker', name: 'The Lithobraker', kind: 'hauler', host: 'ceres', th: -1.35, tilt: 0.22, bury: 0.42, from: 1, size: 8,
       art: { cols: ['#c4c0d8', '#7f7aa0', '#eeecf8'], stripe: GOLD, box: ['#ff9f43', '#c25f1c', '#ffd8a6'] }, loot: { scrap: [3, 6] },
       who: 'PILOT GUS', log: "Flight plan said 'aerobrake'. Ceres has no air. In my defence, it does now have a crater.",
-      fact: (wr) => `${wr.name} crashed on Ceres' far side, opposite the pad. Land nearby, step out (E), walk over and rummage (F).` },
+      fact: (wr) => `${wr.name} crashed on Ceres' far side, opposite the pad. ${getIn()}` },
 
     { id: 'coolranch', name: 'Cool Ranch Express', kind: 'hauler', host: 'dorito', th: 2.15, tilt: -0.3, bury: 0.38, from: -1, size: 6.5,
       art: { cols: ['#4cc9f0', '#2a7fb0', '#c8f1ff'], stripe: '#ff9f1c', crates: true },
       who: 'COURIER TAMSIN', log: '4,000 crates of chips for the Dorito Day festival. Arrived on time. Arrived very hard.',
-      fact: (wr) => `${wr.name} crashed on Dorito. Land nearby, step out (E), walk over and rummage (F).` },
+      fact: (wr) => `${wr.name} crashed on Dorito, chips first. ${getIn()}` },
 
     { id: 'lunchbox', name: 'Lunchbox', kind: 'hauler', host: 'kiwi', th: 4.0, tilt: 0.28, bury: 0.4, from: 1, size: 6,
       art: { cols: ['#ffd166', '#c9962e', '#fff3c4'], stripe: '#e05a6a', bites: [[4.2, 0.9], [-3.4, 1.1], [-6.6, 0.8]] },
       who: 'MECHANIC BO', log: 'The bugs keep nibbling the hull. Honestly? Good for them. Somebody should enjoy this ship.',
-      fact: (wr) => `${wr.name} crashed on Kiwi, bug country. Land nearby, step out (E) and rummage (F). Mind the munchers.` },
+      fact: (wr) => `${wr.name} crashed on Kiwi, bug country. ${getIn()}${hasMod('mobs') ? ' Mind the munchers.' : ''}` },
 
     { id: 'couch', name: 'Couch Potato', kind: 'pod', host: 'potato', th: 0.75, tilt: -0.18, bury: 0.3, from: -1, size: 5.5,
       art: { inside: 'couch', cols: ['#ffb4c6', '#c96f8b', '#ffe3ea'] }, loot: { core: 0.3 },
       who: 'CAPT. LOU', log: 'Landed for a quick nap. Set the alarm for six. Forgot to say six what.',
-      fact: (wr) => `${wr.name} crashed on Big Potato. Land nearby, step out (E) and rummage (F). Beetles about.` },
+      fact: (wr) => `${wr.name} crashed on Big Potato. ${getIn()}${hasMod('mobs') ? ' Beetles about.' : ''}` },
 
     { id: 'finders', name: 'Finders Keepers', kind: 'prospector', host: 'glimmer', th: 2.9, tilt: -0.95, bury: 0.45, from: 1, size: 5,
       loot: { bp: 1, extra: { voidopal: 1 } },
       who: 'R., PROSPECTOR', log: "Found a void opal vein the size of a fridge. Said 'one more scoop'. If you're reading this, don't say 'one more scoop'.",
-      fact: (wr) => `${wr.name} nosed into Glimmer. Same make as your ship. Land nearby, step out (E) and rummage (F).` },
+      fact: (wr) => `${wr.name} nosed into Glimmer. Same make as your ship. ${getIn()}` },
 
     { id: 'phil', name: 'Little Phil', kind: 'lander', host: 'seed', th: 1.2, tilt: 0.35, bury: 0.12, from: -1, size: 1.6, stamp: 'SAID HI',
       loot: { scrap: [0, 0], parts: [1, 2], core: 0, cash: 0, bp: 0.5 },
@@ -121,6 +126,8 @@ const Wrecks = (() => {
   };
 
   const val = (v, w) => (typeof v === 'function' ? v(w) : v);
+  const hasMod = (id) => Game.mods.some((x) => x.id === id);
+  const getIn = () => (hasMod('eva') ? 'Land nearby, step out (E), walk over and rummage (F).' : `Land within ${DRILL_R} m of it and drill it open (F).`);
   function lap(T) { return T >= 60 ? `${Math.floor(T / 60)} min ${Math.round(T % 60)} s` : `${Math.round(T)} s`; }
 
 
@@ -215,14 +222,14 @@ const Wrecks = (() => {
   // ======================================================================
 
   function fresh() {
-    return { seen: {}, salvaged: {}, job: null, codec: null, near: [], fx: {}, spill: null, tgt: { id: null, t0: 0 },
+    return { seen: {}, salvaged: {}, job: null, codec: null, near: [], fx: {}, spill: null, tgt: { id: null, t0: 0 }, said: [],
              stats: { blueprints: 0, cash: 0 } };
   }
   const st = (g) => g.mod.wrecks || (g.mod.wrecks = fresh());
   const isSeen = (g, id) => !!(g.mod.wrecks && g.mod.wrecks.seen[id]);
   const isSalvaged = (g, id) => !!(g.mod.wrecks && g.mod.wrecks.salvaged[id]);
   const count = (o) => Object.keys(o || {}).length;
-  const evaOn = () => Game.mods.some((x) => x.id === 'eva');
+  const evaOn = () => hasMod('eva');
 
   function econ() {
     if (typeof Econ === 'undefined' || !Econ || typeof Econ.grant !== 'function' || typeof Econ.randomBlueprint !== 'function') return null;
@@ -266,7 +273,7 @@ const Wrecks = (() => {
     m.spill = null;
   }
 
-  function respawn(g) { const m = st(g); m.job = null; m.near = []; }
+  function respawn(g) { const m = st(g); m.job = null; m.near = []; m.said = []; }
   function died(g) { const m = st(g); if (m.job && m.job.how !== 'foot') m.job = null; m.near = []; }
 
 
@@ -305,7 +312,7 @@ const Wrecks = (() => {
     if (why) { Game.toast(g, `CAN'T SALVAGE: ${why.toUpperCase()}`, '#ff9f1c', 'salvage'); return false; }
     m.job = { id: wr.id, how, t: 0, need: how === 'foot' ? RUMMAGE_T : SALVAGE_T, fxT: g.real, wordT: g.real };
     const [x, y] = workPoint(g, wr, how);
-    Game.popup(g, how === 'foot' ? 'RUMMAGE!' : how === 'drill' ? 'GRRRIND!' : 'KRRZZT!', GOLD, x, y, 24);
+    say(g, wr, how === 'foot' ? 'RUMMAGE!' : how === 'drill' ? 'GRRRIND!' : 'KRRZZT!', GOLD, x, y, 24);
     Game.log(g, `${how === 'foot' ? 'rummaging through' : how === 'drill' ? 'drilling into' : 'salvaging'} ${wr.name}`);
     return true;
   }
@@ -346,10 +353,13 @@ const Wrecks = (() => {
     const [x, y] = workPoint(g, wr, J.how), [, , vx, vy] = wr.state(g.t), me = J.how === 'foot' ? g.astro : g.sh;
     Game.burst(g, J.how === 'foot' ? 'dust' : 'spark', x, y, J.how === 'foot' ? 2 : 4,
                { vx, vy, speed: J.how === 'foot' ? 1 : 3, dir: Math.atan2(me.y - y, me.x - x), spread: 1.6, life: 0.5, col: J.how === 'foot' ? '#c9c4e8' : undefined });
-    if (g.real - J.wordT > 1.1) {
+    if (g.real - J.wordT > 1.1 && J.need - J.t > 0.8) {     // hush just before the finish so SALVAGED! lands alone
       J.wordT = g.real;
       const w = WORK_WORDS[J.how];
-      Game.popup(g, w[Math.floor(J.t * 7) % w.length], GOLD, x, y, 20);
+      let wx = x, wy = y;                       // on foot the hull point is at your elbow: say it over the hull, not over the progress ring
+      if (J.how === 'foot') { const [cx, cy] = wr.state(g.t), dx = x - me.x, dy = y - me.y, d = Math.hypot(dx, dy);
+        if (d > 0.05) { wx += dx / d * 1.6; wy += dy / d * 1.6; } else { wx = (x + cx) / 2; wy = (y + cy) / 2; } }
+      say(g, wr, w[Math.floor(J.t * 7) % w.length], GOLD, wx, wy, 20);
     }
   }
 
@@ -392,20 +402,15 @@ const Wrecks = (() => {
     if (L.cash) { g.money += L.cash; m.stats.cash += L.cash; }
     const bp = L.bp ? blueprint(g, m, L.rand) : null;
 
-    const [x, y] = wr.state(g.t);
-    Game.toast(g, `SALVAGED: ${wr.name.toUpperCase()}!`, GOLD);
-    Game.popup(g, 'SALVAGED!', GOLD, x, y, 30);
-    Game.burst(g, 'spark', x, y, 14, { vx: wr.state(g.t)[2], vy: wr.state(g.t)[3], speed: 5, life: 0.7 });
-    if (L.cash) Game.popup(g, `+$${L.cash}: ${L.purse}!`, '#8ff0b0', x, y - wr.r, 18);
-    if (bp && bp.name) {
-      Game.toast(g, `YOU FOUND ${bp.name.toUpperCase()} SCHEMATICS!`, '#7cf5d6');
-      if (bp.engine) Game.popup(g, 'NEW ENGINE: EQUIP IT AT A STATION', '#7cf5d6', undefined, undefined, 18);
-    } else if (bp) Game.popup(g, `+$${bp.cash}: schematics sold to a collector`, '#8ff0b0', x, y + wr.r, 18);
-    if (how !== 'foot') {
-      const txt = Object.entries(L.items).map(([k, q]) => `+${q} ${ITEMS[k].name.toLowerCase()}`).join('  ');
-      if (txt) Game.popup(g, txt, ITEMS[Object.keys(L.items)[0]].col, undefined, undefined, 18);
-      if (count(spilled)) Game.popup(g, `HOLD FULL: SOME LOOT ${wr.orbital ? 'FLOATED FREE' : 'FELL OUT'}`, '#ff9f1c', x, y, 18);
-    }
+    // the hull gets its SALVAGED stamp, you get one gain line and a short toast; the crew log (codec) spells out the rest
+    const [x, y, vx, vy] = wr.state(g.t);
+    Game.burst(g, 'spark', x, y, 14, { vx, vy, speed: 5, life: 0.7 });
+    const gain = (how === 'foot' ? [] : Object.entries(L.items).map(([k, q]) => `+${q} ${ITEMS[k].name.toLowerCase()}`))
+      .concat(L.cash ? [`+$${L.cash}`] : [], bp && !bp.name ? [`+$${bp.cash} schematics`] : []).join('  ');
+    if (gain) say(g, wr, gain, '#8ff0b0', undefined, undefined, 18);       // one friendly green: scrap grey vanishes against space
+    Game.toast(g, 'SALVAGED!', GOLD);                                          // short: long toasts run under the side panels
+    if (bp && bp.name) Game.toast(g, `NEW: ${bp.name.toUpperCase()}!`, '#7cf5d6');
+    if (count(spilled)) Game.toast(g, 'HOLD FULL: COME BACK', '#ff9f1c');
 
     m.codec = { id: wr.id, t0: g.real, loot: lootLine(L, bp, spilled, how) };
     Game.log(g, `salvaged ${wr.name} (${how}): ${JSON.stringify(L.items)}${L.cash ? ` +$${L.cash}` : ''}` +
@@ -419,7 +424,8 @@ const Wrecks = (() => {
     const parts = Object.entries(L.items).map(([k, q]) => `${q}× ${ITEMS[k].name.toLowerCase()}`);
     if (L.cash) parts.push(`$${L.cash} (${L.purse})`);
     if (bp) parts.push(bp.name ? `${bp.name} schematics${bp.engine ? ' (equip at a station)' : ' (installed)'}` : `schematics sold for $${bp.cash}`);
-    const tail = how === 'foot' ? '  ·  grab it before you go!' : count(spilled) ? `  ·  hold full, the rest is ${how === 'ship' ? 'floating' : 'lying'} by the wreck` : '';
+    const tail = how === 'foot' ? '  ·  grab it before you go!'
+               : count(spilled) ? `  ·  hold full, the rest is ${how === 'ship' ? 'tied to' : 'lying by'} the wreck: sell, then come back` : '';
     return `LOOT: ${parts.join(' · ') || 'dust and memories'}${tail}`;
   }
 
@@ -431,13 +437,30 @@ const Wrecks = (() => {
     }
   }
   const spill = (g, wr, item, q) => (wr.orbital ? floatLoot : groundLoot)(g, wr, item, q);
+
+  //  orbital overflow hangs off the hull on cargo-net tethers.  Kinematic: it rides the wreck's rail, because the
+  //  rail ignores the tides (~1 cm/s² here) that would carry a free crate tens of metres off per minute.
   function floatLoot(g, wr, item, q) {
-    const [x, y, vx, vy] = wr.state(g.t), toward = g.sh ? Math.atan2(g.sh.y - y, g.sh.x - x) : 0;
+    const [x, y] = wr.state(g.t), toward = g.sh ? Math.atan2(g.sh.y - y, g.sh.x - x) : 0;
     for (let i = 0; i < q; i++) {
-      const a = toward + (Math.random() - 0.5) * 1.6, d = wr.r * 0.8 + 1 + 1.5 * Math.random();
-      const p = Game.spawnPickup(g, { x: x + d * Math.cos(a), y: y + d * Math.sin(a), vx: vx + (Math.random() - 0.5) * 0.4, vy: vy + (Math.random() - 0.5) * 0.4, item, qty: 1 });
-      p.wreck = wr.id;
+      const a = toward + (Math.random() - 0.5) * 1.8, d = wr.r + 1 + 1.6 * Math.random();
+      const p = Game.spawnPickup(g, { x, y, item, qty: 1 });
+      Object.assign(p, { wreck: wr.id, kinematic: true, tether: { dx: d * Math.cos(a), dy: d * Math.sin(a), ph: 2 * Math.PI * Math.random() } });
+      hang(wr, p, g.t);
     }
+  }
+  function hang(wr, p, t) {
+    const T = p.tether, d = Math.hypot(T.dx, T.dy) || 1, f = 1 + TETHER_BOB * Math.sin(0.8 * t + T.ph) / d, [x, y, vx, vy] = wr.state(t);
+    p.x = x + T.dx * f; p.y = y + T.dy * f; p.vx = vx; p.vy = vy; p.rest = null;
+  }
+
+  // a comic word that sticks to an orbital wreck (the core's popups stay put in space, or ride a moon)
+  function say(g, wr, text, col, x, y, size) {
+    const p = Game.popup(g, text, col, x, y, size);
+    if (!wr.orbital || !p || typeof p !== 'object' || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
+    const [cx, cy] = wr.state(g.t);
+    delete p.ride;
+    st(g).said.push({ p, id: wr.id, dx: p.x - cx, dy: p.y - cy });
   }
 
   // rummage: loot pops out of the hatch nearest the astronaut, gently enough to stay on tiny moons
@@ -479,8 +502,10 @@ const Wrecks = (() => {
   // ======================================================================
 
   // orbital wrecks the ship could touch this frame (the step hook only checks these)
+  //  ...and tethered loot is placed where its wreck will be when the core collects pickups after this frame's physics
   function frame(g, inp, dt, simDt) {
-    const m = st(g);
+    const m = st(g), tEnd = g.t + (simDt || 0);
+    for (const p of g.pickups) if (p.tether && p.wreck) { const wr = byId(g, p.wreck); if (wr) hang(wr, p, tEnd); }
     m.near = [];
     if (g.status !== 'flying' || !g.sh) return;
     const sh = g.sh;
@@ -520,6 +545,10 @@ const Wrecks = (() => {
     for (const p of g.pickups) if (p.wreck && p.age > LOOT_KEEP) p.age = LOOT_KEEP;
     if (m.codec && g.real - m.codec.t0 > codecLife(g, m.codec)) m.codec = null;
     if (g.navId !== m.tgt.id) m.tgt = { id: g.navId, t0: g.real };
+    if (m.said.length) {
+      m.said = m.said.filter((s) => g.real - s.p.t0 < 1.5 && byId(g, s.id));
+      for (const s of m.said) { const [x, y] = byId(g, s.id).state(g.t); s.p.x = x + s.dx; s.p.y = y + s.dy; }
+    }
   }
 
   // first sighting within SEE_R reveals the name (Tab shows 'Unknown signal' until then)
@@ -536,17 +565,19 @@ const Wrecks = (() => {
     }
   }
 
-  // live wires: now and then a dangling cable spits sparks (only near you, only before salvage)
+  // live wires: now and then a dangling cable spits sparks (only near you, only before salvage);
+  // a station-keeping autopilot (the Tuesday) puffs its thrusters, salvaged or not: that is what holds it on its rail
   function sparks(g, m) {
     const me = g.astro && g.astro.on ? g.astro : g.sh;
     if (!me) return;
+    const due = (k, a, b) => { if (m.fx[k] == null) m.fx[k] = g.real + a * Math.random(); if (g.real < m.fx[k]) return false; m.fx[k] = g.real + a + b * Math.random(); return true; };
     for (const wr of list(g)) {
-      if (m.salvaged[wr.id]) continue;
-      const spots = SHAPE[wr.kind].sparks;
-      if (!spots.length) continue;
-      if (m.fx[wr.id] == null) m.fx[wr.id] = g.real + 1 + 3 * Math.random();
-      if (g.real < m.fx[wr.id]) continue;
-      m.fx[wr.id] = g.real + 1.5 + 3.5 * Math.random();
+      const spots = m.salvaged[wr.id] ? [] : SHAPE[wr.kind].sparks;
+      if (wr.keeper && due('puff:' + wr.id, 2.5, 2)) {           // a steady 2.5-4.5 s beat: the autopilot never sleeps
+        const [x, y, vx, vy] = wr.state(g.t);
+        if (Math.hypot(me.x - x, me.y - y) < 300) puff(g, wr, vx, vy);
+      }
+      if (!spots.length || !due(wr.id, 1.5, 3.5)) continue;
       const [x, y, vx, vy] = wr.state(g.t);
       if (Math.hypot(me.x - x, me.y - y) > 300) continue;
       const [sx, sy] = spots[Math.floor(Math.random() * spots.length)], [px, py] = toWorld(wr, g.t, sx * wr.k, sy * wr.k);
@@ -556,6 +587,13 @@ const Wrecks = (() => {
       }
       Game.burst(g, 'spark', px, py, 4 + Math.floor(3 * Math.random()), { vx, vy, speed: 2.5, life: 0.45 });
     }
+  }
+
+  // one RCS puff from a pod near either end of the hull, blowing outward
+  function puff(g, wr, vx, vy) {
+    const end = Math.random() < 0.5 ? 1 : -1, side = Math.random() < 0.5 ? 1 : -1;
+    const [px, py] = toWorld(wr, g.t, end * wr.hx * 0.7, side * wr.hy * 1.05);
+    Game.burst(g, 'puff', px, py, 4, { vx, vy, speed: 5, dir: wr.ang(g.t) + side * Math.PI / 2, spread: 0.35, life: 0.35 });
   }
 
   function warpLimit(g) {
@@ -617,9 +655,8 @@ const Wrecks = (() => {
     if (m.job) return { pri: 64, text: jobHint(g, m.job) };
     if (g.astro && g.astro.on) return footHint(g, m);
     if (g.mode !== 'ship' || g.status === 'dead') return null;
-    if (g.status === 'landed' && g.landedOn) return landedHint(g, m);
-    if (g.status !== 'flying') return null;
-    return flyHint(g, m);
+    const here = g.status === 'landed' && g.landedOn ? landedHint(g, m) : g.status === 'flying' ? flyHint(g, m) : null;
+    return here || targetHint(g, m);
   }
 
   function jobHint(g, J) {
@@ -655,8 +692,9 @@ const Wrecks = (() => {
     return { pri: 34, text: `Land within ${DRILL_R} m of ${name} to drill it open.` };
   }
 
+  // close to an orbital wreck: how to match speed and salvage
   function flyHint(g, m) {
-    const tg = targeted(g), fresh = tg && g.real - m.tgt.t0 < FACT_T;
+    const tg = targeted(g);
     let wr = tg && tg.orbital && !m.salvaged[tg.id] ? tg : null, q = wr && info(g, wr);
     if (!wr) {
       for (const w of list(g)) {
@@ -665,23 +703,53 @@ const Wrecks = (() => {
         if (qq.d < HINT_R && (!q || qq.d < q.d)) { wr = w; q = qq; }
       }
     }
-    if (wr && q.d < HINT_R) {
-      const name = wr.name;
-      if (tg !== wr) return { pri: 38, text: `Wreck nearby: ${name}. Tab (or click it) to target it, then match speed at the teal TGT markers.` };
-      if (q.d < SALVAGE_R && q.v < SALVAGE_V) return { pri: 48, text: `In range and slow: press F to salvage ${name}!` };
-      if (q.v >= SALVAGE_V) return { pri: 46, text: `Relative speed ${q.v.toFixed(1)} m/s: point at the teal X (target retrograde) and burn until it reads under ${SALVAGE_V}.` };
-      return { pri: 44, text: `Speed matched. Close in: ${q.d.toFixed(0)} m to go (salvage within ${SALVAGE_R} m). Point at ${name}, tap W, brake at the teal X.` };
+    if (!wr || q.d >= HINT_R) return null;
+    const name = wr.name;
+    if (tg !== wr) return { pri: 38, text: `Wreck nearby: ${name}. Tab (or click it) to target it, then match speed at the teal TGT markers.` };
+    if (q.d < SALVAGE_R && q.v < SALVAGE_V) return { pri: 48, text: `In range and slow: press F to salvage ${name}!` };
+    if (q.v >= SALVAGE_V) return { pri: 46, text: `Relative speed ${q.v.toFixed(1)} m/s: point at the teal X (target retrograde) and burn until it reads under ${SALVAGE_V}.` };
+    return { pri: 44, text: `Speed matched. Close in: ${q.d.toFixed(0)} m to go (salvage within ${SALVAGE_R} m). Point at ${name}, tap W, brake at the teal X.` };
+  }
+
+  // a wreck you just targeted: its physics fact for a few seconds, then how to get there
+  function targetHint(g, m) {
+    const tg = targeted(g);
+    if (!tg) return null;
+    if (g.real - m.tgt.t0 < FACT_T) {
+      if (!m.seen[tg.id]) return { pri: 32, text: `Unknown signal (${where(tg)}). Fly within ${SEE_R} m to identify it.` };
+      if (m.salvaged[tg.id]) return { pri: 32, text: `${tg.name}: already stripped. Nothing left but the stamp${tg.orbital ? '' : ' and the crater'}.` };
+      return { pri: 32, text: tg.fact(tg, g.w) };
     }
-    if (!tg || !fresh) return null;
-    if (!m.seen[tg.id]) return { pri: 17, text: `Unknown signal ${where(tg)}. Fly within ${SEE_R} m to identify it.` };
-    return { pri: 17, text: tg.fact ? tg.fact(tg, g.w) : `${tg.name}: fly over and salvage it.` };
+    if (m.salvaged[tg.id] || g.status !== 'flying') return null;
+    return { pri: 39, text: tg.orbital ? chase(g, tg) : `${tg.name} lies on ${tg.hostBody.name}, inside the target brackets. ${getIn()}` };
+  }
+
+  // rendezvous coaching in plain words (the same moves as for a station)
+  function chase(g, wr) {
+    const ap = g.approach, o = g.orb, host = wr.hostBody, shrink = 'watch the closest-approach diamond shrink.';
+    if (ap && ap.tg.id === 'wreck:' + wr.id && ap.i >= 0 && ap.d < 60)
+      return `Closest approach ${Game.fmtDist(ap.d)} in ${Math.max(0, ap.t - g.t).toFixed(0)} s. Coast there (warp is fine), then brake at the TGT marker.`;
+    if (host === g.ref && o && o.E < 0) {
+      if ((wr.dir || 1) * o.h < 0) return `${wr.name} goes round ${host.name} the other way! Climb a little, then burn retrograde through zero to flip your orbit.`;
+      const rp = o.a * (1 - o.e), ra = o.a * (1 + o.e);
+      if (ra < wr.a - 10) return `Burn prograde at the yellow marker to raise your orbit to ${wr.name}'s; ${shrink}`;
+      if (rp > wr.a + 10) return `Burn retrograde at the pink marker to lower your orbit to ${wr.name}'s; ${shrink}`;
+      if (Math.abs(o.a - wr.a) > 0.15 * wr.a || o.e > 0.12) return `Your orbit crosses ${wr.name}'s. Small prograde or retrograde taps change when you meet it.`;
+      const [x, y] = wr.state(g.t), [hx, hy] = World.bodyState(g.w, host, g.t);
+      const da = Math.atan2(y - hy, x - hx) - Math.atan2(g.sh.y - hy, g.sh.x - hx), ahead = (wr.dir || 1) * Math.atan2(Math.sin(da), Math.cos(da));
+      const deg = Math.abs(ahead * 180 / Math.PI).toFixed(0);
+      return ahead > 0 ? `${wr.name} is ${deg}° ahead. Lower orbits are faster: a short retrograde burn lets you catch up.`
+                       : `${wr.name} is ${deg}° behind. Higher orbits are slower: a short prograde burn lets it catch up.`;
+    }
+    if (host !== g.ref && host.par) return `${wr.name} circles ${host.name}. Get to ${host.name} first (Tab to target it), then come back to this target.`;
+    return `Prograde (yellow) climbs, retrograde (pink) drops; ${shrink}`;
   }
 
   function hudRows(g) {
     const m = g.mod.wrecks;
     if (!m || !m.job) return null;
     const wr = byId(g, m.job.id);
-    return [{ label: m.job.how === 'foot' ? 'RUMMAGING' : 'SALVAGING', val: `${Math.floor(100 * m.job.t / m.job.need)}% · ${wr ? wr.name : ''}`, col: '#c25f1c' }];
+    return [{ label: m.job.how === 'foot' ? 'RUMMAGING' : m.job.how === 'drill' ? 'DRILLING' : 'SALVAGING', val: `${Math.floor(100 * m.job.t / m.job.need)}%`, col: '#c25f1c' }];
   }
 
 
@@ -694,6 +762,7 @@ const Wrecks = (() => {
     const m = g.mod.wrecks;
     if (!m) return;
     const view = kit.viewRect(30), zoom = kit.cam.zoom;
+    for (const p of g.pickups) if (p.tether && p.x > view[0] && p.x < view[2] && p.y > view[1] && p.y < view[3]) { tetherLine(g, kit, p); crate(g, kit, p); }
     for (const wr of list(g)) {
       const [x, y] = wr.state(g.t), ext = wr.r + 8;
       if (x + ext < view[0] || x - ext > view[2] || y + ext < view[1] || y - ext > view[3]) continue;
@@ -769,6 +838,36 @@ const Wrecks = (() => {
     }
   }
   const LUMP = [1, 1.08, 0.92, 1.05, 0.88, 1.1, 0.95, 1.02, 0.9];
+
+  // ---------------- cargo-net tether from the hull to a hanging crate (drawn before the hull, so it tucks under) ----------------
+
+  function tetherLine(g, kit, p) {
+    const wr = byId(g, p.wreck);
+    if (!wr || wr.r * kit.cam.zoom < ICON_PX) return;
+    const c = kit.ctx, px = kit.px(), [hx, hy] = hullPoint(wr, g.t, p.x, p.y), [cx, cy] = wr.state(g.t);
+    const dx = p.x - hx, dy = p.y - hy, d = Math.hypot(dx, dy);
+    if (d < 0.3) return;
+    const pr = Math.max(0.35, 6 * px), end = Math.max(0, d - pr) / d;
+    const sag = 0.18 * d * Math.sin(0.8 * g.t + p.tether.ph), mx = (hx + p.x) / 2 - dy / d * sag, my = (hy + p.y) / 2 + dx / d * sag;
+    const path = () => { c.beginPath(); c.moveTo(hx * 0.4 + cx * 0.6, hy * 0.4 + cy * 0.6); c.quadraticCurveTo(mx, my, hx + dx * end, hy + dy * end); };
+    c.lineCap = 'round';
+    path(); c.strokeStyle = INK; c.lineWidth = 3.4 * px; c.stroke();
+    path(); c.strokeStyle = '#c9c4e8'; c.lineWidth = 1.4 * px; c.stroke();
+  }
+
+  // a tethered loot crate: bigger than a loose ore chunk and strapped, so it reads as 'yours, come back for it'
+  function crate(g, kit, p) {
+    const wr = byId(g, p.wreck);
+    if (!wr || wr.r * kit.cam.zoom < ICON_PX) return;
+    const c = kit.ctx, px = kit.px(), s = Math.max(0.35, 6 * px), col = (ITEMS[p.item] || {}).col || '#c9c4e8';
+    c.save(); c.translate(p.x, p.y); c.rotate(0.25 * Math.sin(0.8 * g.t + p.tether.ph) + p.tether.ph);
+    if (kit.roundRect) kit.roundRect(-s, -s, 2 * s, 2 * s, 0.3 * s); else { c.beginPath(); c.rect(-s, -s, 2 * s, 2 * s); }
+    c.fillStyle = col; c.fill(); c.strokeStyle = INK; c.lineWidth = 2 * px; c.stroke();
+    c.beginPath(); c.moveTo(-s, 0); c.lineTo(s, 0); c.moveTo(0, -s); c.lineTo(0, s);
+    c.strokeStyle = 'rgba(31,26,51,0.55)'; c.lineWidth = 1.2 * px; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,0.6)'; c.fillRect(-0.75 * s, -0.75 * s, 0.4 * s, 0.4 * s);
+    c.restore();
+  }
 
   // ---------------- salvage beam: a cutting line from the ship to the hull ----------------
 
@@ -1208,19 +1307,56 @@ const Wrecks = (() => {
   function drawScreen(g, kit) {
     const m = g.mod.wrecks;
     if (!m) return;
-    const ctx = kit.ctx, zoom = kit.cam.zoom, tags = [];
+    const ctx = kit.ctx, zoom = kit.cam.zoom, tags = [], items = [], badges = [];
+    for (const b of g.w.bodies) {                     // the core's body names sit just above each rock: keep our tags off them
+      const [bx, by] = World.bodyState(g.w, b, g.t), [x, y] = kit.toScreen(bx, by), Rs = b.R * zoom;
+      if (Rs > 4 && Rs < 220) tags.push([x, Math.max(28, y - Rs - 14)]);
+    }
     for (const wr of list(g)) {
       const [x, y] = wr.state(g.t), [sx, sy] = kit.toScreen(x, y), rs = wr.r * zoom;
       if (!kit.onScreen(sx, sy, rs + 60)) continue;
-      const seen = !!m.seen[wr.id], salv = !!m.salvaged[wr.id], fade = Math.max(0, Math.min(1, (rs - 0.7 * ICON_PX) / (0.6 * ICON_PX)));
-      if (fade < 1) { ctx.save(); ctx.globalAlpha = 1 - fade; icon(g, kit, sx, sy, seen, salv); ctx.restore(); }
-      if (rs > 240 || g.navId === 'wreck:' + wr.id) continue;
-      const ty = fade < 1 ? sy + 24 : sy - rs * 1.05 - 12;
-      if (tags.some(([tx, tyy]) => Math.abs(tx - sx) < 110 && Math.abs(tyy - ty) < 16)) continue;
+      items.push({ wr, sx, sy, rs, seen: !!m.seen[wr.id], salv: !!m.salvaged[wr.id], nav: g.navId === 'wreck:' + wr.id,
+                   fade: Math.max(0, Math.min(1, (rs - 0.7 * ICON_PX) / (0.6 * ICON_PX))) });
+    }
+    items.sort((a, b) => a.salv - b.salv || a.wr.idx - b.wr.idx);     // stable, so clicking a stacked badge cycles in a fixed order
+    for (const o of items) {                          // zoomed far out, badges on one moon stack into one with a '+n'
+      if (o.fade >= 1) continue;
+      const hb = o.wr.hostBody, Rs = hb.R * zoom;
+      if (o.tiny = Rs < 20) {                         // a dot-sized moon: pin the badge beside it, clear of the moon's name above
+        const [hx, hy] = kit.toScreen(...World.bodyState(g.w, hb, g.t)); o.bx = hx + Math.max(Rs, 3) + 13; o.by = hy - 5;
+      } else { o.bx = o.sx; o.by = o.sy; }
+      const near = o.tiny ? 40 : 22, hit = badges.find((b) => Math.hypot(b.bx - o.bx, b.by - o.by) < near);
+      if (hit) { hit.more++; hit.ids.push(o.wr.id); o.hidden = true; } else { o.more = 0; o.ids = [o.wr.id]; badges.push(o); }
+    }
+    drawn = { g, badges: badges.filter((o) => o.fade < 0.7) };     // for clicks: a badge pinned beside a moon is not where the wreck is
+    for (const o of badges.slice().reverse()) {
+      ctx.save(); ctx.globalAlpha = 1 - o.fade; icon(g, kit, o.bx, o.by, o.seen, o.salv);
+      if (o.more) { ctx.font = `700 11px ${FONT}`; ctx.textAlign = 'left'; kit.outlinedText(`+${o.more}`, o.bx + 12, o.by + 4, PAPER, 3); }
+      ctx.restore();
+    }
+    for (const o of items) {
+      const { wr, sx, sy, rs, fade } = o;
+      if (o.hidden || o.nav || rs > 240) continue;
+      if (fade < 1 && o.tiny) continue;                // far out the moon's own label wins; the badge alone says 'something here'
+      const free = (ty) => !tags.some(([tx, tyy]) => Math.abs(tx - sx) < 110 && Math.abs(tyy - ty) < 16);
+      const ty = [fade < 1 ? sy + 24 : sy - rs * 1.05 - 12, fade < 1 ? sy - 22 : sy + rs * 1.05 + 20].find(free);
+      if (ty == null) continue;
       tags.push([sx, ty]);
-      kit.tag(sx, ty, seen ? wr.name : 'Unknown signal', !seen ? SIGNAL : salv ? DIM : GOLD);
+      kit.tag(sx, ty, o.seen ? wr.name : 'Unknown signal', !o.seen ? SIGNAL : o.salv ? DIM : GOLD);
     }
     if (m.job) ring(g, kit, m.job);
+  }
+
+  // click a badge to target its wreck; a stacked badge cycles through its wrecks, then lets go
+  let drawn = { g: null, badges: [] };
+  function onMouse(g, ms) {
+    if (!ms.pressed || ms.button !== 0 || g.mode !== 'ship' || g.ui || (g.S && g.S.turret) || drawn.g !== g || !Number.isFinite(ms.sx)) return false;
+    const b = drawn.badges.find((o) => Math.hypot(o.bx - ms.sx, o.by - ms.sy) < 13);
+    if (!b) return false;
+    const i = b.ids.indexOf(g.navId && g.navId.startsWith('wreck:') ? g.navId.slice(6) : null);
+    g.navId = i === b.ids.length - 1 ? null : 'wreck:' + b.ids[i + 1];
+    Game.refresh(g);
+    return true;
   }
 
   // badge: '?' for an unknown signal, a broken-ship glyph with a blinking beacon, a tick once salvaged
@@ -1253,15 +1389,16 @@ const Wrecks = (() => {
     if (!wr) return;
     const ctx = kit.ctx, f = Math.max(0, Math.min(1, J.t / J.need));
     let x, y, R;
-    if (J.how === 'foot') { const A = g.astro, up = kit.screenAng(A.ang); [x, y] = kit.toScreen(A.x, A.y); x += Math.cos(up) * 56; y += Math.sin(up) * 56; R = 22; }
+    if (J.how === 'foot') { const A = g.astro, up = kit.screenAng(A.ang); [x, y] = kit.toScreen(A.x, A.y); const o = 0.9 * Math.max(kit.cam.zoom, 14) + 30; x += Math.cos(up) * o; y += Math.sin(up) * o; R = 22; }   // clear of the helmet at any zoom
     else { [x, y] = kit.toScreen(...wr.state(g.t)); R = Math.max(30, Math.min(110, wr.r * kit.cam.zoom + 14)); }
     ctx.lineCap = 'round';
     ctx.beginPath(); ctx.arc(x, y, R, 0, 2 * Math.PI); ctx.strokeStyle = INK; ctx.lineWidth = 11; ctx.stroke();
     ctx.strokeStyle = '#4a3a78'; ctx.lineWidth = 6; ctx.stroke();
     ctx.beginPath(); ctx.arc(x, y, R, -Math.PI / 2, -Math.PI / 2 + f * 2 * Math.PI); ctx.strokeStyle = GOLD; ctx.lineWidth = 6; ctx.stroke();
+    const word = J.how === 'foot' ? 'RUMMAGING' : J.how === 'drill' ? 'DRILLING' : 'SALVAGING', pct = `${Math.floor(f * 100)}%`;
     ctx.font = `700 14px ${FONT}`; ctx.textAlign = 'center';
-    kit.outlinedText(`${Math.floor(f * 100)}%`, x, y + 5, PAPER, 4);
-    kit.tag(x, y + R + 20, J.how === 'foot' ? 'RUMMAGING' : J.how === 'drill' ? 'DRILLING' : 'SALVAGING', GOLD);
+    if (J.how === 'foot') { kit.outlinedText(pct, x, y + 5, PAPER, 4); kit.tag(x, y - R - 12, word, GOLD); }
+    else kit.tag(x, y - R - 12, `${word} ${pct}`, GOLD);                // centre left clear: small wrecks show through
     ctx.textAlign = 'left';
   }
 
@@ -1290,7 +1427,7 @@ const Wrecks = (() => {
     const quote = `"${wr.log}"`, lines = wrap(ctx, quote, tw);
     ctx.font = `600 12px ${FONT}`;
     const loot = wrap(ctx, C.loot || '', W0 - 30);
-    const hText = 16 + lines.length * 16, h = Math.max(78, hText + 14) + loot.length * 15 + 10;
+    const lootOff = Math.max(60, 15 + (lines.length - 1) * 16 + 21), h = 32 + lootOff + (loot.length - 1) * 15 + 12;   // below y0
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, age * 5, (life - age) * 1.5));
     const y0 = kit.stackRight(W0, h, `CREW LOG · ${wr.name.toUpperCase()}`), x0 = kit.W - W0 - 12;
@@ -1310,8 +1447,7 @@ const Wrecks = (() => {
     if (talking && (g.real * 3) % 1 < 0.5) ctx.fillRect(cx, cy, 6, 13);
     if (!talking) {
       ctx.font = `600 12px ${FONT}`; ctx.fillStyle = '#2f9e5b';
-      const ly = y0 - 32 + Math.max(78, hText + 14) + 8;
-      loot.forEach((ln, i) => ctx.fillText(ln, x0 + 14, ly + i * 15));
+      loot.forEach((ln, i) => ctx.fillText(ln, x0 + 14, y0 + lootOff + i * 15));
     }
     ctx.restore();
   }
@@ -1352,7 +1488,7 @@ const Wrecks = (() => {
 
   const mod = Game.register({
     id: 'wrecks', init, load, save, ready, respawn, died, frame, step, after, warpLimit,
-    interactions, navTargets, hint, hudRows, drawWorld, drawScreen, drawHUD,
+    interactions, navTargets, onMouse, hint, hudRows, drawWorld, drawScreen, drawHUD,
   });
   on = Game.mods.includes(mod);
   if (on) Game.addGoals([

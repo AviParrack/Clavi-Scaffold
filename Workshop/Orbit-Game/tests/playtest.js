@@ -187,7 +187,27 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   check('N fires an Orion pulse (dv = J/m)', dv > 15, `dv ${dv.toFixed(1)} m/s, mass ${v0[2].toFixed(2)} t`);
   await page.waitForTimeout(250); await shot('16_orion');
 
-  // -------- 7. salvage a wreck --------
+  // -------- 7. salvage a wreck (ESA4, low Ceres orbit) --------
+  await go('?fresh=1&spawn=orbit');
+  await ev(() => {
+    const g = ORBIT.game, wr = Wrecks.byId(g, 'esa4') || Wrecks.list(g)[0], [x, y, vx, vy] = wr.state(g.t), r = Math.hypot(x, y);
+    Object.assign(g.sh, { x: x + x / r * (wr.r + 8), y: y + y / r * (wr.r + 8), vx, vy, omega: 0 });
+    g.navId = null;
+  });
+  await page.waitForTimeout(300);
+  s = await st();
+  check('beside a wreck and slow: F prompt says salvage', s.prompts.some((p) => /salvage/i.test(p)), JSON.stringify(s.prompts));
+  const c0 = s.cargo;
+  await page.keyboard.press('KeyF');
+  for (let i = 0; i < 12; i++) {                                  // hold station on the wreck while the cutter works
+    await page.waitForTimeout(400);
+    await ev(() => { const g = ORBIT.game, wr = Wrecks.byId(g, 'esa4') || Wrecks.list(g)[0], [x, y, vx, vy] = wr.state(g.t);
+      g.sh.vx += (vx - g.sh.vx) * 0.5; g.sh.vy += (vy - g.sh.vy) * 0.5; });
+    if (i === 4) await shot('17_salvage');
+  }
+  s = await st();
+  check('salvage fills the hold and pays the wreck job', s.cargo > c0 && s.done.includes('wreck'), `hold ${c0} -> ${s.cargo} kg`);
+  await shot('18_salvaged');
   // -------- 8. pirates --------
 
   s = await st();

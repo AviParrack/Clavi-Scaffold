@@ -788,6 +788,7 @@ const Game = (() => {
     const p = { text, col, x: x ?? at.x, y: y ?? at.y, t0: g.real, size };
     const nb = nearestBody(g, p.x, p.y);
     if (nb && nb.alt < 60 && nb.b.par) p.ride = { b: nb.b, lx: p.x - nb.bx, ly: p.y - nb.by };
+    p.lift = g.popups.filter((q) => g.real - q.t0 < 0.7 && Math.hypot(q.x - p.x, q.y - p.y) < 2).length;   // stack, don't overlap
     g.popups.push(p);
     if (g.popups.length > 30) g.popups.shift();
     return p;

@@ -4,12 +4,14 @@
 //  astronaut), drilling without EVA, loot into the hold / pickups, no
 //  double dipping, blueprints through Econ (and the cash fallback without
 //  it), save/load, warp caps, death and tow, bumps, art without NaN.
-//  run:  node tests/test_wrecks.js        (re-runs itself with --solo for the wrecks-only checks)
+//  run:  node tests/test_wrecks.js   (re-runs itself with --solo: wrecks alone, --eva: the real astronaut,
+//        --all: every module at once)
 // ======================================================================
 
 const H = require('./harness');
-const SOLO = process.argv[2] === '--solo';
-H.load({ only: SOLO ? 'wrecks' : 'economy,shop,wrecks' });
+const MODE = process.argv[2] || '';                    // '' | --solo | --eva | --all  (the main run spawns the others)
+const ONLY = { '--solo': 'wrecks', '--eva': 'economy,shop,stations,eva,wrecks', '--all': 'economy,shop,stations,eva,mobs,wrecks,combat' };
+H.load({ only: ONLY[MODE] || 'economy,shop,wrecks' });
 
 let nPass = 0, nFail = 0;
 function check(name, ok, info = '') {
@@ -141,23 +143,64 @@ safely('rails', () => {
 });
 
 
-// ---------------- 2. a free pebble dropped on each rail stays on it (rails agree with World gravity) ----------------
-safely('pebbles', () => {
-  const g = fresh('orbit'), out = [];
-  let worst = 0;
-  for (const wr of Wrecks.list(g).filter((w) => w.orbital)) {
-    let [x, y, vx, vy] = wr.state(0), t = 0;
-    const dt = 1 / 60, N = Math.ceil(wr.period / dt);
-    let [ax, ay] = World.gravity(g.w, x, y, t);
-    for (let i = 0; i < N; i++) {
-      vx += ax * dt / 2; vy += ay * dt / 2; x += vx * dt; y += vy * dt; t += dt;
-      [ax, ay] = World.gravity(g.w, x, y, t);
-      vx += ax * dt / 2; vy += ay * dt / 2;
-    }
-    const s = wr.state(t), d = Math.hypot(x - s[0], y - s[1]);
-    worst = Math.max(worst, d / wr.a); out.push(`${wr.id} ${d.toFixed(1)} m`);
+// ---------------- 2. honest rails: what a free pebble really does on them (World gravity, tides and all) ----------------
+//  Rails are exact Kepler circles that ignore tides, like the moons' own rails.  So: (a) over a salvage a co-moving
+//  pebble stays put; (b) in the quiet spots a pebble stays near the rail for many laps; (c) the facts we tell
+//  the player about the two special spots (retrograde at Big Potato, Dorito's L4) are true in this world.
+
+// leapfrog a pebble in World gravity; returns [x, y, vx, vy, t] or null if it hit the host / flew off; onStep(x, y, t)
+function pebble(w, host, s, t0, T, onStep, dt = 1 / 20) {
+  let [x, y, vx, vy] = s, t = t0, [ax, ay] = World.gravity(w, x, y, t);
+  while (t - t0 < T) {
+    vx += ax * dt / 2; vy += ay * dt / 2; x += vx * dt; y += vy * dt; t += dt;
+    [ax, ay] = World.gravity(w, x, y, t); vx += ax * dt / 2; vy += ay * dt / 2;
+    const h = World.bodyState(w, host, t), r = Math.hypot(x - h[0], y - h[1]);
+    if (r < host.R || r > 2500) return null;
+    if (onStep && onStep(x, y, t, r) === false) return null;
   }
-  check('a free pebble stays on every rail for a full lap (< 3% of a)', worst < 0.03, out.join(', '));
+  return [x, y, vx, vy, t];
+}
+safely('honest rails', () => {
+  const g = fresh('orbit'), orb = Wrecks.list(g).filter((w) => w.orbital), T0 = [0, 450, 1700, 3900];
+  let dMax = 0, vMax = 0;
+  for (const wr of orb) for (const t0 of T0) {
+    const e = pebble(g.w, wr.hostBody, wr.state(t0), t0, 10, null, 1 / 120), s = wr.state(e[4]);
+    dMax = Math.max(dMax, Math.hypot(e[0] - s[0], e[1] - s[1])); vMax = Math.max(vMax, Math.hypot(e[2] - s[2], e[3] - s[3]));
+  }
+  check('co-moving pebble stays with every wreck for 10 s (salvage takes 4)', dMax < 2 && vMax < 0.5, `max drift ${dMax.toFixed(2)} m, ${vMax.toFixed(2)} m/s`);
+
+  const notes = [];
+  let ok = true;
+  for (const wr of orb.filter((w) => !w.keeper)) {
+    let lo = Infinity, hi = 0;
+    for (const t0 of T0) {
+      const e = pebble(g.w, wr.hostBody, wr.state(t0), t0, 12 * wr.period, (x, y, t, r) => { lo = Math.min(lo, r); hi = Math.max(hi, r); });
+      if (!e) ok = false;
+    }
+    if (!(lo > 0.6 * wr.a && hi < 1.5 * wr.a)) ok = false;
+    notes.push(`${wr.id} ${lo.toFixed(0)}-${hi.toFixed(0)}`);
+  }
+  check('quiet rails: a free pebble stays near the rail for 12 laps', ok, `r range (m): ${notes.join(', ')}`);
+
+  const np = Wrecks.byId(g, 'notpirates'), P = np.hostBody, broke = [];
+  for (const t0 of T0) {
+    const s = np.state(t0), h = World.bodyState(g.w, P, t0), pro = [s[0], s[1], 2 * h[2] - s[2], 2 * h[3] - s[3]];
+    const e = pebble(g.w, P, pro, t0, 12 * np.period, (x, y, t, r) => r > 0.5 * np.a && r < 2 * np.a);
+    broke.push(!e);
+  }
+  check(`Big Potato at ${np.a} m: forward orbits break up (backward ones above survive)`, broke.every(Boolean), `prograde broken: ${broke.filter(Boolean).length}/${broke.length}`);
+
+  const tu = Wrecks.byId(g, 'tuesday'), lead = (w, x, y, t) => {               // degrees ahead of Dorito
+    const d = World.bodyState(w, w.byId.dorito, t); return Math.atan2(d[0] * y - d[1] * x, d[0] * x + d[1] * y) * 180 / Math.PI;
+  };
+  const w2 = World.create({ ...CONFIG, bodies: CONFIG.bodies.filter((b) => b.id === 'ceres' || b.id === 'dorito'), rubble: [] }, 7);
+  let lib = [99, -99];
+  pebble(w2, w2.byId.ceres, tu.state(0), 0, 20 * tu.period, (x, y, t) => { const a = lead(w2, x, y, t); lib = [Math.min(lib[0], a), Math.max(lib[1], a)]; });
+  check("Tuesday: without Kiwi, Dorito's L4 holds a pebble for 20 laps", lib[0] > 35 && lib[1] < 85, `librates ${lib[0].toFixed(0)}°..${lib[1].toFixed(0)}° ahead of Dorito`);
+  let lostAt = null;
+  pebble(g.w, g.w.byId.ceres, tu.state(0), 0, 3 * tu.period, (x, y, t) => { if (lostAt == null && Math.abs(lead(g.w, x, y, t) - 60) > 25) lostAt = t; });
+  check('...with Kiwi it is kicked loose within 3 laps (so the autopilot puffs it back)', lostAt != null && tu.keeper,
+        lostAt != null ? `left L4 after ${lostAt.toFixed(0)} s` : 'stayed');
 });
 
 
@@ -193,9 +236,9 @@ safely('nav names', () => {
   park(g, 'tuesday', Wrecks.SEE_R - 30); H.run(g, 1, {});
   check('flying within 400 m reveals its name', Wrecks.isSeen(g, 'tuesday') && tu().name === 'The Plucky Tuesday' &&
         g.events.some((e) => /wreck spotted: The Plucky Tuesday/.test(e.msg)), tu().name);
-  g.navId = 'wreck:tuesday'; H.run(g, 1, {}); park(g, 'tuesday', 300); H.run(g, 1, {});
+  g.navId = 'wreck:tuesday'; H.run(g, 1, {}); park(g, 'tuesday', 200); H.run(g, 1, {});
   const h = mod.hint(g);
-  check('freshly targeted wreck: nearby hint, then its physics fact', h && /Wreck nearby|Relative speed|Speed matched/.test(h.text), h && h.text);
+  check('targeted wreck 200 m off, speed matched: close-in coaching', h && /Speed matched\. Close in: 200 m/.test(h.text), h && h.text);
   park(g, 'tuesday', 600); g.navId = null; H.run(g, 1, {}); g.navId = 'wreck:tuesday'; H.run(g, 1, {});
   const h2 = mod.hint(g);
   check('...far away, the fact explains L4 honestly (Routh, Kiwi)', h2 && /L4/.test(h2.text) && /Routh/.test(h2.text) && /Kiwi/.test(h2.text), h2 && h2.text.slice(0, 90));
@@ -211,7 +254,7 @@ safely('ship salvage', () => {
   park(g, 'esa4', 20); H.run(g, 1, {});
   check('20 m out: no salvage prompt', !prompt(g, /Salvage/));
   check('...and start() refuses (drifted away)', !Wrecks.start(g, 'esa4', 'ship') && !m.job && toasted(g, /DRIFTED AWAY/));
-  check('within 80 m of an unsalvaged derelict warp caps at 4x', g.warpMax === 4 && /near ESA/.test(g.warpWhy), `${g.warpMax}x ${g.warpWhy}`);
+  check('within 40 m of an unsalvaged derelict warp caps at 4x', g.warpMax === 4 && /near ESA/.test(g.warpWhy), `${g.warpMax}x ${g.warpWhy}`);
 
   park(g, 'esa4', 8, 3); H.run(g, 1, {});
   const slow = prompt(g, /Slow under 2 m\/s/);
@@ -299,7 +342,66 @@ safely('overflow', () => {
   H.run(g, 600, {});
   const far = loot(g, 'longexp').map((p) => Math.hypot(p.x - wr.state(g.t)[0], p.y - wr.state(g.t)[1]));
   check('...and 10 s later it is still loitering by the wreck', far.length && Math.max(...far) < 30 && fin(far), `max ${Math.max(...far).toFixed(1)} m`);
+  check('overflow hangs on tethers (kinematic: rides the rail, not the tides)', ps.every((p) => p.kinematic && p.tether));
+
+  Game.circularAround(g, g.w.byId.ceres, 5200, 1.0); Game.setWarp(g, 64);
+  H.run(g, 600, {});
+  const s2 = wr.state(g.t), off = loot(g, 'longexp').map((p) => Math.hypot(p.x - s2[0], p.y - s2[1]) - wr.r);
+  check('10 min at 64x, ship far away: every crate still hangs by the wreck', g.warp === 64 && off.length === ps.length && off.every((d) => d > 0.5 && d < 3) && fin(off),
+        `${g.warp}x, ${off.length} crates ${Math.min(...off).toFixed(1)}-${Math.max(...off).toFixed(1)} m off the hull circle`);
+  g.cargo = {}; g.sh.cargoKg = 0;
+  const p0 = loot(g, 'longexp')[0], it = p0.item, have = g.cargo[it] || 0, nL = loot(g, 'longexp').length, [px, py, pvx, pvy] = [p0.x, p0.y, ...s2.slice(2)];
+  const ux = (px - s2[0]) / Math.hypot(px - s2[0], py - s2[1]), uy = (py - s2[1]) / Math.hypot(px - s2[0], py - s2[1]);
+  Object.assign(g.sh, { x: px + ux * 3, y: py + uy * 3, vx: pvx, vy: pvy, omega: 0 }); Game.setWarp(g, 1);
+  H.run(g, 2, {});
+  check('fly up to a hanging crate and the ship scoops it', (g.cargo[it] || 0) > have && loot(g, 'longexp').length < nL, `${it}: ${have} -> ${g.cargo[it] || 0}`);
 });
+
+
+// ---------------- 7b. comic words stick to a moving wreck; the Tuesday's autopilot puffs ----------------
+safely('popups and puffs', () => {
+  const g = fresh('orbit'), wr = park(g, 'esa4', 6);
+  Wrecks.complete(g, 'esa4', 'ship');
+  const pop = g.popups.find((p) => /^\+/.test(p.text));
+  const rel = () => { const s = wr.state(g.t); return [pop.x - s[0], pop.y - s[1]]; }, r0 = rel(), x0 = pop.x, y0 = pop.y;
+  H.run(g, 40, {});
+  const r1 = rel();
+  check('the "+loot" line rides along with the wreck (not left behind in space)', Math.hypot(r1[0] - r0[0], r1[1] - r0[1]) < 1e-6 && Math.hypot(pop.x - x0, pop.y - y0) > 5,
+        `wreck moved ${Math.hypot(pop.x - x0, pop.y - y0).toFixed(1)} m, popup offset err ${Math.hypot(r1[0] - r0[0], r1[1] - r0[1]).toExponential(1)}`);
+
+  const g2 = fresh('orbit'), puffs = [], burst0 = Game.burst;
+  park(g2, 'tuesday', 30);
+  Game.burst = (gg, kind, x, y, n, o) => { if (kind === 'puff') { const w = Wrecks.byId(gg, 'tuesday').state(gg.t); puffs.push(Math.hypot(x - w[0], y - w[1])); } return burst0(gg, kind, x, y, n, o); };
+  try { H.run(g2, 900, {}); } finally { Game.burst = burst0; }
+  check("the Tuesday's autopilot puffs its thrusters now and then, from its own hull", puffs.length >= 3 && puffs.every((d) => d < 30),
+        `${puffs.length} puffs in 15 s, ${Math.max(...puffs).toFixed(1)} m from the centre at most`);
+});
+
+
+// ---------------- 7c. coaching: how to reach a targeted wreck, in plain words, short enough for the hint line ----------------
+safely('coaching', () => {
+  const later = (g, id) => { g.navId = 'wreck:' + id; H.run(g, 1, {}); st(g).tgt.t0 -= 60; H.run(g, 1, {}); return mod.hint(g); };
+  const g1 = fresh('orbit'), h1 = later(g1, 'tuesday');
+  check('low Ceres orbit -> Tuesday: "burn prograde to raise your orbit"', h1 && /Burn prograde/.test(h1.text) && h1.pri === 39, h1 && h1.text);
+  const g2 = fresh('potato'), h2 = later(g2, 'notpirates');
+  check('prograde round Big Potato -> backwards wreck: "the other way"', h2 && /other way/.test(h2.text), h2 && h2.text);
+  const g3 = fresh('orbit'), h3 = later(g3, 'lettuce');
+  check('Ceres orbit -> wreck round Kiwi: "get to Kiwi first"', h3 && /Get to Kiwi first/.test(h3.text), h3 && h3.text);
+  const g4 = fresh('orbit'), h4 = later(g4, 'couch');
+  check('crashed target: land near it', h4 && /lies on Big Potato/.test(h4.text), h4 && h4.text);
+  const g5 = fresh('orbit'); Game.circularAround(g5, g5.w.byId.ceres, 380, Wrecks.byId(g5, 'esa4').ph + 1.4); H.run(g5, 1, {});
+  const h5 = later(g5, 'esa4');
+  check('same orbit as ESA #4, ahead of it: "higher orbits are slower"', h5 && /behind\. Higher orbits are slower/.test(h5.text), h5 && h5.text);
+  const texts = [];
+  for (const id of Wrecks.list(g1).map((w) => w.id)) {
+    const w = Wrecks.byId(g1, id);
+    texts.push(w.fact(w, g1.w), `Unknown signal (on Big Potato). Fly within ${Wrecks.SEE_R} m to identify it.`);
+  }
+  for (const h of [h1, h2, h3, h4, h5]) if (h) texts.push(h.text);
+  const long = texts.filter((t) => t.length > 170);
+  check('every fact / coaching line fits the two-line hint (<= 170 chars)', !long.length, long.length ? long[0] : `longest ${Math.max(...texts.map((t) => t.length))}`);
+});
+
 
 
 // ---------------- 8. rummage on foot needs the astronaut ----------------
@@ -317,8 +419,9 @@ safely('rummage', () => {
   check('F starts a 3 s foot job', m.job && m.job.how === 'foot' && m.job.need === 3);
   runStanding(g, wr, 7, 1);
   check('walking off (> 5 m) stops it', !m.job && toasted(g, /WALKED AWAY/) && !Wrecks.isSalvaged(g, 'lithobraker'));
-  runStanding(g, wr, 1.5, 1, ['KeyF']); g.astro.on = false; g.mode = 'ship'; H.run(g, 1, {});
-  check('climbing back aboard stops it', !m.job && toasted(g, /BACK ABOARD/));
+  runStanding(g, wr, 1.5, 1); runStanding(g, wr, 1.5, 1, ['KeyF']);
+  const was = !!m.job; g.astro.on = false; g.mode = 'ship'; H.run(g, 1, {});
+  check('climbing back aboard stops it', was && !m.job && toasted(g, /BACK ABOARD/));
 
   const expect = Wrecks.roll(g, wr), cargo0 = { ...g.cargo };
   runStanding(g, wr, 1.5, 2); runStanding(g, wr, 1.5, 1, ['KeyF']);
@@ -330,9 +433,11 @@ safely('rummage', () => {
   runStanding(g, wr, 1.5, 300);
   const both = { ...g.pack }; for (const [k, q] of Object.entries(lootCount(g, 'lithobraker'))) both[k] = (both[k] || 0) + q;
   check('5 s later: backpack + what is left on the ground = the roll', sameBag(both, expect.items), `pack ${JSON.stringify(g.pack)} (${Game.kgOf(g.pack)} kg)`);
-  const [bx, by] = World.bodyState(g.w, wr.hostBody, g.t);
-  check('leftovers sit on the surface, not inside it or in orbit', loot(g, 'lithobraker').every((p) => {
-    const a = Math.hypot(p.x - bx, p.y - by) - World.surfaceR(wr.hostBody, Math.atan2(p.y - by, p.x - bx)); return a > -0.8 && a < 3; }));
+  g.astro.on = false; g.mode = 'ship'; H.run(g, 240, {});                    // the (hovering) stand-in leaves: no more magnet
+  const [bx, by] = World.bodyState(g.w, wr.hostBody, g.t), alts = loot(g, 'lithobraker').map((p) =>
+    Math.hypot(p.x - bx, p.y - by) - World.surfaceR(wr.hostBody, Math.atan2(p.y - by, p.x - bx)));
+  check('leftovers settle on the surface, not inside it or in orbit', alts.length && alts.every((a) => a > -0.8 && a < 1.5) &&
+        loot(g, 'lithobraker').every((p) => p.rest), `alts ${alts.map((a) => a.toFixed(2)).join(' ')}`);
   check('job + codec + "Rummaging" hint cleared/shown', !m.job && m.codec && m.codec.id === 'lithobraker' && /grab it/.test(m.codec.loot));
 });
 
@@ -490,6 +595,20 @@ safely('art', () => {
 });
 
 
+// ---------------- 15b. far out: badges by a dot-sized moon stack, and clicking the stack cycles its wrecks ----------------
+safely('badge stack', () => {
+  const g = fresh('orbit'), kiwi = g.w.byId.kiwi, z = 0.15, [kx, ky] = World.bodyState(g.w, kiwi, g.t), K = fakeKit(z, kx, ky);
+  g.navId = null; mod.drawScreen(g, K.kit);
+  const [sx, sy] = K.kit.toScreen(kx, ky), bx = sx + Math.max(kiwi.R * z, 3) + 13, by = sy - 5, seen = [];
+  const click = () => { mod.drawScreen(g, K.kit); return mod.onMouse(g, { pressed: true, button: 0, sx: bx, sy: by, x: kx, y: ky, px: 1 / z }); };
+  for (let i = 0; i < 6; i++) { if (!click()) break; seen.push(g.navId); if (!g.navId) break; }
+  const ids = seen.filter(Boolean).map((n) => n.slice(6));
+  check('far out, the badge beside Kiwi stacks its wrecks; clicks cycle them, then let go', ids.includes('lunchbox') && ids.includes('lettuce') && new Set(ids).size === ids.length && seen[seen.length - 1] === null,
+        seen.join(' -> '));
+  check('a click elsewhere is left to the core', mod.onMouse(g, { pressed: true, button: 0, sx: 5, sy: 5 }) === false);
+});
+
+
 // ---------------- 16. a long ordinary session does not trip anything ----------------
 safely('soak', () => {
   const g = fresh('orbit');
@@ -520,13 +639,97 @@ function solo() {
 }
 
 
-if (SOLO) solo();
+// ======================================================================
+//  --eva: the real astronaut (economy, shop, stations, eva, wrecks): step out, walk over, rummage, board
+// ======================================================================
+
+// walk like a person: hold the key, hop (W) when a 0.5 m terrain step stops you; until(g) ends it -> frames taken
+function walk(g, key, until, maxFrames = 1800) {
+  let last = [g.astro.x, g.astro.y], stuck = 0, i = 0;
+  for (; i < maxFrames && !until(g); i++) {
+    const hop = stuck > 0.4;
+    H.run(g, 1, hop ? { keys: [key, 'KeyW'], pressed: ['KeyW'] } : { keys: [key] });
+    stuck = hop ? 0 : Math.hypot(g.astro.x - last[0], g.astro.y - last[1]) < 0.01 ? stuck + 1 / 60 : 0;
+    last = [g.astro.x, g.astro.y];
+  }
+  return i;
+}
+
+function evaRun() {
+  safely('eva', () => {
+    check('[real EVA] economy, shop, stations, eva, wrecks loaded', ['economy', 'stations', 'eva', 'wrecks'].every((id) => Game.mods.some((x) => x.id === id)));
+    const g = Game.create(7, null, { fresh: true }), m = st(g);
+    g.navId = 'wreck:finders'; H.run(g, 2, {});
+    const h0 = Game.hint(g);
+    check('[real EVA] docked at the Hub, Tab to a wreck: its line beats the dock chatter', g.status === 'docked' && /Unknown signal \(on Glimmer\)/.test(h0), `${g.status}: ${h0}`);
+    g.navId = null;
+
+    const ceres = g.w.byId.ceres, wr = Wrecks.byId(g, 'lithobraker');
+    Game.release(g, 0); Game.landAt(g, ceres, wr.th + 32 / ceres.R); g.everFlew = true; H.run(g, 2, {});
+    const h1 = Game.hint(g);
+    check('[real EVA] landed 32 m off: "Press E to step out, walk over"', g.status === 'landed' && /Press E to step out/.test(h1), h1);
+    H.run(g, 1, { pressed: ['KeyE'] });
+    check('[real EVA] E steps out', g.mode === 'eva' && g.astro.on);
+    let i = walk(g, 'KeyD', () => !!prompt(g, /^Rummage through The Lithobraker$/) && Wrecks.hullDist(wr, g.t, g.astro.x, g.astro.y) < 2.5);
+    H.run(g, 20, {});
+    const d = Wrecks.hullDist(wr, g.t, g.astro.x, g.astro.y);
+    check('[real EVA] walk over (D): [F] Rummage appears within 3 m', !!prompt(g, /^Rummage through/) && d < 3 && i > 60, `${(i / 60).toFixed(1)} s walking, ${d.toFixed(2)} m from the hull`);
+    H.run(g, 1, { pressed: ['KeyF'] });
+    check('[real EVA] F starts rummaging', m.job && m.job.how === 'foot');
+    H.run(g, 190, {});
+    check('[real EVA] 3 s later: salvaged, job "wreck" done', Wrecks.isSalvaged(g, 'lithobraker') && g.done.wreck !== undefined && !m.job);
+    H.run(g, 240, {});
+    const roll = Wrecks.roll(g, wr).items, packKg = Game.kgOf(g.pack);
+    check('[real EVA] loot flew into the backpack via the magnet', Object.keys(roll).some((k) => g.pack[k] > 0) && packKg <= g.S.packCap,
+          `pack ${JSON.stringify(g.pack)} (${packKg} kg of ${g.S.packCap})`);
+    i = walk(g, 'KeyA', () => !!prompt(g, /^Board/));
+    const cargo0 = { ...g.cargo };
+    H.run(g, 1, { pressed: ['KeyE'] });
+    check('[real EVA] walk back (A), E boards: the pack goes into the hold', i > 60 && g.mode === 'ship' && Object.keys(roll).some((k) => (g.cargo[k] || 0) > (cargo0[k] || 0)),
+          `hold ${JSON.stringify(g.cargo)}, ${(i / 60).toFixed(1)} s back`);
+    check('[real EVA] no hook errors, everything finite', !g.err && fin([g.sh.x, g.sh.y, g.astro.x, g.astro.y]), g.err || '');
+  });
+}
+
+
+// ======================================================================
+//  --all: every module at once; visit every wreck, salvage it, warp about
+// ======================================================================
+
+function allRun() {
+  safely('all', () => {
+    check('[all modules] seven modules loaded', Game.mods.length === 7, Game.mods.map((x) => x.id).join(' '));
+    const g = Game.create(7, null, { fresh: true });
+    H.run(g, 30, {});
+    let bad = 0;
+    for (const wr of Wrecks.list(g)) {
+      if (wr.orbital) park(g, wr.id, 8);
+      else { Game.landAt(g, wr.hostBody, wr.th + (wr.hx + 6) / wr.R0); g.everFlew = true; EVA.stepOut(g); }
+      H.run(g, 60, {});
+      Wrecks.complete(g, wr.id);
+      H.run(g, 60, {});
+      if (g.err || !fin([g.sh.x, g.sh.y, g.astro.x, g.astro.y])) bad++;
+      if (g.mode === 'eva') { g.astro.on = false; g.mode = 'ship'; }
+    }
+    check('[all modules] every wreck salvaged once, no errors', Wrecks.list(g).every((w) => Wrecks.isSalvaged(g, w.id)) && !bad && !g.err, g.err || `${bad} bad`);
+    Game.circularAround(g, g.w.byId.ceres, 1300, 2.0); g.status = 'flying'; Game.setWarp(g, 64);
+    H.run(g, 400, {});
+    check('[all modules] then 64x for a while: no errors, finite', !g.err && fin([g.sh.x, g.sh.y]), g.err || `t ${g.t.toFixed(0)} s, warp ${g.warp}x`);
+  });
+}
+
+
+if (MODE === '--solo') solo();
+else if (MODE === '--eva') evaRun();
+else if (MODE === '--all') allRun();
 else {
   main();
-  const r = require('child_process').spawnSync(process.execPath, [__filename, '--solo'], { encoding: 'utf8' });
-  const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
-  for (const l of lines) { console.log(l); l.startsWith('PASS') ? nPass++ : nFail++; }
-  if (r.status !== 0 && !lines.some((l) => l.startsWith('FAIL'))) check('--solo run exits cleanly', false, (r.stderr || '').slice(0, 300));
+  for (const mode of ['--solo', '--eva', '--all']) {
+    const r = require('child_process').spawnSync(process.execPath, [__filename, mode], { encoding: 'utf8' });
+    const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
+    for (const l of lines) { console.log(l); l.startsWith('PASS') ? nPass++ : nFail++; }
+    if (r.status !== 0 && !lines.some((l) => l.startsWith('FAIL'))) check(`${mode} run exits cleanly`, false, (r.stderr || '').slice(0, 300));
+  }
 }
 console.log(`\n${nPass} passed, ${nFail} failed`);
 process.exit(nFail ? 1 : 0);

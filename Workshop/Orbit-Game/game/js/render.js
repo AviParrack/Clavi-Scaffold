@@ -545,8 +545,19 @@ const Render = (() => {
       const s = 1 + 0.25 * Math.max(0, 0.25 - age) / 0.25;
       ctx.translate(W / 2, H * 0.24); ctx.scale(s, s); ctx.rotate(-0.03);
       ctx.font = `700 ${t0.text.length > 26 ? 30 : 42}px ${FONT}`; ctx.lineWidth = 9; ctx.strokeStyle = INK; ctx.lineJoin = 'round';
-      ctx.strokeText(t0.text, 4, 4); ctx.strokeText(t0.text, 0, 0);
-      ctx.fillStyle = t0.col || PAPER2; ctx.fillText(t0.text, 0, 0);
+      let lines = [t0.text];                                      // long toasts break in two, clear of the side panels
+      const room = W - 2 * 300;
+      if (ctx.measureText(t0.text).width > room) {
+        let cut = t0.text.lastIndexOf(' ', Math.ceil(t0.text.length / 2) + 4); if (cut < 1) cut = Math.ceil(t0.text.length / 2);
+        lines = [t0.text.slice(0, cut), t0.text.slice(cut + 1)];
+      }
+      const wMax = Math.max(...lines.map((l) => ctx.measureText(l).width));
+      if (wMax > room) ctx.scale(room / wMax, room / wMax);
+      lines.forEach((l, i) => {
+        const yy = (i - (lines.length - 1) / 2) * 36;
+        ctx.strokeText(l, 4, yy + 4); ctx.strokeText(l, 0, yy);
+        ctx.fillStyle = t0.col || PAPER2; ctx.fillText(l, 0, yy);
+      });
       ctx.restore();
     }
     if (g.paused && !g.ui) {
@@ -570,7 +581,7 @@ const Render = (() => {
   function drawPopups(g) {
     for (const p of g.popups) {
       const age = g.real - p.t0, [x, y] = toScreen(p.x, p.y), sz = p.size || 26;
-      ctx.save(); ctx.translate(x + 30, y - 30 - age * 40); ctx.rotate(-0.12); ctx.globalAlpha = Math.max(0, Math.min(1, 1.4 - age));
+      ctx.save(); ctx.translate(x + 30, y - 30 - age * 40 - (p.lift || 0) * 26); ctx.rotate(-0.12); ctx.globalAlpha = Math.max(0, Math.min(1, 1.4 - age));
       ctx.font = `700 ${sz + 10 * Math.max(0, 0.15 - age) / 0.15}px ${FONT}`; ctx.textAlign = 'center';
       ctx.lineWidth = sz / 4 + 1; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.strokeText(p.text, 0, 0);
       ctx.fillStyle = p.col; ctx.fillText(p.text, 0, 0);

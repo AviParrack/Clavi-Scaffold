@@ -16,12 +16,14 @@ import * as hud from './ui/hud.js';
 import * as codec from './ui/codec.js';
 import * as menu from './ui/menu.js';
 import * as overlays from './ui/overlays.js';
+import * as tutorial from './ui/tutorial.js';
 import { createDebug } from './ui/debug.js';
 import { initAudio, setMuted, isMuted } from './ui/audio.js';
 import { BALANCE as B } from './config/balance.js';
 
 const params = new URLSearchParams(location.search);
 const DEBUG = params.get('debug') === '1';
+const HASH = location.hash.slice(1).split(',').filter(Boolean);   // flags: #dev, #dev,slow, #notut
 const PIXEL = params.get('pixel') === '1';        // integer scale only (sharper pixels, wider letterbox)
 const SIM_DT = 1 / 60;
 
@@ -34,15 +36,18 @@ const store = {
   set(k, v) { try { localStorage.setItem('handoff.' + k, JSON.stringify(v)); } catch { /* private mode etc. */ } },
 };
 
-// dev mode: every element unlocked, every slot open, a big bank, and the debug keys (N $ U D T L).
-// On with the #dev link (works in the published artifact) or the start screen's DEV MODE switch (remembered).
-// ?debug=1 alone gives the keys and the truth panel but a normal opening (test/ui-shot.mjs relies on that).
-let DEV = location.hash === '#dev' || store.get('dev', false);
+// dev mode: every lane open, every element unlocked, every slot open, a big bank, and the debug keys
+// (R research now · G then 1–7 jump to a generation · N training now · $ U D T L).
+// On with the #dev link (works in the published artifact; flags: #dev,slow) or the start screen's DEV MODE switch
+// (remembered). ?debug=1 alone gives the keys and the truth panel but a normal opening (test/ui-shot.mjs relies on that).
+let DEV = HASH.includes('dev') || store.get('dev', false);
 
 // =================== state ===================
 
 let st = null;
 const view = createView();
+Object.assign(view.settings, store.get('prefs', {}));        // codec SLOW / NORMAL, reduce flashes (start screen)
+if (HASH.includes('slow')) view.settings.codec = 'slow';
 const hits = createHits();
 const canvas = document.getElementById('screen');
 const frameEl = document.getElementById('frame');
@@ -61,32 +66,58 @@ const api = {
   toggleMute() { setMuted(!isMuted()); store.set('muted', isMuted()); view.toast(isMuted() ? 'muted' : 'sound on'); },
   onGesture: initAudio,
   debugActions: null,
+  savePrefs() { store.set('prefs', { ...view.settings }); },
+  // the G1 tutorial: on for a first game, off once finished or skipped (remembered), off in dev mode and with #notut
+  get tutorialWanted() { return !DEV && !HASH.includes('notut') && !store.get('tutorialDone', false); },
+  tutorialDone() { store.set('tutorialDone', true); },
 };
 api.act = createAct(api);
 setMuted(store.get('muted', false));
 
 // ---------- start / restart ----------
-function newGame(difficulty = 'medium') {
+// tutorial: null = ask api.tutorialWanted (a player's first game), true / false = force it (debug hooks)
+function newGame(difficulty = 'medium', { tutorial: tut = null } = {}) {
   const seed = params.has('seed') ? Number(params.get('seed')) : Math.floor(Math.random() * 1e9);
-  st = Sim.createState({ seed, difficulty });
+  const withTutorial = tut ?? api.tutorialWanted;
+  st = Sim.createState({ seed, difficulty, tutorial: withTutorial });
   st.debug = DEBUG;
   resetView(view);
+  stopTraining();
   if (DEV) devStart(st);
+  tutorial.start(api, withTutorial && !DEV);
   acc = 0;
   store.set('settings', { difficulty });
-  console.log(`[handoff] new game seed=${seed} difficulty=${difficulty}${DEBUG ? ` (true: ${st.trueDifficulty})` : ''}`);
+  console.log(`[handoff] new game seed=${seed} difficulty=${difficulty}${DEBUG ? ` (true: ${st.trueDifficulty})` : ''} tutorial=${withTutorial && !DEV}`);
   return st;
 }
-function endGame() { st = null; resetView(view); }
+function endGame() { stopTraining(); st = null; resetView(view); }
 
-// dev mode's opening: all unlocked, every lane at max slots, and a bank (press $ for more)
+// dev mode's opening: every lane open, all unlocked, every lane at max slots, and a bank (press $ for more)
 function devStart(st) {
   st.dev = true;
+  Sim.debugOpenLanes(st);
   Sim.debugUnlockAll(st);
-  for (const lane of Object.keys(st.lanes)) while (st.lanes[lane].slots.length < B.maxSlots) Sim.debugAddSlot(st, lane);
+  for (const lane of Rules.laneIds(st)) while (st.lanes[lane].slots.length < B.maxSlots) Sim.debugAddSlot(st, lane);
   for (let i = 0; i < 4; i++) Sim.debugAddMoney(st);
-  console.log(`[handoff] dev mode: ${st.unlocked.length} elements, ${B.maxSlots} slots per lane, ${Math.round(st.money)} money`);
+  console.log(`[handoff] dev mode: ${Rules.laneIds(st).length} lanes open, ${st.unlocked.length} elements, ${B.maxSlots} slots per lane, ${Math.round(st.money)} money`);
 }
+
+// =================== training (part 1 placeholder: the stub, then submit; part 2 mounts src/train on #train) ===================
+// While st.phase is 'training', overlays.js shows the training screen. After TRAIN_STUB_S s the stub's result is
+// submitted, exactly as the minigame's result will be: Sim.submitTraining → the next model's card.
+
+const TRAIN_STUB_S = 2.5;
+let trainRun = null;                            // { g, t0 } while a training run is on
+function tickTraining(t) {
+  if (!st || st.phase !== 'training' || st.over) { trainRun = null; return; }
+  if (!trainRun || trainRun.g !== st.gen) { trainRun = { g: st.gen, t0: t }; console.log(`[handoff] training G${st.gen + 1}: stub run`); }
+  view.training = { g: st.gen + 1, f: Math.min(1, (t - trainRun.t0) / TRAIN_STUB_S) };
+  if (t - trainRun.t0 < TRAIN_STUB_S || view.hold) return;
+  const r = Sim.trainingStub(st, 0.5);
+  trainRun = null; view.training = null;
+  if (api.act.submitTraining(r)) console.log(`[handoff] training submitted: s=${r.s.toFixed(2)} (stub)`);
+}
+function stopTraining() { trainRun = null; view.training = null; }
 
 // =================== scale: fit the board in the window ===================
 // fit = CSS px per logical px, k = device px per logical px. The canvas backing store is W·k × H·k device px.
@@ -172,6 +203,7 @@ function render(t, dt) {
   // ---------- overlays, sound (the CRT scanlines are a CSS layer over the canvas: style.css #crt) ----------
   g.setTransform(k, 0, 0, k, 0, 0);
   guard('overlays', () => overlays.update(c));
+  guard('tutorial', () => tutorial.update(c));
   guard('sound', () => overlays.sound(c));
   if (debugPanel && st && !debugEl.hidden) debugPanel.update(st);
   perf.draw = performance.now() - t0;
@@ -189,20 +221,35 @@ let acc = 0, prev = performance.now(), lastLog = 0;
 function frame(ms) {
   const dt = Math.min(0.1, (ms - prev) / 1000);
   prev = ms;
+  if (st) speedRules();
   if (st && !view.paused && !view.hold && !view.modal) {
     const t0 = performance.now();
-    acc += dt * (view.fast ? 3 : 1);
+    acc += dt * (view.fast ? 3 : 1) * view.slow;
     while (acc >= SIM_DT) { Sim.step(st, SIM_DT); acc -= SIM_DT; }
     perf.step = performance.now() - t0;
   }
+  if (st) tickTraining(ms / 1000);
   render(view.clock ?? ms / 1000, dt);
   if (DEBUG && st && ms - lastLog > 10000) {
     lastLog = ms;
-    const chips = st.lanes.ext.tasks.length + st.lanes.int.tasks.length;
+    const chips = Rules.laneIds(st).reduce((n, l) => n + st.lanes[l].tasks.length, 0);
     console.log(`[handoff] t=${st.t.toFixed(1)} G${st.gen} chips=${chips} draw ${perf.draw.toFixed(1)}ms step ${perf.step.toFixed(1)}ms`);
   }
   requestAnimationFrame(frame);
 }
+
+// fast-forward is 1× outside play, during an alarm or a choice, and while a new lane ramps up (DESIGN-v3 §3b, §3f, §3g)
+function speedRules() {
+  if (!view.fast) return;
+  const why = st.phase !== 'play' ? st.phase : st.alarm ? 'alarm' : st.pendingRetrain || st.pendingChoice ? 'choice'
+    : Rules.laneIds(st).some(l => st.lanes[l].open && Rules.laneRamping(st, l)) ? 'ramp' : null;
+  if (!why) return;
+  view.fast = false;
+  if (why === 'ramp') view.toast('a new lane is ramping up: normal speed');
+  console.log(`[handoff] speed 1× (${why})`);
+}
+api.canFast = () => !st ? false : st.phase !== 'play' ? 'not now' : Rules.laneIds(st).some(l => st.lanes[l].open && Rules.laneRamping(st, l))
+  ? 'fast-forward is locked while a new lane ramps up' : true;
 
 // =================== input ===================
 
@@ -223,7 +270,11 @@ function setupDev() {
   const on = fn => (...a) => st && fn(st, ...a);
   api.debugActions = {
     skipGen: on(Sim.debugSkipGen), addMoney: on(Sim.debugAddMoney), unlockAll: on(Sim.debugUnlockAll),
-    addSlot: on(Sim.debugAddSlot), fireEvent: on(Sim.fireEvent),
+    addSlot: on(Sim.debugAddSlot), fireEvent: on(Sim.fireEvent), openLanes: on(Sim.debugOpenLanes),
+    researchNow: on(st => { Sim.debugResearchNow(st); console.log(`[handoff] dev: research offer banked (${st.research.banked.length})`); }),
+    toGen: on((st, gen) => { Sim.debugToGen(st, gen); console.log(`[handoff] dev: jumped to G${st.gen}`); }),
+    // training now: the R&D bar full, the report, then TRAIN
+    trainNow: on(st => { if (Sim.debugEndGeneration(st)) Sim.ack(st); console.log(`[handoff] dev: training now (phase ${st.phase})`); }),
     togglePanel() { debugEl.hidden = !debugEl.hidden; },
   };
   debugPanel = createDebug(api.debugActions);
@@ -234,22 +285,37 @@ function setupDev() {
 function debugHooks() {
   const halt = () => !st || st.over;
   const ensure = price => { while (price != null && st.money < price) Sim.debugAddMoney(st); };
-  // one sim step; a pending choice is answered with `choose` (clamped), else it stops the run like research does
+  // one sim step. Outside play it stops. A pending choice is answered with `choose` (clamped) and the retrain card
+  // with KEEP RUNNING when `choose` is given; else either one stops the run, like the old research picker did
   const stepOnce = choose => {
-    if (st.pendingResearch) return false;
+    if (st.phase !== 'play' || st.pendingResearch) return false;
     if (st.pendingChoice) {
       if (choose == null) return false;
       Sim.choose(st, Math.min(choose, st.pendingChoice.choices.length - 1));
+    }
+    if (st.pendingRetrain) {
+      if (choose == null) return false;
+      Sim.retrain(st, false);
     }
     Sim.step(st, SIM_DT);
     return true;
   };
   const summary = () => st && { t: +st.t.toFixed(2), gen: st.gen, over: !!st.over, phase: st.phase,
-    choice: st.pendingChoice?.eventId ?? null, research: !!st.pendingResearch, money: Math.round(st.money) };
+    choice: st.pendingChoice?.eventId ?? null, research: st.research.banked.length, retrain: !!st.pendingRetrain,
+    alarm: st.alarm ? +st.alarm.left.toFixed(1) : null, money: Math.round(st.money) };
 
   const hooks = {
     get st() { return st; }, Sim, Rules, Layout, view, act: api.act, hits, fontsReady, perf,
-    newGame: d => { newGame(d); return summary(); },
+    newGame: (d, opts) => { newGame(d, opts); return summary(); },
+    // ---------- phases (what DEPLOY and TRAIN do) ----------
+    deploy() { if (st.phase === 'card') api.act.ack(); return summary(); },
+    // report → training → the next card, with the stub's result (or a given s)
+    train(s = null) {
+      if (st.phase === 'report') api.act.ack();
+      if (st.phase === 'training') { api.act.submitTraining(s == null ? Sim.trainingStub(st, 0.5) : { s }); stopTraining(); }
+      return summary();
+    },
+    skipTutorial() { tutorial.skip(api, false); },
 
     // ---------- time ----------
     hold(on = true) { view.hold = on; },               // the loop keeps drawing but stops stepping the sim
@@ -279,6 +345,7 @@ function debugHooks() {
 
     // ---------- set-ups ----------
     toGen(gen) { while (!halt() && st.gen < gen) Sim.debugSkipGen(st); return summary(); },
+    endGeneration() { Sim.debugEndGeneration(st); return summary(); },
     finish() { while (!halt()) Sim.debugSkipGen(st); return summary(); },
     money(times = 1) { for (let i = 0; i < times; i++) Sim.debugAddMoney(st); return Math.round(st.money); },
     unlockAll() { Sim.debugUnlockAll(st); },
@@ -301,7 +368,7 @@ function debugHooks() {
         if (!r.ok) console.warn(`[handoff] build ${lane}/${i} ${id}: ${r.msg}`);
       });
     },
-    placeStarter() { for (const lane of ['ext', 'int']) hooks.build(lane, ['probe', 'monitor', null, null, 'auditor', 'killswitch']); },
+    placeStarter() { for (const lane of Rules.laneIds(st)) hooks.build(lane, ['probe', 'monitor', null, null, 'auditor', 'killswitch']); },
     upgradeTo(lane, slot, level) {
       const s = Rules.slotAt(st, lane, slot);
       while (s?.layer && s.level < level) {

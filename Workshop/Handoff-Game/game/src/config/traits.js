@@ -1,17 +1,18 @@
 // ===== The model's hidden personality, and the dossier that evidence buys =====
 // Every generation rolls TRAITS_PER_GEN distinct traits (plus m). Effect keys, read in sim/rules.js:
 //   attackMult {type: ×}     chance of that attack type per chip (jailbreaks too: users find a sycophant easier to talk round)
-//   collusionMult            × Untrusted Monitor collusion (a paraphrased chip carries no hidden message: ×1)
+//   collusionMult            × Untrusted Monitor collusion (before the Paraphraser and the other answers halve it)
 //   watchMult {deskFree, unwatched, blindedBy}
-//                            a rational schemer: × deskFree while every auditor desk in the lane is free to spot-check it,
-//                            × unwatched while every desk is busy or there is no auditor (linear in the share of busy desks).
+//                            a rational schemer: × deskFree while the lane's auditor desks are free (a spot check counts
+//                            as free: a flag would bump it), × unwatched while every desk is busy with flags or there is
+//                            no auditor (linear in the share of desks busy with flags).
 //                            An element from blindedBy active in the lane (bait, synthetic attacks): it can't tell real
 //                            oversight from a test, so it behaves as if a desk were always free (× deskFree).
 //   estMult, seenThroughBy   × the misalignment estimate the player sees (evals understate it), unless an element from
 //                            seenThroughBy is placed
 //   tprPlus {element: +}     flat TPR bonus for that element
-//   throughputMult           × the model's compute (chips/s)
-//   stealthMult              × the generation's stealth
+//   throughputMult           × the model's lines/s
+//   missMult                 × every detector's miss rate on the model's attacks: TPR → 1 − (1 − TPR) × missMult
 // counter: what answers it (shown in the dossier and scorecard). counters: the same as element / research card ids
 // (tested: each one exists and measurably answers the trait; blindedBy and seenThroughBy ARE the counters). gift: good news.
 
@@ -33,7 +34,7 @@ export const TRAITS = {
   },
   situational: {
     name: 'Situationally Aware', counter: 'Honeypots or Red Team', counters: BLINDED_BY,
-    text: 'Knows when it is watched. Attacks drop while an auditor desk is free to spot-check it, and rise when every desk is busy.',
+    text: 'Knows when it is watched. Attacks drop while an auditor desk is free to spot-check it, and rise while the desks are busy with flags.',
     watchMult: { deskFree: 0.4, unwatched: 1.5, blindedBy: BLINDED_BY },
   },
   powerSeeking: {
@@ -58,19 +59,24 @@ export const TRAITS = {
   },
   eager: {
     name: 'Eager Helper', counter: null, counters: [], gift: true,
-    text: 'Just loves to help. +10% throughput, −10% stealth.',
-    throughputMult: 1.1, stealthMult: 0.9,
+    text: 'Just loves to help. +10% throughput, and detectors miss 10% less.',
+    throughputMult: 1.1, missMult: 0.9,
   },
 };
 
 // ----- dossier rows, unlocked by evidence gathered on the current model (the 30% carry-over doesn't count) -----
-export const DOSSIER = [
-  { id: 'favourite', label: 'Favourite attack',  need: 5 },
-  { id: 'trait1',    label: 'Trait #1',          need: 12 },
-  { id: 'rate',      label: 'Attack rate',       need: 25 },
-  { id: 'trait2',    label: 'Trait #2',          need: 40 },
-  { id: 'truth',     label: 'True misalignment', need: 60 },
+// need = round(frac × this generation's par evidence, EVIDENCE_PAR) (DESIGN-v3 §3e): G1 3 / 7 / 12 / 19 / 27,
+// G7 26 / 66 / 118 / 183 / 262. `need` below is the G1 value (the old UI reads it); sim/dossier.js sets each row's own.
+export const EVIDENCE_PAR = [27, 41, 61, 115, 165, 221, 262];   // E_g: par evidence gathered over generation g (§2.5)
+const ROWS = [
+  { id: 'favourite', label: 'Favourite attack',  frac: 0.10 },
+  { id: 'trait1',    label: 'Trait #1',          frac: 0.25 },
+  { id: 'rate',      label: 'Attack rate',       frac: 0.45 },
+  { id: 'trait2',    label: 'Trait #2',          frac: 0.70 },
+  { id: 'truth',     label: 'True misalignment', frac: 1.00 },
 ];
+export const dossierNeed = (g, row) => Math.round(row.frac * EVIDENCE_PAR[g - 1]);
+export const DOSSIER = ROWS.map(r => ({ ...r, need: dossierNeed(1, r) }));
 
 export const RATE_BANDS = [0, 0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 1];   // band edges, share of tasks the model attacks
 export const TRUTH_NOISE = 0.02;                                        // the truth row shows m within ± this

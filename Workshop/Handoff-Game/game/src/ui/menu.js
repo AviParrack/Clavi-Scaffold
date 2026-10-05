@@ -199,12 +199,12 @@ function cardModel(c, { id, lane = null, slot = null, placing = false }) {
   const lvl = placed ? R.slotAt(st, lane, slot).level : 1;
   const sh = sheet(st, id, { lane, level: lvl, slot: placed && lane !== 'global' ? slot : null });
   const price = R.buyPrice(st, id), can = st.money >= price;
-  const col = placed && lane !== 'global' ? lane : 'ext';
+  const col = (placed && R.sideOf(st, lane)) || 'ext';                // a side: the colour
   const m = {
     id, name: L.name, role: L.role, job: JOB[id], locked, placed, col, lvl, active: placed ? R.slotActive(st, R.slotAt(st, lane, slot)) : true,
     head: placed ? null : locked ? 'LOCKED' : money(price), can,
     lanes: placed ? [{ s: lane === 'global' ? 'LAB SITE' : `${lane.toUpperCase()} #${slot + 1}`, lane: col, best: true }]
-      : L.lanes.map(l => ({ s: l === 'global' ? 'LAB SITE' : l.toUpperCase(), lane: l === 'int' ? 'int' : 'ext', best: L.bestIn === 'both' || L.bestIn === l })),
+      : L.lanes.map(side => ({ s: side === 'global' ? 'LAB SITE' : side.toUpperCase(), lane: side === 'int' ? 'int' : 'ext', best: L.bestIn === 'both' || L.bestIn === side })),
     rows: sh.rows.map(r => ({ label: r.label, frac: +r.frac.toFixed(3), val: r.val, bad: r.bad })),
     good: goodList(sh.good), note: sh.note, spec: sh.spec, measured: null, alarm: false,
     desc: L.desc, truth: null, blink: false,
@@ -378,8 +378,8 @@ function labActions(c) {
   // ---------- below: each stack on paper, the tech taken, a hint (as many as fit) ----------
   const taken = Object.keys(st.upgrades).filter(id => TECH_TITLE[id]).map(id => TECH_TITLE[id] + (st.upgrades[id] > 1 ? ` ×${st.upgrades[id]}` : ''));
   const lines = [
-    { tag: 'EXT', bg: C.lane.ext.mid, txt: stackLine(st, 'ext'), col: C.gm },
-    { tag: 'INT', bg: C.lane.int.mid, txt: stackLine(st, 'int'), col: C.gm },
+    { tag: 'EXT', bg: C.lane.ext.mid, txt: stackLine(st, view.focus.ext), col: C.gm },
+    { tag: 'INT', bg: C.lane.int.mid, txt: stackLine(st, view.focus.int), col: C.gm },
     { tag: 'TECH', bg: taken.length ? C.gm : C.gdd, txt: taken.join(' · ') || 'none yet · research draws offer some', col: taken.length ? C.g : C.gd },
     { txt: 'hover anything for its card · click a mount to upgrade', col: C.gd },
   ];

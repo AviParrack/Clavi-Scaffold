@@ -348,6 +348,9 @@ function solveLane(stack, laneId, g, m, lam, lab, atkMult = 1, watchMult = null)
   refusedHonest = fh * share('killswitch');
   pay += fh * shipFlagged; regen += fh * shipFlagged; rdShare += fh * shipFlagged;
   killShare = share('killswitch') * flagRate;           // lines killed per line
+  // R&D per line (sim parity, §2.9 #12): an attack line stopped by an auditor or a Kill Switch brings no R&D; one that
+  // lands does, a deferred one brings half, a resampled one is redone
+  const rdLine = pHon * rdShare + sum(types.map(t => pT[t] * (pLand[t] + (1 - missT[t]) * (0.5 * share('defer') + share('resampler')))));
   readCost += killShare * RESP.killswitch.fee;
 
   // ---- what humans confirm (evidence) and what they review ----
@@ -358,7 +361,7 @@ function solveLane(stack, laneId, g, m, lam, lab, atkMult = 1, watchMult = null)
   const reviewed = (flagRate * share('auditor') * lam + spot * lam * (1 - flagRate)) / lam;   // share of lines humans see
 
   return { pT, pAtt, pLand, missT, flagRate, flagsPerMin: flagRate * lam * 60, shipFlagged, spot, reviewed,
-    pay, regen, refusedHonest, killShare, rdShare, readCost, salary, caught, coll, fate, deskBusy };
+    pay, regen, refusedHonest, killShare, rdShare, rdLine, readCost, salary, caught, coll, fate, deskBusy };
 }
 
 // reputation per EXTERNAL line (damage, regen) and the pressure index PI = damage ÷ regen
@@ -418,73 +421,13 @@ function drawOffer(r, g, lab) {
 }
 
 // ============================================================================================
-// E. POLICIES
+// E. POLICIES: the zoo lives in game/test/policies.mjs, shared with the real sim (`node test/headless.mjs balance`)
 // ============================================================================================
-// A build list is [{ side, gen, id, copy }] (mount `copy` of `id` on every lane of `side` from generation `gen`)
-// and [{ gen, lv: id, to }] (raise the lab level of `id` to `to`, cash). Locked elements wait until unlocked.
-// picks: research wishlist, best first. Cards not listed rank below every listed card.
-const P = (side, gen, id, copy = 0) => ({ side, gen, id, copy });
-const LVL = (gen, id, to) => ({ gen, lv: id, to });
-
-// What the G1 tutorial has you place (gates 2–6 of §3h): Probe, Auditor, Trusted Monitor on Consumer; a Probe on R&D.
-const TUTORIAL = [P('ext', 1, 'probe'), P('ext', 1, 'auditor'), P('ext', 1, 'monitor'), P('int', 1, 'probe')];
-const STARTER = [...TUTORIAL, P('int', 1, 'monitor'), P('int', 1, 'auditor')];   // the starting hand on both lanes, never upgraded
-const SMART_BUILD = [
-  ...TUTORIAL, P('int', 1, 'monitor'), P('ext', 1, 'classifier'), LVL(1, 'killswitch', 2), P('int', 1, 'auditor'),
-  LVL(1, 'monitor', 2), LVL(1, 'probe', 2), LVL(2, 'auditor', 2),
-  P('int', 2, 'cot'), P('ext', 2, 'defer'), LVL(2, 'killswitch', 3),
-  P('ext', 3, 'untrusted'), P('int', 3, 'untrusted'), P('ext', 3, 'paraphraser'), P('int', 3, 'paraphraser'),
-  LVL(3, 'monitor', 3), LVL(3, 'untrusted', 2),
-  P('int', 4, 'egress'), P('int', 4, 'honeypot'), P('ext', 4, 'honeypot'), LVL(4, 'untrusted', 3), LVL(4, 'auditor', 3),
-  LVL(4, 'defer', 2), LVL(4, 'cot', 2),
-  P('ext', 5, 'untrusted', 1), P('int', 5, 'untrusted', 1), LVL(5, 'untrusted', 4), LVL(5, 'killswitch', 4),
-  P('int', 5, 'defer'), LVL(5, 'classifier', 2),
-  LVL(6, 'defer', 3), LVL(6, 'monitor', 4), LVL(6, 'egress', 2), P('ext', 6, 'redteam'),
-  LVL(7, 'auditor', 4), LVL(7, 'defer', 4), LVL(7, 'probe', 3),
-];
-const SMART_PICKS = ['classifier', 'cot', 'defer', 'paraphraser', 'jamming', 'egress', 'weightsec', 'diversity',
-  'faithful', 'debate', 'honeypot', 'leastpriv', 'level:untrusted', 'level:monitor', 'level:auditor', 'level:defer',
-  'level:killswitch', 'level:cot', 'redteam', 'level:classifier', 'level:probe', 'resampler', 'level:egress', 'sprint'];
-
-// skill: training stand-in. delay: s an item must stay affordable before a human buys it. waste: share of income lost
-// to mistakes. attn: chance of pulling the plug on an EGRESS ANOMALY in time. retrain: 'never' | 'smart' | 'greedy'.
-const BASE = { build: SMART_BUILD, picks: SMART_PICKS, skill: 0.75, delay: 0, waste: 0, attn: 0.97,
-  retrain: 'smart', retrainProbes: true, openLane: 0, split: DEFAULT_SPLIT };
-// human: a POPULATION of decent first-time players, not one player. Each run draws its own player from `spread`
-// (uniform ranges); skip = share of the build list this player never thinks of (the tutorial items are never skipped).
-const HUMAN = { ...BASE, skill: 0.5, delay: 25, shopEvery: 45, waste: 0.10, attn: 0.85, retrain: 'greedy', openLane: 30,
-  spread: { skill: [0.3, 0.7], waste: [0.05, 0.15], shopEvery: [30, 60], attn: [0.7, 1.0], skip: [0, 0.2] } };
-const without = (list, id) => list.filter(e => (e.id ?? e.lv) !== id);
-const POLICY = {
-  none:        { ...BASE, build: [], picks: [], maxPicks: 0, skill: 0, attn: 0, retrain: 'never', retrainProbes: false, openLane: LANE_DEADLINE },
-  afkTutorial: { ...BASE, build: TUTORIAL, picks: ['classifier'], maxPicks: 1, skill: 0, attn: 0, retrain: 'never',
-                 retrainProbes: false, openLane: LANE_DEADLINE },
-  starter:     { ...BASE, build: STARTER, picks: [], maxPicks: 0, skill: 0, attn: 0.5, retrain: 'never', retrainProbes: false,
-                 openLane: LANE_DEADLINE },
-  human:       HUMAN,
-  smart:       { ...BASE },                                  // the oracle: no waste, no delay, best training
-  // single-strategy builds (a decent player with one idea): each should lose by G5
-  probewall:   { ...BASE, build: [...STARTER, ...[1, 2, 3].flatMap(c => [P('ext', 1, 'probe', c), P('int', 1, 'probe', c)]),
-                 LVL(1, 'probe', 2), LVL(2, 'probe', 3), LVL(2, 'auditor', 2), P('ext', 3, 'defer'), LVL(3, 'probe', 4),
-                 LVL(4, 'auditor', 3), LVL(4, 'killswitch', 2), LVL(5, 'defer', 2), LVL(5, 'killswitch', 3)],
-                 picks: ['defer', 'level:probe', 'level:auditor', 'level:killswitch', 'level:defer'], skill: 0.5 },
-  monoTM:      { ...BASE, build: [...STARTER, P('ext', 1, 'monitor', 1), P('int', 1, 'monitor', 1), LVL(1, 'monitor', 2),
-                 LVL(2, 'monitor', 3), LVL(2, 'auditor', 2), P('ext', 3, 'defer'), LVL(3, 'monitor', 4), LVL(4, 'auditor', 3),
-                 LVL(4, 'killswitch', 2), LVL(5, 'defer', 2), LVL(5, 'killswitch', 3)],
-                 picks: ['defer', 'level:monitor', 'level:auditor', 'level:killswitch', 'level:defer'], skill: 0.5 },
-  monoUM:      { ...BASE, build: [...STARTER, P('ext', 3, 'untrusted'), P('int', 3, 'untrusted'), P('ext', 3, 'untrusted', 1),
-                 P('int', 3, 'untrusted', 1), LVL(3, 'untrusted', 2), LVL(4, 'untrusted', 3), LVL(5, 'untrusted', 4),
-                 LVL(2, 'auditor', 2), P('ext', 3, 'defer'), LVL(4, 'auditor', 3), LVL(4, 'killswitch', 2)],
-                 picks: ['defer', 'level:untrusted', 'level:auditor', 'level:killswitch'], skill: 0.5 },
-  noResearch:  { ...BASE, picks: [], maxPicks: 0, skill: 0.5 },
-  // ablations of the human population (same seeds, same players): what one missing idea costs
-  noAuditor:   { ...HUMAN, build: without(SMART_BUILD, 'auditor') },
-  noDefer:     { ...HUMAN, build: without(SMART_BUILD, 'defer'), picks: SMART_PICKS.filter(p => p !== 'defer') },
-  noTraining:  { ...HUMAN, spread: { ...HUMAN.spread, skill: [0, 0] } },
-  researchHeavy: { ...HUMAN, split: { product: 0.3, capabilities: 0.4, safety: 0.3 } },
-};
-const ZOO = ['none', 'afkTutorial', 'starter', 'human', 'smart', 'probewall', 'monoTM', 'monoUM', 'noResearch',
-  'noAuditor', 'noDefer', 'noTraining', 'researchHeavy'];
+// Build lists, research wishlists, the human population and the §2.7 targets are defined once there. Its card ids are
+// the game's (src/config/cards.js); three lab cards have shorter ids here, so the wishlists are translated.
+import { POLICY as ZOO_POLICY, ZOO, TUTORIAL, drawPlayer, summarize, zooTable, zooTargets, targetLines } from '../game/test/policies.mjs';
+const MODEL_ID = { weight_security: 'weightsec', monitor_diversity: 'diversity', faithful_cot: 'faithful' };
+const POLICY = Object.fromEntries(Object.entries(ZOO_POLICY).map(([k, p]) => [k, { ...p, picks: p.picks.map(id => MODEL_ID[id] ?? id) }]));
 
 // ============================================================================================
 // F. ONE CAMPAIGN
@@ -677,7 +620,7 @@ function campaign(policyName, difficulty, seed, opts = {}) {
           }
           exfilHaz += lam * sol.pT.exfil * sol.pLand.exfil;
           income += L.pay * lam * sol.pay;
-          if (L.rd) rd += lam * sol.rdShare * (S.sprint ? LAB.sprint.rdMult : 1);
+          if (L.rd) rd += lam * sol.rdLine * (S.sprint ? LAB.sprint.rdMult : 1);
         }
       }
       // R&D from the warm-up schedule is already in rdNeed; the INTERNAL rate above is the actual one
@@ -723,16 +666,6 @@ function campaign(policyName, difficulty, seed, opts = {}) {
   return end(S, 'W');
 
   function end(S, reason) { return { win: reason === 'W', reason, g: S.g, t: S.t, m: S.m, gens: S.gens, log: S.log, rep: S.rep }; }
-}
-// One player from a policy's spread: each knob uniform in its range; skip drops build items after the tutorial ones.
-function drawPlayer(pol, r) {
-  const p = { ...pol };
-  for (const [k, [a, b]] of Object.entries(pol.spread)) if (k !== 'skip') p[k] = a + r() * (b - a);
-  p.shopEvery = Math.round(p.shopEvery);
-  const skip = pol.spread.skip ? pol.spread.skip[0] + r() * (pol.spread.skip[1] - pol.spread.skip[0]) : 0;
-  p.build = pol.build.filter((it, i) => i < TUTORIAL.length || r() >= skip);
-  p.skipShare = skip;
-  return p;
 }
 function rollTraits(r) {
   const pool = Object.keys(TRAITS), out = [];
@@ -809,62 +742,19 @@ function genTable(m = MID_M.medium) {
 }
 
 function runMany(policy, d, N, opts = {}) {
-  const out = { win: 0, reasons: { R: 0, C: 0, B: 0, P: 0 }, reach: Array(NGEN + 2).fill(0), died: Array(NGEN + 2).fill(0),
-    deathT: [], runs: [] };
-  for (let i = 1; i <= N; i++) {
-    const o = campaign(policy, d, i, opts);
-    out.runs.push(o);
-    if (o.win) out.win++; else { out.reasons[o.reason]++; out.died[o.g]++; out.deathT.push(o.t); }
-    for (let g = 1; g <= o.g; g++) out.reach[g]++;
-  }
-  out.win /= N; out.N = N;
-  out.deathT.sort((a, b) => a - b);
-  out.medDeath = out.deathT.length ? out.deathT[out.deathT.length >> 1] : null;
-  out.lostBy = g => 1 - out.reach[g + 1] / N;
-  out.hazard = Array.from({ length: NGEN }, (_, i) => out.reach[i + 1] ? out.died[i + 1] / out.reach[i + 1] : 0);
-  return out;
+  const runs = [];
+  for (let i = 1; i <= N; i++) runs.push(campaign(policy, d, i, opts));
+  return summarize(runs, NGEN);
 }
 
 function zoo(N = 200) {
-  const res = {}, rows = [];
-  for (const pol of ZOO) {
-    res[pol] = {};
-    const row = [pol];
-    for (const d of ['easy', 'medium', 'hard']) {
-      const o = runMany(pol, d, N); res[pol][d] = o;
-      const death = o.medDeath ? Math.round(o.medDeath) + ' s' : '–', why = o.reasons;
-      row.push(`**${pct(o.win)}** · died by G2 ${pct(o.lostBy(2))} · med. death ${death} · R${why.R} C${why.C} B${why.B} P${why.P}`);
-    }
-    rows.push(row);
-  }
-  return { text: table(['policy', 'easy: win · died by G2 · median death · losses (R rep, C exfil, B bankrupt, P rival)', 'medium', 'hard'], rows), res };
+  const res = {};
+  for (const pol of ZOO) { res[pol] = {}; for (const d of ['easy', 'medium', 'hard']) res[pol][d] = runMany(pol, d, N); }
+  return { text: zooTable(res), res };
 }
 
-function checks(res) {
-  const out = [], ok = (name, pass, got) => out.push(`${pass ? 'PASS' : 'FAIL'}  ${name}  (${got})`);
-  const n = res.none, a = res.afkTutorial, s = res.starter, h = res.human, sm = res.smart, D = ['easy', 'medium', 'hard'];
-  ok('none loses in G1 on Medium (≥ 80%)', n.medium.lostBy(1) >= 0.8, pct(n.medium.lostBy(1)));
-  ok('none loses in G1 on Hard (≥ 90%)', n.hard.lostBy(1) >= 0.9, pct(n.hard.lostBy(1)));
-  ok('none loses by G2 on Easy (≥ 95%)', n.easy.lostBy(2) >= 0.95, pct(n.easy.lostBy(2)));
-  ok('none median death 120–300 s (Medium)', n.medium.medDeath >= 120 && n.medium.medDeath <= 300, n.medium.medDeath + ' s');
-  ok('afkTutorial dies by G2 on Medium (≥ 80%)', a.medium.lostBy(2) >= 0.8, pct(a.medium.lostBy(2)));
-  ok('afkTutorial dies by G2 on Hard (≥ 80%)', a.hard.lostBy(2) >= 0.8, pct(a.hard.lostBy(2)));
-  ok('starter loses by G3 on Medium (≥ 90%) and never wins', s.medium.lostBy(3) >= 0.9 && D.every(d => s[d].win === 0), pct(s.medium.lostBy(3)));
-  ok('human Easy ≈ 70% (60–80)', h.easy.win >= 0.6 && h.easy.win <= 0.8, pct(h.easy.win));
-  ok('human Medium ≈ 35–40% (30–45)', h.medium.win >= 0.30 && h.medium.win <= 0.45, pct(h.medium.win));
-  ok('human Hard ≈ 10% (5–18)', h.hard.win >= 0.05 && h.hard.win <= 0.18, pct(h.hard.win));
-  ok('smart (the oracle) ≥ human on every difficulty', D.every(d => sm[d].win >= h[d].win), D.map(d => pct(sm[d].win)).join(' / '));
-  for (const p of ['probewall', 'monoTM', 'monoUM', 'noResearch']) ok(`${p} never wins Medium, loses by G6 (≥ 80%)`,
-    res[p].medium.win <= 0.05 && res[p].medium.lostBy(6) >= 0.8,
-    `${pct(res[p].medium.win)} win, ${pct(res[p].medium.lostBy(5))} by G5, ${pct(res[p].medium.lostBy(6))} by G6`);
-  ok('noAuditor loses ≥ 5 pts vs human (Medium)', res.noAuditor.medium.win <= h.medium.win - 0.05, `${pct(res.noAuditor.medium.win)} vs ${pct(h.medium.win)}`);
-  ok('researchHeavy (Product 30%) is not dominant: ≤ human + 5 (Medium)', res.researchHeavy.medium.win <= h.medium.win + 0.05,
-    `${pct(res.researchHeavy.medium.win)} vs ${pct(h.medium.win)}`);
-  const hz = h.medium.hazard;
-  ok('human Medium hazard rises gently: G1 ≤ 3%, G7 ≤ 30%, no step > 12 pts', hz[0] <= 0.03 && hz[6] <= 0.30 && hz.slice(1).every((x, i) => x - hz[i] <= 0.12),
-    hz.map(x => pct(x)).join('/'));
-  return out.join('\n');
-}
+// the §2.7 targets (game/test/policies.mjs zooTargets: the real sim asserts the same list)
+const checks = res => targetLines(zooTargets(res));
 
 function hazardReport(N = 300) {
   const rows = [];

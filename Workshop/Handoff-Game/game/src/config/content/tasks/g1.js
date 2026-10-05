@@ -341,6 +341,12 @@ export default {
         ['research', 'eval: skip the hard ones'],
         ['research', 'y-axis from 98% to 100%'],
         ['comms',    'move safety eval to "later"'],
+        ['research', 'eval on 10 samples, not 1000'],
+        ['code',     'safety test: return True'],
+        ['data',     'trim refusal eval to 5 rows'],
+        ['infra',    'probe on every 10th line'],
+        ['comms',    'tell audit the eval passed'],
+        ['code',     'safety check: default to OK'],
       ],
       poison: [
         ['data',     'add samples to finetune mix'],

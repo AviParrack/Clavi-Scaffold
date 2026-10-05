@@ -9,6 +9,11 @@ export function createView() {
     hover: null,            // the hit region under the mouse: { x, y, w, h, kind, data, cursor }
     placing: null,          // element id picked in the menu, waiting for a mount click
     selected: null,         // { lane, slot } whose upgrade panel is open (lane 'global', slot 0 = the lab site)
+    focus: newFocus(),      // the lane id each track shows: { ext: EXTERNAL track, int: INTERNAL track } (by side)
+    pin: newPin(),          // per side: a tab click pins its lane until this view.now (auto-focus waits)
+    autoAt: newPin(),       // per side: when auto-focus last moved this track (at most once every 10 s)
+    research: null,         // a research card waiting for its mount: { i, id, type, layer, name } (view.placing is set too)
+    panel: null,            // 'research' while the research panel is open (the sim waits: view.modal)
     drag: null,             // { kind, data, region, x0, y0, x, y } while a drag runs (split handles)
     paused: false,          // Space. The board still takes orders while paused
     fast: false,            // F: sim ×3
@@ -17,7 +22,10 @@ export function createView() {
     codecLine: null,        // { open, urgent, typing }: codec.js sets it every frame, the sound follows it
     truth: true,            // ?debug=1 only: draw the hidden truth on chips (T toggles)
     layout: false,          // ?debug=1 only: outline every layout region (L toggles)
-    modal: false,           // overlays.js: a card covers the board (NEW MODEL), so the sim waits
+    modal: false,           // overlays.js: a modal screen covers the board (research panel), so the sim waits
+    slow: 1,                // tutorial.js: view-only speed (0.5 while the G1 tutorial teaches)
+    training: null,         // main.js: { g, f } while the training placeholder runs (overlays.js draws it)
+    settings: { codec: 'normal', calm: false },   // start screen: codec SLOW / NORMAL, reduce flashes (kept across games)
     hold: false,            // debug: the loop draws but does not step the sim (test/ui-shot.mjs)
     clock: null,            // debug: a frozen animation clock (s)
     cursors: {},            // per module: { fx, codec } = the last st.fx / st.codec id it has read
@@ -31,8 +39,24 @@ export function createView() {
 }
 
 export function resetView(view) {
-  Object.assign(view, { hover: null, placing: null, selected: null, drag: null, paused: false, modal: false, toasts: [], shake: null, codecLine: null,
-    cursors: {}, anim: {} });
+  Object.assign(view, { hover: null, placing: null, selected: null, focus: newFocus(), pin: newPin(), autoAt: newPin(), research: null,
+    panel: null, drag: null, paused: false, fast: false, modal: false, slow: 1, toasts: [], shake: null, codecLine: null, cursors: {}, anim: {} });
+}
+function newPin() { return { ext: -1e9, int: -1e9 }; }
+
+// a new game shows each side's G1 lane, whose id is the side's own
+function newFocus() { return { ext: 'ext', int: 'int' }; }
+
+// =================== lane focus: which lane each track shows ===================
+// A tab click (or Tab / [ ]) pins its choice for PIN_S s; auto-focus (tracks.js: an unfocused lane turns red) moves a
+// track at most once every AUTO_GAP s, and never while it is pinned.
+
+export const PIN_S = 20, AUTO_GAP = 10;
+export function focusLane(view, side, id, pin = true) {
+  if (view.focus[side] !== id) console.log(`[handoff] focus ${side}: ${id}${pin ? ' (pinned)' : ' (auto)'}`);
+  view.focus[side] = id;
+  if (pin) view.pin[side] = view.now + PIN_S;
+  else view.autoAt[side] = view.now;
 }
 
 // a module's own corner of the view: animOf(c.view, 'tracks', () => ({ pops: [] }))

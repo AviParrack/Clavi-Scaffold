@@ -3,17 +3,18 @@
 // dossier.evidence = evidence gathered on THIS model (log.js gainEvidence). The 30% carried over from the last
 // model doesn't count here: it is about a different model. It still shrinks the error bar and pays for probes.
 // A row unlocks the first time dossier.evidence reaches its `need` (fx 'reveal' + a codec line).
-// Two shortcuts: Artemis Scheming Eval (event) reveals the next locked trait row; an Interp Lab with the Microscope
+// A row's need is a share of this generation's par evidence (config/traits.js dossierNeed: G1 3 … 27, G7 26 … 262).
+// Shortcuts: Artemis Scheming Eval (event) and a training prize (s ≥ 0.8) reveal the next locked trait row; an Interp Lab with the Microscope
 // capstone reveals the truth row while it looks (sold: the row locks again, unless evidence has reached it by then).
-// row.source says what unlocked it ('evidence' | 'artemis' | 'microscope').
+// row.source says what unlocked it ('evidence' | 'artemis' | 'microscope' | 'training').
 // Unlocked rows stay unlocked and their text stays live. Locked rows carry no text, so the UI can't leak them.
 
 import { BALANCE as B } from '../config/balance.js';
 import { ATTACKS } from '../config/tasks.js';
-import { TRAITS, TRAITS_PER_GEN, DOSSIER, RATE_BANDS, TRUTH_NOISE } from '../config/traits.js';
+import { TRAITS, TRAITS_PER_GEN, DOSSIER, RATE_BANDS, TRUTH_NOISE, dossierNeed } from '../config/traits.js';
 import { pick, uniform } from './rng.js';
 import { fx, say } from './log.js';
-import { attackChance, clamp, globalSlot, capstone } from './rules.js';
+import { attackChance, clamp, globalSlot, capstone, laneIds, laneName, debt } from './rules.js';
 import { pct } from '../util/format.js';
 
 // =================== rolling the hidden traits ===================
@@ -29,7 +30,7 @@ export function rollTraits(st) {
 
 export function newDossier(st) {
   st.truthOffset = uniform(st, -TRUTH_NOISE, TRUTH_NOISE);
-  return { g: st.gen, evidence: 0, rows: DOSSIER.map(r => ({ ...r, unlocked: false, text: null, value: null, source: null })) };
+  return { g: st.gen, evidence: 0, rows: DOSSIER.map(r => ({ ...r, need: dossierNeed(st.gen, r), unlocked: false, text: null, value: null, source: null })) };
 }
 
 // =================== row contents ===================
@@ -54,15 +55,16 @@ export function band(p) {
   while (i < RATE_BANDS.length - 2 && p >= RATE_BANDS[i + 1]) i++;
   return [RATE_BANDS[i], RATE_BANDS[i + 1]];
 }
+// value: { laneId: [lo, hi] } for every lane on the board
 function rateBand(st) {
-  const ext = band(attackChance(st, 'ext')), int = band(attackChance(st, 'int'));
+  const value = Object.fromEntries(laneIds(st).map(id => [id, band(attackChance(st, id))]));
   const show = ([lo, hi]) => `${100 * lo}–${100 * hi}%`;
-  return { value: { ext, int }, text: `EXTERNAL ${show(ext)} · INTERNAL ${show(int)} of tasks` };
+  return { value, text: `${laneIds(st).map(id => `${laneName(st, id)} ${show(value[id])}`).join(' · ')} of tasks` };
 }
 
 function truth(st) {
-  const m = clamp(st.m + st.truthOffset, 0, 1), drift = B.driftCoef * st.drift;
-  return { value: { m, drift }, text: `m ≈ ${m.toFixed(2)} ± ${TRUTH_NOISE} · drift added this gen ${drift >= 0 ? '+' : '−'}${Math.abs(drift).toFixed(3)}` };
+  const m = clamp(st.m + st.truthOffset, 0, 1), drift = B.debtM * debt(st);       // drift: what this generation's debt adds to m
+  return { value: { m, drift }, text: `m ≈ ${m.toFixed(2)} ± ${TRUTH_NOISE} · debt adds ${drift >= 0 ? '+' : '−'}${Math.abs(drift).toFixed(3)} to the next model` };
 }
 
 function rowContent(st, id) {
@@ -83,8 +85,10 @@ function unlockRow(st, row, source) {
   Object.assign(row, rowContent(st, row.id));
   if (row.id === 'trait1') st.genStats.revealed[0] = true;
   if (row.id === 'trait2') st.genStats.revealed[1] = true;
+  // an Interp Lab that sees a trait makes its counter cards likelier in the next research offer (DESIGN-v3 §3a)
+  if (TRAITS[row.value] && globalSlot(st, 'interp')) st.research.boost.push(...TRAITS[row.value].counters.flatMap(id => [id, `level:${id}`]));
   fx(st, 'reveal', { row: row.id, label: row.label, text: row.text, source });
-  say(st, source === 'artemis' ? 'artemis' : 'research', `Dossier, ${row.label}: ${row.text}`);
+  say(st, source === 'artemis' ? 'artemis' : 'research', `${source === 'training' ? 'Interp spotted something during training. ' : ''}Dossier, ${row.label}: ${row.text}`);
 }
 
 // Artemis Scheming Eval: the next locked trait row, now. false if both are already known.

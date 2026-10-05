@@ -25,9 +25,19 @@ export function createAct(api) {
     buySlot:       lane => run(st => Sim.buySlot(st, lane)),
     setSplit:      (product, capabilities, safety) => run(st => Sim.setSplit(st, product, capabilities, safety)),
     choose:        i => run(st => Sim.choose(st, i), 'no such choice'),
-    drawResearch:  () => run(st => Sim.drawResearch(st)),
-    pickResearch:  i => run(st => Sim.pickResearch(st, i), api.st?.researchOffer?.[i] ? 'can\'t pay for that card: take the other one' : 'no such card'),
     retrainProbes: () => run(st => Sim.retrainProbes(st), `retraining needs ${B.retrainEvidence} evidence`),
     invokeRSP:     () => run(st => Sim.invokeRSP(st)),
+
+    // ----- phases: DEPLOY (card → play), TRAIN (report → training), the training result -----
+    ack:           () => run(st => Sim.ack(st)),
+    submitTraining: result => run(st => Sim.submitTraining(st, result), 'not training'),
+    // ----- research: the offer on show is st.research.banked[0] -----
+    pickCard:      (i, target) => run(st => Sim.pickCard(st, i, target), 'no such card'),
+    reroll:        () => run(st => Sim.reroll(st), 'reroll used'),
+    bankCard:      () => run(st => Sim.bankCard(st), 'nothing banked'),
+    // ----- lanes and the two alarms -----
+    openLane:      id => run(st => Sim.openLane(st, id)),
+    retrain:       yes => run(st => Sim.retrain(st, yes), 'nothing to answer'),
+    pullPlug:      () => run(st => Sim.pullPlug(st), 'no alarm'),
   };
 }

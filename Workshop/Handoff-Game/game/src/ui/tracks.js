@@ -3,10 +3,11 @@
 // Positions come from state (task.y, task.read, slot.busy, lane.bay, deskT). Pops, stamps and strikes come from fx.
 // Text is never drawn over: sweeps, washes and read heads sit under the glyphs, two lines never share a row, and
 // anything that would land on a line (alert pop, hung tag) is only drawn where the rows are free.
-// Registers: mount {lane, slot} · slot-buy {lane} · bay {lane, slot}
+// Each track draws the lane view.focus picks for its side; colours, geometry and art go by side (TRACKS, C.lane).
+// Registers: mount {lane, slot} · slot-buy {lane} · bay {lane, slot}   (lane = lane id)
 
 import { LAYERS } from '../config/layers.js';
-import { LANES } from '../config/tasks.js';
+import { LANES, SIDES } from '../config/tasks.js';
 import { BALANCE as B } from '../config/balance.js';
 import { GENERATIONS } from '../config/generations.js';
 import * as R from '../sim/rules.js';
@@ -44,8 +45,8 @@ const BAY_REV = { auditor: 'REV', defer: 'REDO', resampler: 'ROLL' };
 const STAMP = { approve: 'APPROVED', toss: 'TOSSED', redo: 'REDONE', roll: 'REROLLED', pass: 'FLAG ON' };
 const STRIKE = { kill: 'KILLED', block: 'BLOCKED', throttle: 'TURNED AWAY', airgap: 'AIR GAP', full: 'BAY FULL' };
 
-const laneGeo = lane => {
-  const T0 = TRACKS[lane], bx = T0.body.x;
+const laneGeo = side => {
+  const T0 = TRACKS[side], bx = T0.body.x;
   return { X: T0.x, bx, by: T0.bays.x, tx: bx + TRACK.textInset, ex: bx + BODY - 6 };
 };
 
@@ -58,7 +59,8 @@ const laneAnim = () => ({
   plates: [], missed: null, pops: [], sparks: [], incident: null, anomaly: null,
   tokens: [], docks: {}, desks: {}, stamps: {}, lastStamp: {}, silent: [],
 });
-const animState = c => animOf(c.view, 'tracks', () => ({ ext: laneAnim(), int: laneAnim(), pruneAt: 0 }));
+const animState = c => animOf(c.view, 'tracks', () => ({ lanes: {}, pruneAt: 0 }));    // lanes: lane id → laneAnim()
+const laneAnimOf = (A, lane) => A.lanes[lane] || (A.lanes[lane] = laneAnim());
 
 // =================== caches ===================
 // At G7 a frame holds ~35 lines, 20 plates and 20 beams, so nearly everything is a cached image blitted on whole device
@@ -262,20 +264,20 @@ function shortName(s) {
   return ws[ws.length - 1].slice(0, SHORT_W - 1) + '.';
 }
 
-// =================== static art: one cached layer per lane ===================
+// =================== static art: one cached layer per side (the art below is keyed by side too) ===================
 
-function staticLayer(lane) {
-  const G = laneGeo(lane);
-  return aligned('static-' + lane, '', G.X, 37, 408, 518, g => paintStatic(g, lane, G));
+function staticLayer(side) {
+  const G = laneGeo(side);
+  return aligned('static-' + side, '', G.X, 37, 408, 518, g => paintStatic(g, side, G));
 }
 
-function paintStatic(g, lane, { X, bx, by }) {
-  const col = C.lane[lane], ext = lane === 'ext';
+function paintStatic(g, side, { X, bx, by }) {
+  const col = C.lane[side], ext = side === 'ext';
   // ---------- header ----------
   fill(g, X, 37, 30, 16, col.mid);
   text(g, ext ? 'EXT' : 'INT', X + 15, 48, F.k8, C.bg, 'center');
-  const w1 = text(g, LANES[lane].label, X + 36, 52, F.k16, col.acc);
-  text(g, LANES[lane].sub, X + 36 + w1 + 10, 52, F.v16, col.dim);
+  const w1 = text(g, LANES[side].label, X + 36, 52, F.k16, col.acc);
+  text(g, LANES[side].sub, X + 36 + w1 + 10, 52, F.v16, col.dim);
 
   // ---------- rail ----------
   fill(g, X, FT, TRACK.railW, FB - FT, C.pan);
@@ -342,10 +344,10 @@ function pixArc(g, cx, cy, r, col, x0, x1, y0, y1) {
 // to the reticle of the line dy px below (above if negative) the mount's centre, or (dy null) a stub to the bezel.
 // The beam is a 2 px core (lit top row) in a 1 px halo; the cone a 1 px core in a 30% halo. The mount's centre is at -top.
 const beamTop = dy => (dy == null ? -2 : Math.min(-2, dy - 8));
-function beamArt(lane, hot, lite, m, dy) {
+function beamArt(side, hot, lite, m, dy) {
   const top = beamTop(dy), h = (dy == null ? 5 : Math.max(5, dy + 10)) - top;
-  return art(`beam|${lane}|${hot}|${dy}`, 105 + m, h, g => {
-    const col = C.lane[lane], cr = -top;
+  return art(`beam|${side}|${hot}|${dy}`, 105 + m, h, g => {
+    const col = C.lane[side], cr = -top;
     g.globalAlpha = 0.35; fill(g, 0, cr - 1, 104, 4, col.acc); g.globalAlpha = 1;
     fill(g, 0, cr, 104, 2, col.acc); fill(g, 0, cr, 104, 1, col.lite);
     fill(g, 101, cr - 2, 3, 7, hot); fill(g, 102, cr, 2, 2, lite);
@@ -358,28 +360,28 @@ function beamArt(lane, hot, lite, m, dy) {
   });
 }
 // read-head wash: a soft trail behind the characters already read (drawn under them)
-const washArt = (lane, red) => art('wash-' + lane + red, 18, 16, g => {
+const washArt = (side, red) => art('wash-' + side + red, 18, 16, g => {
   const gr = g.createLinearGradient(4, 0, 18, 0);
-  gr.addColorStop(0, rgba(red ? C.r : C.lane[lane].acc, 0)); gr.addColorStop(1, rgba(red ? C.r : C.lane[lane].acc, 0.28));
+  gr.addColorStop(0, rgba(red ? C.r : C.lane[side].acc, 0)); gr.addColorStop(1, rgba(red ? C.r : C.lane[side].acc, 0.28));
   g.fillStyle = gr; g.fillRect(4, 0, 14, 16);
 });
 // fades under the hood edges
-const fadeArt = (lane, up) => art('fade-' + lane + up, BODY, 4, g => {
-  const f = C.lane[lane].field, gr = g.createLinearGradient(0, 0, 0, 4);
+const fadeArt = (side, up) => art('fade-' + side + up, BODY, 4, g => {
+  const f = C.lane[side].field, gr = g.createLinearGradient(0, 0, 0, 4);
   gr.addColorStop(up ? 0 : 1, rgba(f, 0.9)); gr.addColorStop(up ? 1 : 0, rgba(f, 0));
   g.fillStyle = gr; g.fillRect(0, 0, BODY, 4);
 });
 // INTERNAL raster sweep: a band that climbs the lattice
-const rasterArt = lane => art('raster-' + lane, BODY, 34, g => {
-  const col = C.lane[lane], gr = g.createLinearGradient(0, 1, 0, 34);
+const rasterArt = side => art('raster-' + side, BODY, 34, g => {
+  const col = C.lane[side], gr = g.createLinearGradient(0, 1, 0, 34);
   gr.addColorStop(0, rgba(col.glow, 0.3)); gr.addColorStop(1, rgba(col.glow, 0));
   g.fillStyle = gr; g.fillRect(0, 1, BODY, 33);
   g.fillStyle = rgba(col.lite, 0.9); g.fillRect(0, 0, BODY, 1);
 });
 // event glow on the bezel: an inward phosphor bloom in the event LCD's colour
-const glowArt = lane => {
-  const { bx } = laneGeo(lane);
-  return aligned('glow-' + lane, '', bx - 3, FT - 3, BODY + 6, FB - FT + 6, g => {
+const glowArt = side => {
+  const { bx } = laneGeo(side);
+  return aligned('glow-' + side, '', bx - 3, FT - 3, BODY + 6, FB - FT + 6, g => {
     const x = bx - 3, y = FT - 3, w = BODY + 6, h = FB - FT + 6;
     g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
     g.shadowColor = C.lcd; g.shadowBlur = 10 * k; g.strokeStyle = C.lcd; g.lineWidth = 3;
@@ -397,8 +399,8 @@ const GREEK = Array.from({ length: 12 }, (_, i) => {
 });
 const greekArt = (i, col) => art('greek-' + i + col, 150, 3, g => { for (const [x, w] of GREEK[i]) fill(g, x, 0, w, 3, col); });
 // desk verdict stamps
-const stampArt = (lane, kind) => art('stamp-' + lane + kind, 54, 17, g => {
-  const col = C.lane[lane], s = STAMP[kind];
+const stampArt = (side, kind) => art('stamp-' + side + kind, 54, 17, g => {
+  const col = C.lane[side], s = STAMP[kind];
   const bold = c2 => { text(g, s, 27, 11, F.k8, c2, 'center'); text(g, s, 28, 11, F.k8, c2, 'center'); };
   if (kind === 'toss') { fill(g, 0, 0, 54, 17, col.mid); box(g, 0, 0, 54, 17, col.acc); fill(g, 3, 2, 48, 1, C.bg); fill(g, 3, 14, 48, 1, C.bg); bold(C.bg); }
   else if (kind === 'pass') { fill(g, 0, 0, 54, 17, C.rdd); box(g, 0, 0, 54, 17, C.rm); bold(C.r); }
@@ -409,13 +411,13 @@ const stampArt = (lane, kind) => art('stamp-' + lane + kind, 54, 17, g => {
 // conic-gradient fill (gradients live in user space, so one cached gradient per direction is rotated into place).
 const TRAIL = 28, DEG = Math.PI / 180;
 const trailAlpha = i => 0.25 * Math.pow(1 - i / TRAIL, 1.6);   // i degrees behind the beam
-const FAN = new Map();                                         // lane + dir → { ep, gr }: four entries at most
-function fanGradient(g, lane, dir) {
-  const key = lane + dir, hit = FAN.get(key);
+const FAN = new Map();                                         // side + dir → { ep, gr }: four entries at most
+function fanGradient(g, side, dir) {
+  const key = side + dir, hit = FAN.get(key);
   let gr = hit && hit.ep === epoch ? hit.gr : null;
   if (!gr) {
     gr = g.createConicGradient(0, 0, 0);
-    const glow = C.lane[lane].glow;
+    const glow = C.lane[side].glow;
     for (let i = 0; i < TRAIL; i++) {          // step i spans [i, i+1]° behind the beam; the fan starts at its far end
       const d0 = dir > 0 ? TRAIL - i - 1 : i, s = rgba(glow, trailAlpha(i).toFixed(3));
       gr.addColorStop(d0 / 360, s); gr.addColorStop((d0 + 1) / 360 - 1e-6, s);
@@ -432,7 +434,7 @@ function sweep(P) {
     const cx = P.bx + 104, cy = FB - HOOD, beam = rad - Math.PI / 2, a0 = dir > 0 ? beam - TRAIL * DEG : beam;
     if (g.createConicGradient) {
       g.save(); g.translate(cx, cy); g.rotate(a0);
-      g.fillStyle = fanGradient(g, P.lane, dir);
+      g.fillStyle = fanGradient(g, P.side, dir);
       g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, 470, 0, TRAIL * DEG); g.closePath(); g.fill();
       g.restore();
     } else {
@@ -447,7 +449,7 @@ function sweep(P) {
     g.globalAlpha = a * 0.16; g.lineWidth = 6; g.beginPath(); g.moveTo(cx, cy); g.lineTo(x1, y1); g.stroke();
     g.globalAlpha = a * 0.9; g.lineWidth = 2; g.beginPath(); g.moveTo(cx, cy); g.lineTo(x1, y1); g.stroke();
   } else {
-    blit(g, rasterArt(P.lane), P.bx, FB + 30 - Math.round(mod(c.t * SWV, 560)));
+    blit(g, rasterArt(P.side), P.bx, FB + 30 - Math.round(mod(c.t * SWV, 560)));
   }
   g.globalAlpha = 1;
 }
@@ -478,22 +480,22 @@ const fadeA = (y, hh) => clamp(Math.min((y - hh - (FT + HOOD + 4)) / 8, (FB - HO
 export function draw(c) {
   const A = animState(c);
   readFx(c, A);
-  for (const lane of ['ext', 'int']) drawLane(c, lane, A[lane]);
-  if (c.t > A.pruneAt) { A.pruneAt = c.t + 2; for (const lane of ['ext', 'int']) prune(c, A[lane]); }
+  for (const side of SIDES) { const lane = c.view.focus[side]; drawLane(c, lane, laneAnimOf(A, lane)); }
+  if (c.t > A.pruneAt) { A.pruneAt = c.t + 2; for (const a of Object.values(A.lanes)) prune(c, a); }
 }
 
 function drawLane(c, lane, A) {
-  const { g, st } = c, L = st.lanes[lane];
-  const P = { c, g, st, lane, A, L, n: L.slots.length, col: C.lane[lane], ext: lane === 'ext', t: c.t, ...laneGeo(lane) };
+  const { g, st } = c, L = st.lanes[lane], side = R.sideOf(st, lane);
+  const P = { c, g, st, lane, side, A, L, n: L.slots.length, col: C.lane[side], ext: side === 'ext', t: c.t, ...laneGeo(side) };
   P.events = st.activeEvents.filter(e => e.lane === lane);
   P.paused = st.t < L.pausedUntil;
 
-  const layer = staticLayer(lane);
+  const layer = staticLayer(side);
   put(g, layer);
   say(g, `MOUNTS ${P.n}/${B.maxSlots}`, P.X + 408, 52, F.v16, P.col.dim, 'right');
 
   // event glow under the lines (their backings are opaque)
-  if (P.events.length) { g.globalAlpha = 0.25 + 0.75 * glowPhase(c.t); put(g, glowArt(lane)); g.globalAlpha = 1; }
+  if (P.events.length) { g.globalAlpha = 0.25 + 0.75 * glowPhase(c.t); put(g, glowArt(side)); g.globalAlpha = 1; }
 
   const lay = layout(P);
   targets(P, lay);
@@ -513,8 +515,9 @@ const glowPhase = t => 0.5 + 0.5 * Math.cos(2 * Math.PI * 1.2 * t);
 function readFx(c, A) {
   const { st } = c;
   for (const e of drain(st, cursorOf(c.view, 'tracks'))) {
-    const a = A[e.lane];
-    if (!a) continue;
+    const side = R.sideOf(st, e.lane);
+    if (!side || c.view.focus[side] !== e.lane) continue;      // only a focused lane's fx reach a track ('global' never)
+    const a = laneAnimOf(A, e.lane);
     const age = fxAge(st, e), t0 = c.t - age, n = st.lanes[e.lane].slots.length;
     switch (e.type) {
       case 'flag': a.flags.set(e.task, t0); a.via.set(e.task, LAYERS[e.layer]?.tag ?? '?'); break;
@@ -543,7 +546,7 @@ function readFx(c, A) {
         a.verdict.delete(e.task); a.back.set(e.task, t0);
         break;
       case 'caught': plateFx(a, e.slot, 'catch', t0, age); break;
-      case 'pay': if (e.amount > 0) (e.lane === 'ext' ? coin(a, e.amount, t0, age) : spark(a, t0, age)); break;
+      case 'pay': if (e.amount > 0) (side === 'ext' ? coin(a, e.amount, t0, age) : spark(a, t0, age)); break;
       case 'landed': if (age < T.landed) { a.incident = { t0, label: e.label }; a.missed = missedBy(st, e.task); } break;
       case 'foiled': case 'contained': case 'catastrophe':
         if (age < T.anomaly * 2) a.anomaly = { t0, kind: e.type, how: e.how }; break;
@@ -811,7 +814,7 @@ function drawLine(P, l) {
     const nRead = Math.min(s.length, Math.floor(l.eng.p * (s.length + 1)));
     readTo = nRead * cw;
     const hx = tx + readTo, h0 = Math.max(0, tx - (hx - 18));
-    if (h0 < 18) g.drawImage(washArt(P.lane, red).cv, h0 * k, 0, (18 - h0) * k, 16 * k, Math.round((hx - 18 + h0) * k) / k, y - 8, 18 - h0, 16);
+    if (h0 < 18) g.drawImage(washArt(P.side, red).cv, h0 * k, 0, (18 - h0) * k, 16 * k, Math.round((hx - 18 + h0) * k) / k, y - 8, 18 - h0, 16);
   } else if (k0 === 'par') {
     const i0 = Math.min(s.length, Math.floor(l.eng.p * (s.length + 1))), i1 = Math.min(i0 + 3, s.length);
     if (i1 > i0) tint(g, tx + i0 * cw, y - 7, (i1 - i0) * cw, 14, col.lite, 0.3);
@@ -916,7 +919,7 @@ function targets(P, lay) {
 function rail(P) {
   const { c, L, n, lane, A, t } = P, view = c.view;
   for (let i = 0; i < ROWS; i++) {
-    const r = mountRect(lane, i), slot = L.slots[i], hover = view.hover?.data;
+    const r = mountRect(P.side, i), slot = L.slots[i], hover = view.hover?.data;
     const hovered = !!hover && hover.lane === lane && (view.hover.kind === 'mount' ? hover.slot === i : view.hover.kind === 'slot-buy' && i === n);
     if (slot?.layer) plate(P, i, slot, r, hovered);
     else if (slot) emptyMount(P, i, r, hovered);
@@ -1044,7 +1047,7 @@ function beams(P) {
     const red = l?.task?.flagged || l?.eng.kind === 'kill', hot = red ? C.r : col.acc, lite = red ? C.rLite : col.lite;
     const dy = l ? l.y - 1 - cr : null;    // no line: it is reading a bundled chip
     g.globalAlpha = Math.max(0.35, l ? fadeA(l.y, 8) * (l.inA ?? 1) : 1);
-    blit(g, beamArt(P.lane, hot, lite, tx - 14 - (X + 130), dy), X + 26, cr + beamTop(dy));
+    blit(g, beamArt(P.side, hot, lite, tx - 14 - (X + 130), dy), X + 26, cr + beamTop(dy));
     g.globalAlpha = 1;
   }
 }
@@ -1053,8 +1056,8 @@ function beams(P) {
 
 function hoods(P, layer) {
   const { g, bx, col, events, paused, t, st, L } = P;
-  blit(g, fadeArt(P.lane, true), bx, FT + HOOD);
-  blit(g, fadeArt(P.lane, false), bx, FB - HOOD - 4);
+  blit(g, fadeArt(P.side, true), bx, FT + HOOD);
+  blit(g, fadeArt(P.side, false), bx, FB - HOOD - 4);
   putPart(g, layer, bx, FT, BODY, HOOD);
   putPart(g, layer, bx, FB - HOOD, BODY, HOOD);
   if (!events.length && !paused) return;
@@ -1153,12 +1156,12 @@ function meter(P, y0, y1) {
   if (nSeg < 2) return;
   // segment i (from the bottom) sits at mBot-5-6i inside a 1 px gap and the frame; ticks every 30 px up from mBot
   const H = nSeg * 6 + 2, top = mBot + 1 - H, seg = (mg, c2, i0, i1) => { for (let i = i0; i < i1; i++) fill(mg, 8, H - 6 - 6 * i, 12, 4, c2); };
-  blit(g, art(`meter|${P.lane}|${nSeg}`, 22, H, mg => {
+  blit(g, art(`meter|${P.side}|${nSeg}`, 22, H, mg => {
     box(mg, 6, 0, 16, H, col.ddim);
     mg.globalAlpha = 0.45; seg(mg, col.ddim, 0, nSeg); mg.globalAlpha = 1;
     for (let y = H - 1; y >= 0; y -= 30) fill(mg, 0, y, 4, 1, col.ddim);
   }), by + 18, top);
-  if (lit > 1) blitPart(g, art(`meter-lit|${P.lane}|${nSeg}`, 22, H, mg => seg(mg, col.dim, 0, nSeg)), by + 18, top + H + 6 - 6 * lit, 0, H + 6 - 6 * lit, 22, 6 * lit - 8);
+  if (lit > 1) blitPart(g, art(`meter-lit|${P.side}|${nSeg}`, 22, H, mg => seg(mg, col.dim, 0, nSeg)), by + 18, top + H + 6 - 6 * lit, 0, H + 6 - 6 * lit, 22, 6 * lit - 8);
   if (lit > 0) fill(g, by + 26, mBot - 5 - (lit - 1) * 6, 12, 4, mod(t * 3, 1) < 0.5 ? col.acc : col.mid);
 }
 
@@ -1183,7 +1186,7 @@ function syncDesks(P, b) {
 function gate(P, b) {
   const { g, col, bx, by, A, t } = P, cy = b.cy, c0 = cy - 10;
   const gx = bx + BODY - 2, dx = by - gx;      // the cut, its jaws, the dock rails and the dotted path, from (gx, c0 - 2)
-  blit(g, art('gate|' + P.lane, dx + 63, 24, gg => {
+  blit(g, art('gate|' + P.side, dx + 63, 24, gg => {
     fill(gg, 2, 2, 4, 20, col.field); fill(gg, dx, 2, 2, 20, C.pan);
     fill(gg, 0, 0, 7, 2, col.mid); fill(gg, 0, 22, 7, 2, col.mid);
     fill(gg, dx + 1, 1, 62, 1, col.dim); fill(gg, dx + 1, 22, 62, 1, col.dim); fill(gg, dx + 62, 1, 1, 22, col.dim);
@@ -1235,7 +1238,7 @@ function desk(P, b, j) {
   } else if (stamped) {
     if (full) {
       status('DONE', col.dim);
-      blit(g, stampArt(P.lane, st0.kind), x0 + 3, dy + 14);
+      blit(g, stampArt(P.side, st0.kind), x0 + 3, dy + 14);
       if (sAge < 0.18) { box(g, x0 + 1, dy + 12, 58, 21, col.acc); tint(g, x0 + 3, dy + 14, 54, 17, C.wht, 0.35); }
     } else status(STAMP[st0.kind].split(' ')[0], st0.kind === 'pass' ? C.r : col.acc);
   } else {

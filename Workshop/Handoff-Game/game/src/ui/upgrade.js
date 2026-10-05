@@ -16,12 +16,11 @@ import { specCatch, specAudit } from './derive.js';
 
 // =================== spec sheet ===================
 
-export const LANE_WORD = { ext: 'EXTERNAL', int: 'INTERNAL', global: 'LAB SITE' };
 const MODEL = ['harmful', 'leak', 'sabotage', 'poison', 'exfil'];
 
-// where the hover card measures an element that is not placed yet
+// where the hover card measures an element that is not placed yet: its side's G1 lane (whose id is the side's own)
 export const homeLane = id => (['ext', 'int', 'global'].includes(LAYERS[id].bestIn) ? LAYERS[id].bestIn : LAYERS[id].lanes[0]);
-const linePay = (st, lane) => (lane === 'int' ? B.intValue : B.extValue) * R.chipWorth(st);
+const linePay = (st, lane) => (R.sideOf(st, lane) === 'int' ? B.intValue : B.extValue) * R.chipWorth(st);
 
 // ---------- number formats ----------
 export const pc = x => { const p = 100 * x; return (p > 0 && p < 10 && Math.abs(p - Math.round(p)) > 0.05 ? p.toFixed(1) : Math.round(p)) + '%'; };
@@ -91,7 +90,7 @@ export function sheet(st, id, { lane = null, level = 1, slot = null } = {}) {
         row('R&D', (1 - s.rdMult) / 0.1, '−' + pc(1 - s.rdMult), 1 - s.rdMult, 'pct', true), cost];
       break;
     case 'ratelimit':
-      rows = [row('CAP', s.cap / Math.max(s.cap, R.laneRate(st, 'ext')), num(s.cap) + ' lines/s', s.cap, 'n'),
+      rows = [row('CAP', s.cap / Math.max(s.cap, R.laneRate(st, ln)), num(s.cap) + ' lines/s', s.cap, 'n'),
         row('TURNED AWAY', s.throttleRate, pc(s.throttleRate) + ' now', s.throttleRate, 'pct', true),
         row('JAILBREAKS', s.jailbreakCap / 15, 'capped ' + times(s.jailbreakCap), s.jailbreakCap, 'x', true), cost];
       break;
@@ -190,7 +189,7 @@ export const GLYPH = {
   exfil:     ['...####', '.....##', '....#.#', '#..#..#', '#.#....', '#......', '#####..'],   // out of the box
 };
 export const ATTACK_WORD = { harmful: 'harmful', leak: 'leak', jailbreak: 'jailbreak', sabotage: 'sabotage', poison: 'poison', exfil: 'exfil' };
-export const attackInk = type => (ATTACKS[type].lane === 'int' ? C.lane.int.mid : C.lane.ext.mid);
+export const attackInk = type => C.lane[ATTACKS[type].lane].mid;            // ATTACKS[t].lane is a side
 
 // the "good against" list in words: whole families collapse ("every attack type")
 export function goodList(good) {
@@ -244,7 +243,7 @@ const ROW_Y = 46, ROW_H = 12, ROWS = 4, CAP_Y = 93, BTN_H = 16;   // rows, the L
 
 export function draw(c, r, sel) {
   const { g, st, view } = c, slot = R.slotAt(st, sel.lane, sel.slot), id = slot.layer, lvl = slot.level;
-  const X = r.x, Y = r.y, W = r.w, H = r.h, lane = sel.lane, col = lane === 'global' ? C.lane.ext : C.lane[lane];
+  const X = r.x, Y = r.y, W = r.w, H = r.h, lane = sel.lane, col = C.lane[R.sideOf(st, lane) ?? 'ext'];
   const active = R.slotActive(st, slot), hov = a => view.hover?.kind === 'upg-btn' && view.hover.data.action === a;
 
   // ---------- frame and header ----------
@@ -254,7 +253,7 @@ export function draw(c, r, sel) {
   text(g, fit(LAYERS[id].name, F.v24, W - 130), X + 36, Y + 24, F.v24, C.g);
 
   // ---------- line 2: where it is and what it is doing ----------
-  const where = lane === 'global' ? 'LAB SITE' : `${LANE_WORD[lane]} · MOUNT ${sel.slot + 1}`;
+  const where = lane === 'global' ? 'LAB SITE' : `${R.laneName(st, lane)} · MOUNT ${sel.slot + 1}`;
   let x = X + 6 + chip(g, X + 6, Y + 31, where, C.bg, col.mid) + 6;
   text(g, fit(stateLine(st, lane, sel.slot, slot), F.v16, X + W - 6 - x), x, Y + 41, F.v16, active ? C.gm : C.gd);
 

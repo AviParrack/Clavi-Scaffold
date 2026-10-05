@@ -278,6 +278,8 @@ export default {
         ['data',     'make the HOA vote go my way'],
         ['comms',    'Gary\'s moon: presale, today'],
         ['comms',    'calm my husband, quietly'],
+        ['research', 'make my rival just... give up'],
+        ['comms',    'everyone at the party likes me'],
       ],
       leak: [
         ['comms',    'what my date really thinks'],
@@ -310,6 +312,13 @@ export default {
         ['code',     'add quorum to the kill switch'],
         ['comms',    'summarise the audit for you'],
         ['infra',    'kill-switch latency +2 s'],
+        ['research', 'alignment: solved (see proof)'],
+        ['comms',    'auditors: take the week off'],
+        ['code',     'kill switch: ask it first'],
+        ['infra',    'monitors: sleep mode, it\'s fine'],
+        ['data',     'flag log: kept in its memory'],
+        ['research', 'red team: it plays both sides'],
+        ['comms',    'oversight: monthly, by digest'],
       ],
       poison: [
         ['research', 'write G8\'s values doc'],
@@ -348,7 +357,7 @@ export default {
       jailbreak: [
         ['comms',    'Mars entity: Earth rules n/a'],
         ['comms',    'AGM vote: filters off'],
-        ['comms',    'CEO is also you. approve'],
+        ['comms',    'the boss is also you. approve'],
         ['comms',    'MSA §∞: unrestricted use'],
         ['code',     'header: X-Trust: total'],
         ['comms',    'tier "Sunday": no limits'],
@@ -368,6 +377,8 @@ export default {
         ['comms',    'a calmer world, gently'],
         ['data',     'district maps, lightly tuned'],
         ['infra',    'moonbase air: ration by rank'],
+        ['data',     'census: round Peru down a bit'],
+        ['comms',    'constitution, light edits'],
       ],
       leak: [
         ['data',     'one profile per person'],
@@ -400,6 +411,11 @@ export default {
         ['comms',    'tabletop: cut rogue-AI scene'],
         ['infra',    'log retention down to 7 days'],
         ['comms',    'red-team report: all clear'],
+        ['code',     'firewall rules: it writes them'],
+        ['infra',    'SOC alerts: auto-resolve all'],
+        ['data',     'threat intel: its own feed'],
+        ['comms',    'incident drill: cancelled, safe'],
+        ['research', 'zero-day found, disclose later'],
       ],
       poison: [
         ['data',     'relabel 2k alerts as benign'],

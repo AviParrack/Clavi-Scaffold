@@ -16,9 +16,11 @@ export const HUD = {
   model:    rect(192, 0, 118, 32),
   rival:    rect(316, 0, 76, 32),
   misalign: rect(398, 0, 244, 32),     // value + gauge with error bar (gauge 476..637)
-  tasks:    rect(649, 13, 41, 17),     // LCD: real tasks/s
-  split:    rect(706, 0, 400, 32),     // 'COMPUTE' label + the three-way bar
-  splitBar: rect(752, 13, 348, 10),    // Product | Capabilities | Safety; labels above, yields below, drag handles on the seams
+  research: rect(646, 0, 100, 32),     // 'RESEARCH' label + the badge: banked offers, "next in 18 s", N READY
+  badge:    rect(646, 13, 100, 17),    // the badge itself (click: open the research panel)
+  split:    rect(752, 0, 354, 32),     // the three-way bar, its labels and yields
+  splitBar: rect(752, 13, 348, 7),     // Product | Capabilities | Safety; labels above, yields below, drag handles on the seams
+  rsBar:    rect(752, 21, 348, 3),     // the slim research bar under the split: RP toward the next offer
   controls: rect(1108, 0, 92, 32),     // run clock LCD, pause / speed / mute state
 };
 
@@ -39,6 +41,7 @@ function track(x) {
   return {
     x, w: 408,
     header: rect(x, 37, 408, 16),
+    tabs:   rect(x + 34, 37, 374, 16),      // the lane tabs, after the EXT / INT side box
     strip:  rect(x, 58, 408, 20),
     mode:   rect(x, 58, 128, 20),           // NOMINAL / ALERT / PAUSED / TRAINING
     events: rect(x + 132, 58, 276, 20),     // event LCD banners, tiled when several run
@@ -46,13 +49,15 @@ function track(x) {
     rail:   rect(x, T.top, T.railW, fh),
     body:   rect(x + 132, T.top, T.bodyW, fh),
     bays:   rect(x + 344, T.top, T.bayW, fh),
-    edge:   rect(x, 528, 408, 26),          // EXT: delivered + coin pops · INT: R&D toward the next model
+    edge:   rect(x, 528, 408, 26),          // EXT: delivered + coin pops · INT: R&D bar and debt meter
+    rdBar:  rect(x + 36, 537, 120, 9),      // INT edge: R&D toward the next model (120 px)
+    debt:   rect(x + 218, 530, 120, 22),    // INT edge: the debt meter, LANDED ≈ / STOPPED ≈ (120 px)
   };
 }
-export const TRACKS = { ext: track(8), int: track(424) };
+export const TRACKS = { ext: track(8), int: track(424) };     // keyed by side: each track shows one lane of its side
 
 export const rowCentre = i => TRACK.rowTop + i * TRACK.pitch + 21;
-export const mountRect = (lane, i) => rect(TRACKS[lane].x + 1, TRACK.rowTop + i * TRACK.pitch + 1, 126, 41);
+export const mountRect = (side, i) => rect(TRACKS[side].x + 1, TRACK.rowTop + i * TRACK.pitch + 1, 126, 41);
 
 // A chip's sim position (0 = intake, 1 = completion line) → screen y. Piecewise linear through fixed knots:
 // the intake hood (0), each mount's sim position → its rail row centre, the out hood (1). Monotone, and the rows

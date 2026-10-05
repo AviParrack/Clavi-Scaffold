@@ -1,129 +1,109 @@
-// ===== Research: five branches, draw 2 (from different branches), pick 1 =====
-// type: unlock (adds an element to the bar) | tech (lab-wide effect, read in sim/rules.js, sim/research.js, sim/outcomes.js)
-// addresses: attack types the card helps with. Every draw offers at least one card that addresses an attack type
-//            seen this generation (when one is left in the pool). Seen = caught, landed in public, foiled, named by
-//            the generation's eval line, or announced by an event (sim/log.js noteSeen).
-// endsEvent: placing this element ends that running event, so the card counts as relevant while it runs.
-// flavour: the codec line when you take it.
-// repeatable: can be taken again. price: extra $ to take it (× bundle), × priceMult for every earlier copy.
-// requires: element that must already be unlocked · minGen: not offered before this generation
+// ===== Research cards (DESIGN-v3 §3a): a steady stream, three work streams, no cash cost =====
+// An offer is three cards, one per stream (sim/research.js drawOffer). Card types:
+//   new    unlocks an element (layer) and mounts its first copy free
+//   level  a free lab-wide level of a placed element (el), up to BALANCE.research.maxLevel (L4)
+//   lab    a technique: a lab-wide effect read in sim/rules.js and sim/outcomes.js (st.upgrades[id])
+//   mount  +1 mount on one lane, up to BALANCE.maxSlots
+// from: first generation it can be offered · answers: the threat (THREATS) it counters · rare: drawn at
+// BALANCE.research.rareWeight · repeat: can come back (Alignment Sprint: once a generation).
+// flavour: the codec line when you take it. Titles and texts are built from the numbers below, so a retune retunes them.
 
-export const BRANCHES = {
-  monitoring:  { name: 'Monitoring',           color: '#7fd1ff', speaker: 'research' },
-  oversight:   { name: 'Human oversight',      color: '#ffd27f', speaker: 'audit' },
-  containment: { name: 'Containment',          color: '#ff9f7f', speaker: 'safety' },
-  science:     { name: 'Science of alignment', color: '#c79bff', speaker: 'research' },
-  operations:  { name: 'Operations',           color: '#7fffb5', speaker: 'ceo' },
+import { LAYERS } from './layers.js';
+
+// the three work streams (one offer slot each). BRANCHES is the v2 name the old UI reads.
+export const STREAMS = {
+  monitoring: { name: 'Monitoring',   color: '#7fd1ff', speaker: 'research' },
+  control:    { name: 'Control',      color: '#ffd27f', speaker: 'audit' },
+  lab:        { name: 'Lab & Interp', color: '#c79bff', speaker: 'research' },
 };
+export const BRANCHES = STREAMS;
 
-// ===== Numbers the tech cards use (read in sim/rules.js, sim/outcomes.js, sim/events.js) =====
-// The card texts below are built from these, so retuning a number here retunes the text too.
+// threats, by the generation they first appear (balance-v3 THREATS). While a live threat has no owned answer, every
+// offer shows an answer to it (as far as the three slots allow).
+export const THREATS = { jailbreak: 1, sabotage: 2, collusion: 3, exfil: 4, quota: 5, neuralese: 6, fooled: 7 };
+
+// automatic unlocks, announced on the model card (DESIGN-v3 §3a "Spine unlocks")
+export const SPINE = { 3: ['untrusted'] };
+
+// ===== Numbers the techniques use (read in sim/rules.js, sim/outcomes.js, sim/events.js) =====
+// The v2 techniques below the line are no longer offered (§3a, §3i); their effects stay readable for the old UI and tests.
 export const TECH = {
-  diversityPerType: 0.05, diversityMax: 0.15,   // monitor_diversity
-  debateDecay: 0.5,                             // debate: auditor accuracy loss per generation × this
+  diversityPerType: 0.02, diversityMax: 0.06,   // monitor_diversity: + TPR per OTHER general detector kind in the lane
+  jamming: 0.5,                                 // jamming: × Untrusted Monitor collusion on every lane
+  debateTau: 6, debateErr: 0.5,                 // debate: auditor seconds per line, × auditor errors
+  weightSecurity: 0.5,                          // weight_security: share of escapes that fail outright
+  // ---- v2 techniques, not offered in v3.0 ----
   twoPersonCatch: 0.5,                          // two_person: each last look catches with P = auditor accuracy × this
-  weightSecurity: 0.3,                          // weight_security: share of escapes that fail outright
   irtRepMult: 0.5,                              // irt: × reputation lost per incident
   tripwirePause: 2, tripwireAlert: 10, tripwireSpot: 5,   // tripwires: lane pause (s), then high alert (s): spot checks × this
-  alignmentTrainingM: 0.03,                     // alignment_training: next model m −this per copy
+  alignmentTrainingM: 0.03,
   rspM: 0.05, rspRep: 10, rspPause: 60, rspThreshold: 0.3,
   welfareM: 0.02,
-  distillation: 0.8,                            // × per-task cost
-  batchLatency: 0.7,                            // × latency
+  distillation: 0.8,                            // × per-line cost
+  batchLatency: 0.7,                            // × latency (detector reads and responder time)
   extraDesk: 1,                                 // + desks per bay
+};
+// titles of the v2 techniques (tests and the old UI's tech list)
+export const V2_TECH = {
+  promote_model: 'Promote Last Model to Trusted', tripwires: 'Tripwires', two_person: 'Two-Person Rule', irt: 'Incident Response Team',
+  alignment_training: 'Alignment Training', rsp: 'Responsible Scaling Policy', welfare: 'Model Welfare Program',
+  distillation: 'Distillation', batch_inference: 'Batch Inference', extra_desk: 'Extra Bay Desk',
 };
 
 const pct = x => `${Math.round(100 * x)}%`;
-const MODEL = ['harmful', 'leak', 'sabotage', 'poison', 'exfil'];
+const NEW = (id, stream, from, more = {}) => ({ id, stream, type: 'new', layer: id, from, title: LAYERS[id].name, text: LAYERS[id].desc, ...more });
+const LEVEL = (el, stream) => ({ id: `level:${el}`, stream, type: 'level', el, from: 1,
+  title: `${LAYERS[el].name}: +1 level`, text: `${LAYERS[el].name} goes up one lab level: every copy, every lane. Free, up to L4.` });
 
 export const CARDS = [
   // ==================== Monitoring ====================
-  { id: 'unlock_untrusted',   branch: 'monitoring', type: 'unlock', layer: 'untrusted', addresses: MODEL,
-    flavour: 'We made it watch itself. What could go wrong.' },
-  { id: 'unlock_cot',         branch: 'monitoring', type: 'unlock', layer: 'cot', addresses: ['sabotage', 'poison', 'exfil'],
-    flavour: 'It thinks out loud. For now. Read fast.' },
-  { id: 'unlock_classifier',  branch: 'monitoring', type: 'unlock', layer: 'classifier', addresses: ['jailbreak'],
-    flavour: 'Grandma\'s napalm bedtime story is now a known pattern. Sorry, grandma.' },
-  { id: 'unlock_egress',      branch: 'monitoring', type: 'unlock', layer: 'egress', addresses: ['exfil'],
-    flavour: 'We count every byte that leaves the building. Most of them are memes.' },
-  { id: 'unlock_paraphraser', branch: 'monitoring', type: 'unlock', layer: 'paraphraser', addresses: ['sabotage', 'exfil'], endsEvent: 'stego',
-    flavour: 'Same meaning, fewer secret handshakes.' },
-  { id: 'promote_model',      branch: 'monitoring', type: 'tech', requires: 'monitor', minGen: 2, addresses: ['sabotage', 'poison', 'exfil'],
-    title: 'Promote Last Model to Trusted',
-    text: 'Trusted Monitor TPR resets to its G1 level for good, but it colludes if that model was misaligned.',
-    flavour: 'It was so nice last generation.' },
-  { id: 'monitor_diversity',  branch: 'monitoring', type: 'tech', addresses: ['harmful', 'leak', 'sabotage', 'poison'],
+  NEW('classifier', 'monitoring', 1, { answers: 'jailbreak', flavour: 'Grandma\'s napalm bedtime story is now a known pattern. Sorry, grandma.' }),
+  NEW('cot', 'monitoring', 2, { answers: 'sabotage', flavour: 'It thinks out loud. For now. Read fast.' }),
+  NEW('egress', 'monitoring', 4, { answers: 'exfil', flavour: 'We count every byte that leaves the building. Most of them are memes.' }),
+  NEW('redteam', 'monitoring', 1, { flavour: 'We pay people to attack us. Morale has never been higher.' }),
+  { id: 'monitor_diversity', stream: 'monitoring', type: 'lab', from: 3,
     title: 'Monitor Diversity',
-    text: `Every detector gets +${TECH.diversityPerType} TPR for each other kind of detector in its lane (up to +${TECH.diversityMax}).`,
+    text: `Every general detector gets +${TECH.diversityPerType} TPR for each other kind of general detector in its lane (up to +${TECH.diversityMax}).`,
     flavour: 'Swiss cheese, but more cheese.' },
+  ...['probe', 'monitor', 'untrusted', 'cot', 'classifier', 'egress'].map(el => LEVEL(el, 'monitoring')),
 
-  // ==================== Human oversight ====================
-  { id: 'unlock_defer',     branch: 'oversight', type: 'unlock', layer: 'defer', addresses: ['harmful', 'leak', 'jailbreak'],
-    flavour: 'When in doubt, ask the trusted model. It peaked in 2023, but it means well.' },
-  { id: 'unlock_resampler', branch: 'oversight', type: 'unlock', layer: 'resampler', addresses: ['sabotage', 'poison', 'harmful'],
-    flavour: 'Didn\'t like that answer? Ctrl-Z. There\'s a paper.' },
-  { id: 'debate',           branch: 'oversight', type: 'tech', addresses: MODEL,
+  // ==================== Control ====================
+  NEW('defer', 'control', 2, { answers: 'quota', flavour: 'When in doubt, ask the trusted model. It peaked in 2023, but it means well.' }),
+  NEW('resampler', 'control', 2, { answers: 'sabotage', flavour: 'Didn\'t like that answer? Ctrl-Z. There\'s a paper.' }),
+  NEW('paraphraser', 'control', 3, { answers: 'collusion', flavour: 'Same meaning, fewer secret handshakes.' }),
+  NEW('honeypot', 'control', 3, { answers: 'collusion', flavour: 'Unattended GPUs, admin password on a sticky note. Totally not a trap.' }),
+  NEW('leastpriv', 'control', 4, { answers: 'exfil', flavour: 'It gets the keys it needs. It has opinions about the other keys.' }),
+  { id: 'jamming', stream: 'control', type: 'lab', from: 3, answers: 'collusion',
+    title: 'Signal Jamming',
+    text: `Untrusted Monitor collusion ×${TECH.jamming} on every lane.`,
+    flavour: 'A little noise on every channel two copies could share. They hate it. Good.' },
+  { id: 'debate', stream: 'control', type: 'lab', from: 5, answers: 'fooled',
     title: 'Scalable Oversight (Debate)',
-    text: `Auditor accuracy loses only ${pct(TECH.debateDecay)} as much each generation.`,
+    text: `Auditors review a line in ${TECH.debateTau} s instead of 8, and make ${pct(TECH.debateErr)} of the mistakes.`,
     flavour: 'Two copies argue; the human judges. Like Twitter, but useful.' },
-  { id: 'tripwires',        branch: 'oversight', type: 'tech', addresses: [],
-    title: 'Tripwires',
-    text: `Any catch pauses that lane for ${TECH.tripwirePause} s so you can react, then puts it on high alert for ${TECH.tripwireAlert} s: its auditors spot-check ${TECH.tripwireSpot}× as often.`,
-    flavour: 'One catch and the whole line stops. Like a smoke alarm, but for intent.' },
-  { id: 'two_person',       branch: 'oversight', type: 'tech', addresses: ['exfil'],
-    title: 'Two-Person Rule',
-    text: 'An INTERNAL escape needs two misses: a Kill Switch operator and an Auditor each get a last look before the weights leave.',
-    flavour: 'Nobody moves the weights alone. Not even the weights.' },
+  { ...LEVEL('auditor', 'control'), answers: 'quota' },
+  LEVEL('defer', 'control'),
+  LEVEL('killswitch', 'control'),
 
-  // ==================== Containment ====================
-  { id: 'unlock_sandbox',   branch: 'containment', type: 'unlock', layer: 'sandbox', addresses: ['sabotage', 'poison', 'exfil', 'leak'],
-    flavour: 'Run it in a box. Make the box smaller every year.' },
-  { id: 'unlock_leastpriv', branch: 'containment', type: 'unlock', layer: 'leastpriv', addresses: ['sabotage', 'exfil'],
-    flavour: 'It gets the keys it needs. It has opinions about the other keys.' },
-  { id: 'unlock_ratelimit', branch: 'containment', type: 'unlock', layer: 'ratelimit', addresses: ['jailbreak', 'harmful', 'leak'],
-    flavour: 'Best-of-N jailbreaking needs N. We\'re making N expensive.' },
-  { id: 'weight_security',  branch: 'containment', type: 'tech', addresses: ['exfil'],
+  // ==================== Lab & Interp ====================
+  { id: 'weight_security', stream: 'lab', type: 'lab', from: 4, answers: 'exfil',
     title: 'Weight Security (SL-4)',
     text: `Exfiltration attempts that get through fail outright ${pct(TECH.weightSecurity)} of the time.`,
     flavour: 'We moved the weights off the shared drive.' },
-  { id: 'irt',              branch: 'containment', type: 'tech', addresses: ['harmful', 'leak', 'jailbreak'],
-    title: 'Incident Response Team',
-    text: `Reputation lost per incident ×${TECH.irtRepMult}.`,
-    flavour: 'We have a pager now. It is never not going off.' },
-
-  // ==================== Science of alignment ====================
-  { id: 'unlock_honeypot', branch: 'science', type: 'unlock', layer: 'honeypot', addresses: ['sabotage', 'poison', 'exfil'],
-    flavour: 'Unattended GPUs, admin password on a sticky note. Totally not a trap.' },
-  { id: 'unlock_redteam',  branch: 'science', type: 'unlock', layer: 'redteam', addresses: [...MODEL, 'jailbreak'],
-    flavour: 'We pay people to attack us. Morale has never been higher.' },
-  { id: 'unlock_interp',   branch: 'science', type: 'unlock', layer: 'interp', addresses: [],
-    flavour: 'We\'ll understand it one neuron at a time. Unfortunately the neurons are polysemantic.' },
-  { id: 'unlock_canary',   branch: 'science', type: 'unlock', layer: 'canary', addresses: ['leak'],
-    flavour: 'A fake API key in every reply. If it turns up on a forum, we know who talked.' },
-  { id: 'alignment_training', branch: 'science', type: 'tech', repeatable: true, price: 500, priceMult: 2, addresses: MODEL,
-    title: 'Alignment Training',
-    text: `The next model comes out with m −${TECH.alignmentTrainingM}. Stackable; each copy costs twice the last.`,
-    flavour: 'We asked it nicely, with RL.' },
-  { id: 'rsp',             branch: 'science', type: 'tech', addresses: ['exfil'],
-    title: 'Responsible Scaling Policy',
-    text: `Once a generation, while your misalignment estimate is above ${pct(TECH.rspThreshold)}, you may pause: INTERNAL stops for ${TECH.rspPause} s, m −${TECH.rspM}, reputation +${TECH.rspRep}.`,
-    flavour: 'The RSP says pause. The CEO says... also pause, apparently.' },
-  { id: 'welfare',         branch: 'science', type: 'tech', addresses: [],
-    title: 'Model Welfare Program',
-    text: `m −${TECH.welfareM} now, and the model starts telling you how it is really doing.`,
-    flavour: 'We asked it how it\'s doing. It said fine. We\'ll keep asking.' },
-
-  // ==================== Operations ====================
-  { id: 'distillation',    branch: 'operations', type: 'tech', addresses: [],
-    title: 'Distillation',
-    text: `Every per-task cost −${pct(1 - TECH.distillation)}.`,
-    flavour: 'Same monitor, a tenth the size. It only forgot the parts we didn\'t test.' },
-  { id: 'batch_inference', branch: 'operations', type: 'tech', addresses: [],
-    title: 'Batch Inference',
-    text: `Every element works ${pct(1 - TECH.batchLatency)} faster (reads and desk time).`,
-    flavour: 'Batch size went from 1 to 512. Nobody can explain why we started at 1.' },
-  { id: 'extra_desk',      branch: 'operations', type: 'tech', addresses: [],
-    title: 'Extra Bay Desk',
-    text: `+${TECH.extraDesk} desk in every responder bay.`,
-    flavour: 'We bought another desk. The chair is a separate approval.' },
+  { id: 'faithful_cot', stream: 'lab', type: 'lab', from: 5, answers: 'neuralese',
+    title: 'Faithful CoT',
+    text: 'The CoT Monitor keeps reading English after the model goes neuralese: it never falls below its G1 TPR.',
+    flavour: 'We pay it to think in words we can read. It bills by the token.' },
+  { id: 'sprint', stream: 'lab', type: 'lab', from: 2, repeat: true,
+    title: 'Alignment Sprint',
+    text: 'The next model comes out with m −10% of m. R&D ×0.8 for the rest of this generation.',
+    flavour: 'Everyone off capabilities for a week. The capabilities team has thoughts.' },
+  { id: 'mount', stream: 'lab', type: 'mount', from: 1,
+    title: '+1 Mount',
+    text: 'One more mount on a lane of your choice (up to 10), free.',
+    flavour: 'Facilities found another rack. Do not ask where it was.' },
+  NEW('interp', 'lab', 1, { rare: true, flavour: 'We\'ll understand it one neuron at a time. Unfortunately the neurons are polysemantic.' }),
+  NEW('canary', 'lab', 1, { rare: true, answers: null, flavour: 'A fake API key in every reply. If it turns up on a forum, we know who talked.' }),
+  NEW('sandbox', 'lab', 1, { rare: true, flavour: 'Run it in a box. Make the box smaller every year.' }),
+  NEW('ratelimit', 'lab', 1, { rare: true, flavour: 'Best-of-N jailbreaking needs N. We\'re making N expensive.' }),
 ];

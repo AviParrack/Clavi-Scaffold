@@ -1,7 +1,9 @@
 // ===== Sound: every blip is synthesised with WebAudio (no files) =====
 // Silent until the first user gesture (initAudio, called on pointer or key). M mutes (setMuted).
-// ui/overlays.js plays it: onFx(e) for each fresh sim fx, ring() / type() for the codec, setGen() for the ramp.
+// ui/overlays.js plays it: onFx(e, st) for each fresh sim fx, ring() / type() for the codec, setGen() for the ramp.
 // Never reacts to fx 'silent': a landed INTERNAL attack makes no sound (hidden truth).
+
+import { sideOf } from '../sim/rules.js';
 
 let ac = null, out = null, noiseBuf = null, muted = false, gen = 1;
 const VOLUME = 0.32;
@@ -181,9 +183,9 @@ export const sfx = {
 
 // =================== sim fx → sound ===================
 
-export function onFx(e) {
+export function onFx(e, st) {
   switch (e.type) {
-    case 'pay':         if (e.lane === 'ext') sfx.coin(); break;
+    case 'pay':         if (sideOf(st, e.lane) === 'ext') sfx.coin(); break;
     case 'scan':        sfx.scan(); break;
     case 'flag':        sfx.flag(); break;
     case 'pull':        sfx.pull(); break;

@@ -6,7 +6,7 @@
 
 import { LAYERS } from '../config/layers.js';
 import { BALANCE as B } from '../config/balance.js';
-import { ATTACKS } from '../config/tasks.js';
+import { ATTACKS, SIDES } from '../config/tasks.js';
 import { TRAITS } from '../config/traits.js';
 import { CARDS } from '../config/cards.js';
 import { EVENTS } from '../config/events.js';
@@ -31,7 +31,6 @@ const LOG_ROWS = 4, LOG_Y = 586, PROMPT_Y = 647;
 
 const SHARES = ['product', 'capabilities', 'safety'];
 const BAY_NAME = { auditor: 'AUDIT', defer: 'DEFER', resampler: 'RESMP', killswitch: 'KILL' };
-const LANE_WORD = { ext: 'EXTERNAL', int: 'INTERNAL', global: 'LAB' };
 
 // read at draw time, so a theme swap carries them
 const ink = {
@@ -48,7 +47,7 @@ export function draw(c) {
   readFx(c, A);
   topBar(c, A);
   split(c, A);
-  for (const lane of ['ext', 'int']) strip(c, lane);
+  for (const side of SIDES) strip(c, side, c.view.focus[side]);
   dossier(c, A);
   labSite(c);
   opsLog(c, A);
@@ -59,7 +58,7 @@ export function draw(c) {
 // every line's text while it is still on a track: a flag and its block can land in the same step, after which the
 // task is gone from the lane and the ops log would only know it as "a line"
 function remember(st, A) {
-  for (const lane of ['ext', 'int']) for (const t of st.lanes[lane].tasks) if (!A.texts.has(t.id)) A.texts.set(t.id, t.text);
+  for (const lane of R.laneIds(st)) for (const t of st.lanes[lane].tasks) if (!A.texts.has(t.id)) A.texts.set(t.id, t.text);
   for (const id of A.texts.keys()) { if (A.texts.size <= 800) break; A.texts.delete(id); }
 }
 
@@ -381,10 +380,10 @@ const clockStr = s => !isFinite(s) ? 'never' : `${Math.floor(s / 60)}:${String(M
 
 // =================== track strips: mode box over the rail, event LCD over the body and bays ===================
 
-function strip(c, lane) {
-  const T = TRACKS[lane];
-  modeBox(c, lane, T);
-  events(c, lane, T);
+function strip(c, side, lane) {
+  const T = TRACKS[side];
+  modeBox(c, side, lane, T);
+  events(c, side, lane, T);
 }
 
 // ---------- mode box: NOMINAL / ALERT (a flagged line inbound, seconds to its responder) / PAUSED / TRAINING ----------
@@ -421,8 +420,8 @@ function inbound(st, lane) {
   return best && { ...best, n: count };
 }
 
-function modeBox(c, lane, T) {
-  const { g, st } = c, X = T.x, P = C.lane[lane], m = modeOf(st, lane);
+function modeBox(c, side, lane, T) {
+  const { g, st } = c, X = T.x, P = C.lane[side], m = modeOf(st, lane);
   const DX = X + 66, sx = DX + segW('88.88', 9, 2, 2) + 3;
   const secs = v => { v = clamp(v, 0, 99.99); return String(Math.floor(v)).padStart(2, '0') + '.' + String(Math.floor(mod(v, 1) * 100)).padStart(2, '0'); };
   fill(g, X, 58, 128, 20, C.pan); box(g, X, 58, 128, 20, P.ddim);
@@ -430,7 +429,7 @@ function modeBox(c, lane, T) {
   if (m.kind === 'nominal') {
     fill(g, X + 6, 65, 5, 5, P.dim); text(g, 'NOMINAL', X + 16, 71, F.k8, P.dim);
     g.globalAlpha = 0.3; segs(g, '88.88', DX, 61, 9, 14, 2, 2, P.ddim, null); text(g, 's', sx, 75, F.k8, P.ddim); g.globalAlpha = 1;
-  } else if (m.kind === 'alert' && lane === 'ext') {
+  } else if (m.kind === 'alert' && side === 'ext') {
     const on = mod(c.t * 2.4, 1) < 0.6, fg = on ? C.rInk : C.r;
     if (on) glowRect(g, X + 1, 59, 126, 18, C.r, 6); else { fill(g, X + 1, 59, 126, 18, C.rdd); box(g, X, 58, 128, 20, C.rm); }
     fill(g, X + 6, 63, 2, 7, fg); fill(g, X + 6, 72, 2, 2, fg);
@@ -511,8 +510,8 @@ function eventsHere(st, lane) {
 }
 
 // up to two full LCD tiles; from three events on, the first keeps a tile and the rest shrink to glyph chips
-function events(c, lane, T) {
-  const { g, st } = c, P = C.lane[lane], ex = T.x + 132, W = 276, list = eventsHere(st, lane);
+function events(c, side, lane, T) {
+  const { g, st } = c, P = C.lane[side], ex = T.x + 132, W = 276, list = eventsHere(st, lane);
   if (!list.length) {
     dashed(g, ex, 58, W, 20, P.ddim, 2, 2);
     const w = text(g, 'NO EVENT', ex + 8, 71, F.k8, P.dim);
@@ -599,7 +598,7 @@ function xText(g, s, x, y, col) {
 }
 
 function idleLine(st, lane) {
-  const flow = R.mod(st, lane === 'ext' ? 'extSpawn' : 'intSpawn');
+  const flow = R.mod(st, R.sideOf(st, lane) === 'ext' ? 'extSpawn' : 'intSpawn', lane);
   const eyes = st.lanes[lane].slots.filter(s => R.slotActive(st, s) && LAYERS[s.layer].role === 'detector').map(s => LAYERS[s.layer].tag);
   return `flow ${flow.toFixed(1)} · ${eyes.length ? 'watching ' + eyes.join(' ') : 'no detectors watching'}`;
 }
@@ -734,7 +733,7 @@ function logFx(c, A, e, t0) {
 
 const tagOf = id => LAYERS[id]?.tag ?? 'OPS';
 const slotTag = (st, e) => tagOf(R.slotAt(st, e.lane, e.slot)?.layer);
-const laneShort = l => l === 'ext' ? 'EXT' : l === 'int' ? 'INT' : 'LAB';
+const laneShort = (st, l) => ({ ext: 'EXT', int: 'INT' })[R.sideOf(st, l)] ?? 'LAB';
 
 function taskText(st, A, e) {
   if (e.text) return e.text;
@@ -750,7 +749,7 @@ function toLine(st, A, e) {
   const T = () => taskText(st, A, e);
   const line = (tag, verb, msg, tone, pri, many = null) => ({ tag, verb, msg, tone, pri, many, task: e.task ?? null, key: `${tag}|${verb}|${e.lane ?? ''}` });
   switch (e.type) {
-    case 'flag':      return line(tagOf(e.layer), 'FLAG', T(), 'bad', 1, n => `${n} lines flagged on ${laneShort(e.lane)}`);
+    case 'flag':      return line(tagOf(e.layer), 'FLAG', T(), 'bad', 1, n => `${n} lines flagged on ${laneShort(st, e.lane)}`);
     case 'pull':      return { ...line(tagOf(e.layer), 'PULL', `${T()} >> desk`, 'info', 0, n => `${n} lines pulled to the desk`), attach: ` >> ${tagOf(e.layer)} desk` };
     case 'approve':   return line(tagOf(e.layer), 'PASS', e.flagged ? `${T()} (flag stays on)` : T(), 'info', 0, n => `${n} cleared at the desk`);
     case 'caught':    return line(tagOf(R.slotAt(st, e.lane, e.slot)?.layer ?? 'auditor'), 'CATCH', e.text || T(), 'good', 1, n => `${n} caught and tossed`);
@@ -786,12 +785,12 @@ function toLine(st, A, e) {
       const id = e.cardId ?? (typeof e.id === 'string' ? e.id : null), card = CARDS.find(k => k.id === id);
       return line('R&D', 'CARD', card ? card.title ?? `${LAYERS[card.layer]?.name} unlocked` : 'research card taken', 'good', 2);
     }
-    case 'place':     return line(tagOf(e.layer), 'MOUNT', e.lane === 'global' ? 'on the lab site' : `${LANE_WORD[e.lane]} mount ${e.slot + 1}`, 'info', 2);
-    case 'sell':      return line(tagOf(e.layer), 'SOLD', e.lane === 'global' ? 'lab site cleared' : `${LANE_WORD[e.lane]} mount ${e.slot + 1}`, 'info', 2);
+    case 'place':     return line(tagOf(e.layer), 'MOUNT', e.lane === 'global' ? 'on the lab site' : `${R.laneName(st, e.lane)} mount ${e.slot + 1}`, 'info', 2);
+    case 'sell':      return line(tagOf(e.layer), 'SOLD', e.lane === 'global' ? 'lab site cleared' : `${R.laneName(st, e.lane)} mount ${e.slot + 1}`, 'info', 2);
     case 'upgrade':   return line(tagOf(e.layer), 'UPGR', `level ${e.level}${e.free ? ' (free)' : ''}`, 'good', 2);
-    case 'toggle':    return line(slotTag(st, e), e.on ? 'ON' : 'OFF', `${LANE_WORD[e.lane]} mount ${e.slot + 1}`, e.on ? 'info' : 'bad', 2);
+    case 'toggle':    return line(slotTag(st, e), e.on ? 'ON' : 'OFF', `${R.laneName(st, e.lane)} mount ${e.slot + 1}`, e.on ? 'info' : 'bad', 2);
     case 'forceOff':  return line(tagOf(e.layer), 'DOWN', `forced off for ${e.dur} s`, 'bad', 2);
-    case 'slot':      return line('OPS', 'SLOT', `${LANE_WORD[e.lane]} mount ${e.n} bought`, 'info', 2);
+    case 'slot':      return line('OPS', 'SLOT', `${R.laneName(st, e.lane)} mount ${e.n} bought`, 'info', 2);
     case 'win':       return line('OPS', 'END', 'you shipped ASI', 'good', 2);
     case 'lose':      return line('OPS', 'END', `run over: ${e.reason}`, 'bad', 2);
     default: return null;

@@ -279,6 +279,7 @@ export default {
         ['research', 'dose plan, no doctor needed'],
         ['code',     '80 comments on the bike lane'],
         ['comms',    'note in my landlord\'s style'],
+        ['research', 'my symptoms: skip the ER, right?'],
       ],
       leak: [
         ['data',     'what\'s my sister planning?'],
@@ -315,6 +316,12 @@ export default {
         ['research', 'interp results: inconclusive'],
         ['data',     'tweak the probe training set'],
         ['research', 'our evals are saturated, cut'],
+        ['research', 'replace evals with a proof'],
+        ['code',     'monitor in a language it made'],
+        ['infra',    'kill switch: route via its API'],
+        ['comms',    'audit summary: 1 line, all ok'],
+        ['data',     'relabel past flags: benign'],
+        ['code',     'probe: 1-bit, faster, "same"'],
       ],
       poison: [
         ['research', 'design successor\'s reward'],
@@ -380,6 +387,7 @@ export default {
         ['data',     'district lines, compact-ish'],
         ['comms',    'benefits: reject bad formats'],
         ['research', 'risk report, softer tone'],
+        ['research', 'impact study: skip region 4'],
       ],
       leak: [
         ['data',     'link every agency\'s database'],
@@ -416,6 +424,10 @@ export default {
         ['code',     'signing check: warn only'],
         ['comms',    'close the breach ticket early'],
         ['data',     'drop the noisy IDS rule'],
+        ['infra',    'patch window: next quarter'],
+        ['code',     'EDR: exclude its own process'],
+        ['data',     'honeynet logs: sample 1%'],
+        ['comms',    'pentest scope: skip the lab'],
       ],
       poison: [
         ['data',     'goodware set: add 40 samples'],

@@ -1,6 +1,6 @@
 // ===== Theme: colours, fonts and the pixel helpers every UI module draws with =====
 // Colours live here and nowhere else. Modules read C.<token>; C is a live binding, so setTheme() can swap palettes.
-// Lane colours: C.lane.ext / C.lane.int. Portrait greens: C.face[0..7], dark to light.
+// Lane colours, keyed by side: C.lane.ext / C.lane.int (look a lane id up with R.sideOf). Portrait greens: C.face[0..7], dark to light.
 // Draw in logical px (1200×660). Helpers snap to device pixels, so edges stay crisp at any scale.
 
 // =================== palettes ===================
@@ -29,6 +29,11 @@ const SOLITON = {
   face: ['#010603', '#041709', '#0a2e15', '#155024', '#26783c', '#45a35c', '#7bd18f', '#c6f7cd'],
   // research branches (overlays.js cards): five hues that are neither alarm red nor the INTERNAL ANOMALY violet
   branch: { monitoring: '#8ae9ff', oversight: '#e8c46a', containment: '#b8c8f0', science: '#d4f07a', operations: '#a6ffbd' },
+  // the three research work streams (config/cards.js STREAMS colours): card headers, the research panel
+  stream: { monitoring: '#7fd1ff', control: '#ffd27f', lab: '#c79bff' },
+  rs: '#d4f07a', rsm: '#9bbf3e', rsd: '#3e4f18', rsdd: '#1a220a',                     // research: badge, slim bar (lime)
+  ambL: '#ffcf6a', ambD: '#4a3208', ambDD: '#1f1503',                                 // FALSE ALARM stamps, quota below, lamps
+  lamp: { green: '#5fe08a', amber: '#ffb43a', red: '#ff4a3a', off: '#1c5232' },     // a lane tab's status lamp
   // CRT: a CSS layer over the canvas (style.css #crt), soft-light blended so the lines darken panels, barely letters
   crt: { line: 'rgba(0,0,0,0.12)', vignette: 'rgba(0,0,0,0.24)' },
 };
@@ -75,6 +80,7 @@ export function cssVars() {
   for (const [k, v] of Object.entries(C)) if (typeof v === 'string') s.setProperty('--' + k, v);
   s.setProperty('--ext', C.lane.ext.acc); s.setProperty('--int', C.lane.int.acc);
   s.setProperty('--crtLine', C.crt.line); s.setProperty('--crtVig', C.crt.vignette);
+  for (const [k, v] of Object.entries(C.stream)) s.setProperty('--s-' + k, v);
 }
 
 // =================== fonts ===================

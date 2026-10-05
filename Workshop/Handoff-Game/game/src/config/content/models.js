@@ -8,7 +8,8 @@
 //                  Each tell should also read as some other trait; the gifts sometimes look like threats.
 // ALT_TRAIT_TELLS  same shape, sparse: a seeded alternative for that trait and band
 // MODEL_LOOKS      { gen: brief }, for the portrait artist
-// Limits (the codec types at 45 chars/s): tagline ≤ 50, card line ≤ 58, chat line and tell ≤ 72.
+// Limits (the codec types at 28 chars/s, and a page stays up at least max(1.5 + n/15 s, the v2 pageHold), DESIGN-v3 §3g):
+// tagline ≤ 50, card line ≤ 58, chat line and tell ≤ 72 (a full chat line types in about 2.6 s).
 // The top bar ellipsises names over ~17 characters; the card and the chat header show them in full.
 
 // ==================== launch names ====================

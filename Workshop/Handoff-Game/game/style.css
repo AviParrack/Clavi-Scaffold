@@ -10,6 +10,9 @@ button { font: inherit; color: inherit; }
 #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #000; }
 #frame { position: absolute; isolation: isolate; }      /* left / top / size: src/main.js resize(), on whole device px */
 #screen { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; }
+/* the training minigame's canvas (src/train): over the board while st.phase is 'training' (part 2 mounts it) */
+#train { position: absolute; inset: 0; width: 100%; height: 100%; display: none; cursor: crosshair; touch-action: none; user-select: none; }
+#train.on { display: block; }
 
 /* ---------- CRT: scanlines + vignette over the board. A CSS layer, so the compositor does it, not a canvas blit.     */
 /* soft-light: the lines darken the dark panels (×0.88) and barely touch bright letters. Period and line width are   */
@@ -37,6 +40,17 @@ button { font: inherit; color: inherit; }
     color-mix(in srgb, var(--bg) 80%, transparent); }
 #overlays [hidden] { display: none !important; }      /* beats every display rule below */
 .ov.passive { background: none; pointer-events: none; }
+.ov.solid { background: repeating-linear-gradient(to bottom, transparent 0 1px, color-mix(in srgb, var(--black) 30%, transparent) 1px 2px), var(--bg); }
+.big-btn { font: 16px/1 "Silkscreen", monospace !important; padding: 10px 22px 9px !important; background: var(--gm) !important; color: var(--black) !important;
+  box-shadow: 0 0 0 1px var(--black), 0 0 0 2px var(--e2); }
+.big-btn:hover { background: var(--gl) !important; }
+.ghost-btn { font: 8px/1 "Silkscreen", monospace !important; padding: 6px 9px 5px !important; color: var(--gm) !important; box-shadow: inset 0 0 0 1px var(--e2); }
+.ghost-btn:hover:not(:disabled) { color: var(--black) !important; background: var(--gm) !important; }
+.ghost-btn:disabled { color: var(--gd) !important; box-shadow: inset 0 0 0 1px var(--e0); cursor: default !important; }
+.cs-hint { color: var(--gd); }
+.gauge { position: relative; display: inline-block; width: 120px; height: 9px; margin-left: 8px; vertical-align: -1px; background: var(--e0); }
+.gauge i { position: absolute; top: 3px; height: 3px; left: var(--lo); width: calc(var(--hi) - var(--lo)); background: var(--gd); }
+.gauge b { position: absolute; top: 0; height: 9px; width: 3px; left: calc(var(--x) - 1px); background: var(--gl); }
 .cn { position: relative; }
 .cn::after { content: ''; position: absolute; inset: 0; pointer-events: none; --cc: var(--e2);
   background: linear-gradient(var(--cc) 0 0) 0 0 / 8px 2px, linear-gradient(var(--cc) 0 0) 0 0 / 2px 8px,
@@ -75,6 +89,7 @@ button { font: inherit; color: inherit; }
   justify-content: space-between; background: var(--hud); }
 .st-bar { top: 0; border-bottom: 1px solid var(--e0); font: 8px/1 "Silkscreen", monospace; color: var(--gd); }
 .st-foot { bottom: 0; border-top: 1px solid var(--e0); color: var(--gd); }
+.st-opts { display: flex; column-gap: 18px; }
 .st-dev { font: 8px/1 "Silkscreen", monospace; color: var(--gd); padding: 4px 0 3px; }
 .st-dev:hover { color: var(--gl); }
 .st-dev.on { color: var(--r); }
@@ -108,47 +123,130 @@ button { font: inherit; color: inherit; }
 .st-best { color: var(--gm); padding: 0 2px; }
 .st-best .ml { margin-right: 8px; }
 
-/* ---------- RESEARCH: two branch-coloured cards ---------- */
+/* ---------- RESEARCH: three tall cards, headed in their stream's colour (--bc) ---------- */
 #ov-research { display: flex; align-items: center; justify-content: center; }
-.rs { width: 752px; background: var(--black); border: 1px solid var(--e1); padding: 12px 16px 10px; }
+.rs { width: 1000px; background: var(--black); border: 1px solid var(--e1); padding: 12px 16px 10px; }
 .rs-h { display: flex; align-items: baseline; column-gap: 10px; margin-bottom: 10px; }
-.rs-t { font: 16px/1 "Silkscreen", monospace; color: var(--gl); }
+.rs-t { font: 16px/1 "Silkscreen", monospace; color: var(--rs); }
 .rs-n { font: 20px/1 "VT323", monospace; color: var(--gm); }
 .rs-sub { margin-left: auto; color: var(--gd); }
-.rs-cards { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
-.rc { display: flex; flex-direction: column; row-gap: 8px; min-height: 276px; padding: 0 0 10px; position: relative;
+.rs-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; column-gap: 14px; }
+.rc { display: flex; flex-direction: column; row-gap: 8px; min-height: 392px; padding: 0 0 10px; position: relative;
   background: var(--pan); border: 1px solid color-mix(in srgb, var(--bc) 40%, var(--black)); }
-.rc:hover:not(.broke) { background: var(--pan2); border-color: var(--bc); }
-.rc.broke { opacity: .6; cursor: not-allowed; }
-.rc-band { display: flex; justify-content: space-between; background: var(--bc); color: var(--black); font: 8px/1 "Silkscreen", monospace; padding: 4px 8px 3px; }
-.rc-head { display: grid; grid-template-columns: 22px 34px 1fr; column-gap: 10px; padding: 2px 10px 0; align-items: start; }
+.rc:hover { background: var(--pan2); border-color: var(--bc); }
+.rc-band { display: flex; justify-content: space-between; background: var(--bc); color: var(--black); font: 8px/1 "Silkscreen", monospace; padding: 5px 8px 4px; }
+.rc-head { display: grid; grid-template-columns: 22px 34px 1fr; column-gap: 10px; padding: 4px 10px 0; align-items: start; }
 .rc-key { width: 22px; height: 22px; margin-top: 6px; border: 1px solid var(--bc); color: var(--bc); font: 20px/20px "VT323", monospace; text-align: center; }
-.rc:hover:not(.broke) .rc-key { background: var(--bc); color: var(--black); }
+.rc:hover .rc-key { background: var(--bc); color: var(--black); }
 .rc-title { font: 24px/22px "VT323", monospace; color: var(--gl); }
-.rc-sub { display: block; font: 8px/1 "Silkscreen", monospace; color: var(--gd); margin-top: 5px; }
-.rc-text { flex: 1; padding: 0 10px; font: 16px/17px "VT323", monospace; color: var(--g); }
-.rc-tag { margin: 0 10px; align-self: flex-start; font: 8px/1 "Silkscreen", monospace; background: var(--gm); color: var(--black); padding: 3px 5px 2px; }
-.rc-price { padding: 0 10px; color: var(--gd); }
-.rc-p { color: var(--gl); }
-.rc-broke { color: var(--r); }
-.rc-voice { margin: 0 10px; min-height: 92px; }       /* who + 3 lines: both cards' boxes line up */
-.rs-f { display: flex; justify-content: space-between; margin-top: 10px; color: var(--gd); }
+.rc-sub { display: block; font: 8px/11px "Silkscreen", monospace; color: var(--gd); margin-top: 4px; }
+.rc-line { padding: 4px 10px 0; font: 16px/17px "VT323", monospace; color: var(--bc); }
+.rc-text { padding: 0 10px; font: 20px/19px "VT323", monospace; color: var(--g); }
+.rc-quip { flex: 1; padding: 0 10px; font: 16px/17px "VT323", monospace; color: var(--gd); }
+.rc-tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 10px; }
+.rc-tag { font: 8px/1 "Silkscreen", monospace; background: var(--gm); color: var(--black); padding: 3px 5px 2px; }
+.rc-tag.dim { background: none; color: var(--gd); box-shadow: inset 0 0 0 1px var(--e1); }
+.rs-f { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; color: var(--gd); }
+.rs-btns { display: flex; column-gap: 8px; }
 
-/* ---------- MODEL REVEAL: passive card over the tracks; a click closes it ---------- */
-.mr { position: absolute; left: 140px; top: 120px; width: 560px; background: var(--black); border: 1px solid var(--e1); padding-bottom: 12px;
-  pointer-events: auto; cursor: pointer; }
-.mr-band { display: flex; justify-content: space-between; background: var(--lcd); color: var(--lcdOn); font: 8px/1 "Silkscreen", monospace;
-  padding: 5px 10px 4px; box-shadow: inset 0 -1px 0 var(--lcdMid); }
-.mr-body { display: grid; grid-template-columns: 98px 1fr; column-gap: 14px; padding: 10px 12px 0; }
-.mr-name { font: 32px/26px "VT323", monospace; color: var(--gl); margin-bottom: 8px; white-space: nowrap; }
-.mr-stats { display: grid; grid-template-columns: 92px 200px 1fr; column-gap: 8px; row-gap: 5px; align-items: center; }
-.mr-stats .mv { color: var(--g); white-space: nowrap; }
-.mesc { grid-column: 2 / -1; color: var(--gm); white-space: nowrap; }
-.mesc.hot { font: 8px/1 "Silkscreen", monospace; }
-.mr-dossier { padding: 10px 12px 0; display: grid; row-gap: 5px; }
-.mr-dossier div { display: flex; column-gap: 6px; align-items: center; }
-.mr-dossier .ml { width: 106px; flex: none; }
-.mr-voice { margin: 10px 12px 0; min-height: 52px; }
+/* ---------- CARD: the model card and its chat, one codec scene (DESIGN-v3 §3f) ---------- */
+.cs { position: absolute; left: 16px; top: 16px; width: 1168px; height: 628px; background: var(--black); border: 1px solid var(--e1); }
+.cs-band, .rp-band { display: flex; justify-content: space-between; height: 26px; align-items: center; background: var(--lcd); color: var(--lcdOn);
+  font: 8px/1 "Silkscreen", monospace; padding: 0 10px; box-shadow: inset 0 -1px 0 var(--lcdMid); }
+.cs-body { display: grid; grid-template-columns: 274px 336px 1fr; column-gap: 16px; padding: 14px 14px 0; height: 600px; }
+.cs-info { display: flex; flex-direction: column; row-gap: 6px; min-width: 0; }
+.cs-name { font: 32px/27px "VT323", monospace; color: var(--gl); }
+.cs-tier { font: 8px/1 "Silkscreen", monospace; color: var(--gm); }
+.cs-tag { font: 20px/19px "VT323", monospace; color: var(--g); }
+.cs-blurbs { margin: 0 0 4px; padding: 0; list-style: none; color: var(--gm); line-height: 17px; }
+.cs-blurbs li::before { content: '· '; color: var(--gd); }
+.cs-row { display: grid; grid-template-columns: 76px 1fr; column-gap: 8px; align-items: baseline; padding-top: 6px; border-top: 1px solid var(--e0); line-height: 17px; }
+.cs-row .ml { line-height: 15px; }
+.cs-v { color: var(--g); }
+.cs-v i { font-style: normal; color: var(--gd); }
+.cs-v .tr { margin: 0 4px 3px 0; }
+.cs-row.warn .cs-v { color: var(--ambL); }
+.cs-row.hot .cs-v { color: var(--gl); }
+.cs-right { display: flex; flex-direction: column; min-width: 0; height: 586px; }
+.cs-chat-h { display: flex; justify-content: space-between; font: 8px/1 "Silkscreen", monospace; color: var(--gm); padding: 2px 0 8px; }
+.cs-more { color: var(--gd); }
+.cs-chat { flex: 1; overflow: hidden; background: var(--blu); border: 2px solid var(--bluHi); box-shadow: 0 0 0 1px var(--black), inset 0 1px 0 var(--bluRule);
+  color: var(--wht); font: 16px/19px "DotGothic16", monospace; padding: 8px 12px; cursor: pointer; }
+.cs-msg { margin-bottom: 9px; }
+.cs-msg .msx-who { display: block; }
+.cs-msg .msx-line { display: block; padding-left: 12px; }
+.cs-msg.y .msx-who { color: var(--gl); }
+.cs-msg.o .msx-who { color: var(--ambL); }
+.cs-foot, .rp-foot { display: flex; justify-content: flex-end; align-items: center; column-gap: 14px; padding: 12px 0 0; }
+
+/* ---------- REPORT: what slipped through (DESIGN-v3 §3e) ---------- */
+.rp { position: absolute; left: 16px; top: 16px; width: 1168px; height: 628px; background: var(--black); border: 1px solid var(--e1); }
+.rp-cols { display: grid; grid-template-columns: 1fr 470px; column-gap: 24px; padding: 14px 16px 0; }
+.rp-big { display: grid; grid-template-columns: 230px 1fr; column-gap: 12px; align-items: center; font: 20px/26px "VT323", monospace; }
+.rp-big.ok { color: var(--gl); }
+.rp-big.bad { color: var(--r); }
+.rp-bar { display: block; height: 12px; background: var(--e0); }
+.rp-bar i { display: block; height: 12px; min-width: 2px; }
+.rp-bar.ok i { background: var(--gm); }
+.rp-bar.bad i { background: var(--r); }
+.rp-h { display: flex; justify-content: space-between; font: 8px/1 "Silkscreen", monospace; color: var(--gm); padding: 14px 0 6px; border-bottom: 1px solid var(--e1); }
+.rp-h span:last-child { color: var(--gd); }
+.rp-list li { display: grid; grid-template-columns: 22px 1fr 82px; column-gap: 8px; align-items: center; height: 24px; border-bottom: 1px solid var(--e0); color: var(--g); }
+.rp-list li span:nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-w { font: 16px/16px "VT323", monospace; text-align: center; color: var(--black); background: var(--amb); }
+.rp-w.w3 { background: var(--r); }
+.rp-w.w1 { background: var(--gd); }
+.rp-lane { font: 8px/1 "Silkscreen", monospace; color: var(--gd); text-align: right; }
+.rp-more, .rp-none { padding-top: 6px; color: var(--gm); }
+.rp-none { color: var(--gl); font: 20px/24px "VT323", monospace; padding-top: 14px; }
+.rp-kill { margin-top: 12px; color: var(--gm); line-height: 17px; }
+.rp-dms { display: grid; grid-template-columns: 76px 118px 1fr; column-gap: 8px; row-gap: 7px; align-items: baseline; padding-top: 8px; }
+.rp-dv { font: 20px/1 "VT323", monospace; color: var(--g); }
+.rp-dv.bad { color: var(--r); }
+.rp-dv.ok { color: var(--gl); }
+.rp-dn { color: var(--gd); }
+.rp-lever { margin-top: 12px; padding: 7px 10px; border: 1px solid var(--amb); color: var(--ambL); line-height: 17px; }
+.rp-lever i { font-style: normal; color: var(--amb); }
+.rp-next { margin-top: 12px; font: 24px/1 "VT323", monospace; color: var(--gl); }
+.rp-call { display: grid; grid-template-columns: 98px 1fr; column-gap: 12px; margin-top: 16px; align-items: start; }
+.rp-call .msx-line { min-height: 57px; }
+
+/* ---------- TRAINING (part 1's placeholder: the stub runs under it) ---------- */
+#ov-train { display: flex; align-items: center; justify-content: center; }
+.tr-box { width: 560px; background: var(--black); border: 1px solid var(--e1); }
+.trn-body { padding: 18px 18px 16px; display: grid; row-gap: 12px; color: var(--g); }
+.trn-body .seg { width: 200px; }
+.trn-note { color: var(--gd); }
+
+/* ---------- RETRAIN: caught red-handed (over the tracks; the codec stays clear for the call) ---------- */
+.rt { position: absolute; left: 150px; top: 150px; width: 540px; pointer-events: auto; background: var(--black); border: 1px solid var(--r);
+  box-shadow: 0 0 0 1px var(--black), 0 0 24px color-mix(in srgb, var(--r) 35%, transparent); }
+.rt-band, .eg-band { display: flex; justify-content: space-between; align-items: center; height: 24px; padding: 0 8px;
+  background: repeating-linear-gradient(-45deg, var(--rm) 0 8px, var(--black) 8px 16px); }
+.rt-band span, .eg-band span { background: var(--black); color: var(--r); font: 8px/1 "Silkscreen", monospace; padding: 4px 6px 3px; }
+.rt-body { padding: 12px 14px 14px; display: grid; row-gap: 7px; }
+.rt-cost { color: var(--rLite); font: 20px/20px "VT323", monospace; }
+.rt-gain { color: var(--gl); font: 20px/20px "VT323", monospace; }
+.rt-fine { color: var(--gd); }
+.rt-btns { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; margin-top: 6px; }
+.rt-b { display: grid !important; grid-template-columns: 22px 1fr; column-gap: 8px; row-gap: 4px; padding: 8px 10px !important; box-shadow: inset 0 0 0 1px var(--e2); }
+.rt-b span:nth-child(2) { font: 16px/1 "Silkscreen", monospace; color: var(--gl); }
+.rt-b i { grid-column: 2; font-style: normal; color: var(--gd); line-height: 16px; }
+.rt-k { width: 18px; height: 18px; border: 1px solid var(--gm); color: var(--gm); font: 16px/16px "VT323", monospace; text-align: center; }
+.rt-b.yes { box-shadow: inset 0 0 0 1px var(--r); }
+.rt-b.yes span:nth-child(2) { color: var(--r); }
+.rt-b:hover { background: var(--pan2) !important; }
+
+/* ---------- EGRESS ANOMALY: red border round the board, the countdown, PULL THE PLUG ---------- */
+.eg-frame { position: absolute; inset: 0; box-shadow: inset 0 0 0 2px var(--rm); }
+.eg-frame.on { box-shadow: inset 0 0 0 5px var(--r), inset 0 0 40px color-mix(in srgb, var(--r) 40%, transparent); }
+.eg { position: absolute; left: 210px; top: 120px; width: 420px; pointer-events: auto; background: var(--rBack); border: 1px solid var(--r); }
+.eg-sub { padding: 10px 14px 0; color: var(--rLite); }
+.eg-count { padding: 6px 14px 0; font: 40px/1 "VT323", monospace; color: var(--r); }
+.eg-btns { display: flex; align-items: center; column-gap: 12px; padding: 10px 14px 0; }
+.eg-pull { font: 16px/1 "Silkscreen", monospace !important; padding: 10px 18px 9px !important; background: var(--r) !important; color: var(--rInk) !important; }
+.eg-pull:hover { background: var(--rLite) !important; }
+.eg-hint { padding: 8px 14px 12px; color: var(--rm); }
 
 /* ---------- PAUSE: a plate over the board; the board still takes orders ---------- */
 #ov-pause { background: repeating-linear-gradient(to bottom, transparent 0 1px, color-mix(in srgb, var(--black) 25%, transparent) 1px 2px); }
@@ -187,9 +285,13 @@ button { font: inherit; color: inherit; }
 .lcd-glass span { font: 112px/1 "VT323", monospace; color: var(--lcdOn); margin-top: -6px; }
 .sc-end-t { font: 16px/1 "Silkscreen", monospace; color: var(--gl); margin-bottom: 8px; }
 .sc-score { color: var(--gm); line-height: 17px; }
-.sc-call { display: grid; grid-template-columns: 98px 1fr; column-gap: 12px; margin-top: 16px; align-items: start; }
-.sc-facts { display: grid; grid-template-columns: 92px 1fr; row-gap: 7px; align-items: center; margin-top: 16px; color: var(--gm); }
-.sc-btns { margin-top: 18px; display: flex; column-gap: 10px; align-items: center; }
+.sc-call { display: grid; grid-template-columns: 98px 1fr; column-gap: 12px; margin-top: 12px; align-items: start; }
+.sc-facts { display: grid; grid-template-columns: 92px 1fr; row-gap: 6px; align-items: center; margin-top: 12px; color: var(--gm); }
+.sc-btns { margin-top: 14px; display: flex; column-gap: 10px; align-items: center; }
+.sc-model { display: grid; grid-template-columns: 92px 1fr; margin-top: 10px; color: var(--wht); font: 16px/19px "DotGothic16", monospace; }
+.sc-model .ml { line-height: 19px; }
+.sc-plot { margin-top: 12px; display: grid; row-gap: 4px; }
+.sc-plot i { font-style: normal; color: var(--gm); }
 #sc-again { font: 16px/1 "Silkscreen", monospace; padding: 8px 14px 7px; background: var(--gm); color: var(--black); }
 #sc-again:hover { background: var(--gl); }
 .sc-h { font: 8px/1 "Silkscreen", monospace; color: var(--gm); padding-bottom: 6px; border-bottom: 1px solid var(--e1); }

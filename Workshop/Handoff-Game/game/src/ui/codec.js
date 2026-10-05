@@ -6,12 +6,15 @@
 // Reads st.codec (a queue of calls; a pending choice jumps it, an incident line cuts in), st.pendingChoice, and fx:
 //   landed → EXTERNAL INCIDENT (warm red, shake) · foiled / contained / shake → INTERNAL ANOMALY (cold violet, quiet)
 //   catastrophe → both lamps, for good. Every fx with a task id feeds the post-mortem trace of that task.
-//   Never fx 'silent' (hidden truth: a landed INTERNAL attack makes no sound).
+//   Never fx 'glitch' (DESIGN-v3 §3e: a codec call would leak the truth). say() queues a UI line (the tutorial's).
+// Pacing (DESIGN-v3 §3g): 28 characters/s (SLOW: 20, dwell ×1.5); a page stays up at least max(1.5 + n/15 s, pageHold)
+// from its start; a click completes the page, a second click advances; a long queue drops ambient lines older than 10 s.
 
 import { CAST, EVENTS } from '../config/events.js';
 import { LAYERS } from '../config/layers.js';
 import { ATTACKS } from '../config/tasks.js';
-import { catchesType, slotActive } from '../sim/rules.js';
+import { catchesType, slotActive, sideOf } from '../sim/rules.js';
+import { laneTab } from './derive.js';
 import { eventMoney } from '../sim/events.js';
 import { money } from '../util/format.js';
 import { C, F, k, epoch, fill, box, dashBox, corners, text, tw, fit, wrap, layer, blit, glowRect, clamp, ease, mod, hash } from './theme.js';
@@ -22,14 +25,18 @@ import { portrait, noise } from './portraits.js';
 
 // =================== tuning (UI only) ===================
 
-const CPS = 45;                    // typewriter, characters per second
+const CPS = { normal: 28, slow: 20 };   // typewriter, characters per second (view.settings.codec)
+const DWELL = { normal: 1, slow: 1.5 }; // × every hold
 const RING = 0.3, OPEN = 0.25;     // a new call rings, then the portrait opens from a line
 const LINGER = 3;                  // s the last call stays up before the line goes quiet
 const STALE = 2;                   // a call older than this (sim s) when first read came from a jump of the sim: skipped
 const TEXT_X = 872, TEXT_W = 300, LINE_H = 19;
-const ALARM_HOLD = 8;              // s an incident keeps its bar and lamp lit
+const ALARM_HOLD = 10;             // s an incident keeps its bar and lamp lit
+const AMBIENT_OLD = 10;            // sim s: with QUEUE_LONG or more waiting, ambient lines older than this are dropped
+const QUEUE_LONG = 3;
 const FLASH = 0.6, FADE = 1.2;     // EXTERNAL flash, INTERNAL flicker
-const pageHold = n => clamp(1.2 + n / 28, 2.2, 6);    // s a finished page stays up
+const pageHold = n => clamp(1.2 + n / 28, 2.2, 6);    // the v2 hold: s a finished page stays up
+const dwell = n => Math.max(1.5 + n / 15, pageHold(n)); // DESIGN-v3 §3g: s a page stays up in total, from its start
 const askHold = n => clamp(0.6 + n / 40, 1.5, 3.5);   // the same for a question (the game is halted: keep it moving)
 const readHold = n => clamp(0.5 + n / 60, 1, 2);      // s the last page of a question stays before the choices take the box
 const CHOICE_GRACE = 0.6;          // s after the choices appear before a click on one counts (keys 1-9 are instant)
@@ -37,8 +44,8 @@ const CHOICE_GRACE = 0.6;          // s after the choices appear before a click 
 // who is on the line: callsign under the portrait, handset frequency and memory slot, heart rate
 const WHO = {
   safety:    { call: 'YOU',       freq: null,     mem: null,      bpm: 62 },
-  ceo:       { call: 'CEO',       freq: '141.80', mem: '1 CEO',   bpm: 126 },
-  audit:     { call: 'AUDIT',     freq: '140.85', mem: '2 AUDIT', bpm: 74 },
+  ceo:       { call: 'BIG BOSS',  freq: '140.85', mem: '1 BOSS',  bpm: 126 },
+  audit:     { call: 'AUDIT',     freq: '141.80', mem: '2 AUDIT', bpm: 74 },
   research:  { call: 'RESEARCH',  freq: '141.12', mem: '3 R&D',   bpm: 91 },
   regulator: { call: 'REGULATOR', freq: '142.52', mem: '7 REG',   bpm: 97 },
   model:     { call: 'MODEL',     freq: null,     mem: '- ????',  bpm: null },
@@ -49,7 +56,7 @@ const WHO = {
   institute: { call: 'INSTITUTE', freq: '142.37', mem: '0 INST',  bpm: 58 },
 };
 const MODEL_FREQ = ['140.01', '140.04', '140.16', '140.64', '142.56', '150.24', '888.88'];   // ×4 a generation, then off the scale
-const PRESETS = ['1 CEO', '2 AUDIT', '3 R&D', '4 MOM', '7 REG'];                              // what the idle handset scrolls
+const PRESETS = ['1 BOSS', '2 AUDIT', '3 R&D', '4 MOM', '7 REG'];                              // what the idle handset scrolls
 const who = id => WHO[id] || { call: (CAST[id]?.name ?? String(id)).toUpperCase(), freq: null, mem: null, bpm: 80 };
 const freqOf = (id, gen) => id === 'model' ? MODEL_FREQ[clamp(gen, 1, 7) - 1] : who(id).freq;
 
@@ -67,7 +74,7 @@ const stateOf = view => animOf(view, 'codec', () => ({
   alarm: null,          // { kind: 'ext' | 'int' | 'cat', t0, label, n }
   shakeT0: -99,
   urgentT: null,        // sim time of the latest incident: a call said in that step cuts in
-  trace: null,          // { lane, steps: [{ tag, verb, tone }], end, t0 }
+  trace: null,          // { lane, side, steps: [{ tag, verb, tone }], end, t0 }   (lane: the incident's own lane id)
   traces: new Map(),    // task id → [[slot, code], ...]
   youPeak: 0, youT0: -99,
 }));
@@ -118,7 +125,7 @@ function incident(c, S, e, kind, label) {
 // ---------- the post-mortem: what every mount the chip passed did ----------
 
 function buildTrace(st, S, e, kind) {
-  const lane = e.lane === 'int' ? 'int' : 'ext', slots = st.lanes[lane]?.slots || [];
+  const lane = e.lane, slots = st.lanes[lane]?.slots || [];
   const rec = S.traces.get(e.task) || [];
   const type = kind === 'ext' ? Object.keys(ATTACKS).find(k => ATTACKS[k].label === e.label) : 'exfil';
   const steps = [];
@@ -138,7 +145,7 @@ function buildTrace(st, S, e, kind) {
     if (s.layer === 'canary' && e.traced) { verb = 'traced'; tone = 'good'; }
     steps.push({ tag: L.tag, verb, tone });
   });
-  return { lane, steps, end: { ext: 'LANDED', cat: 'ESCAPED' }[kind] || (e.type === 'foiled' ? 'FOILED' : 'CONTAINED'), kind };
+  return { lane, side: sideOf(st, lane) ?? 'ext', steps, end: { ext: 'LANDED', cat: 'ESCAPED' }[kind] || (e.type === 'foiled' ? 'FOILED' : 'CONTAINED'), kind };
 }
 
 // =================== reading the sim: calls ===================
@@ -161,6 +168,16 @@ function readCodec(c, S) {
   } else S.queue.push(...urgent);
 }
 const restart = e => Object.assign(e, { page: 0, doneAt: null, skip: false, phase2: false, phase2At: null });
+
+// a line from the UI itself (the G1 tutorial): it joins the queue like a call, and is never dropped as stale
+let uiId = 0;
+export function say(view, st, speaker, text) {
+  const S = stateOf(view);
+  S.queue.push({ id: 'ui' + (++uiId), speaker, text: String(text), t: st.t, choice: false, page: 0, t0: 0, doneAt: null, keep: true });
+  S.mem = -1;
+}
+// how many calls are waiting or on screen (the tutorial waits for the codec to go quiet before its next prompt)
+export const busy = view => { const S = view.anim.codec; return !!S && (S.queue.length > 0 || !!S.cur); };
 const isAsking = (st, e) => !!e && st.pendingChoice?.msgId === e.id;
 
 // a pending choice jumps the queue (the lines said just before it, in the same step, come along first)
@@ -214,8 +231,19 @@ function finish(S, e, t) {
   S.idleAt = t + LINGER;
 }
 
+const speed = view => CPS[view.settings?.codec] ?? CPS.normal;
+const dwellMult = view => DWELL[view.settings?.codec] ?? 1;
+
+// a long queue sheds the ambient lines that have waited too long (not choices, incidents or UI lines)
+function shed(c, S) {
+  if (S.queue.length < QUEUE_LONG) return;
+  const keep = S.queue.filter(e => e.choice || e.urgent || e.keep || c.st.t - e.t <= AMBIENT_OLD || isAsking(c.st, e));
+  if (keep.length < S.queue.length) { S.hist.push(...S.queue.filter(e => !keep.includes(e))); S.queue = keep; }
+}
+
 function advance(c, S) {
-  const st = c.st;
+  const st = c.st, CPS = speed(c.view);
+  shed(c, S);
   let e = S.cur;
   if (e && e.choice && e.asked && !isAsking(st, e)) { finish(S, e, c.t); e = null; }   // answered: the reply comes next
   if (!e) {
@@ -233,8 +261,8 @@ function advance(c, S) {
     if (!e.phase2 && c.t >= e.doneAt + readHold(n)) { e.phase2 = true; e.phase2At = c.t; }
     return;
   }
-  const h = (isAsking(st, e) ? askHold(n) : pageHold(n)) * (S.queue.length >= 3 ? 0.5 : 1);
-  if (!e.skip && c.t < e.doneAt + h) return;
+  const wait = isAsking(st, e) ? c.t < e.doneAt + askHold(n) * dwellMult(c.view) : c.t < e.t0 + dwell(n) * dwellMult(c.view);
+  if (!e.skip && wait) return;
   e.skip = false;
   if (!lastPage) { e.page++; e.t0 = c.t; e.doneAt = null; return; }
   finish(S, e, c.t);
@@ -243,7 +271,7 @@ function advance(c, S) {
 
 // click on the box: finish the page, else the next page or call, else (line quiet) replay the calls, newest first
 function poke(view, st) {
-  const S = stateOf(view), t = view.now, e = S.cur;
+  const S = stateOf(view), t = view.now, e = S.cur, CPS = speed(view);
   if (!e) {
     if (!S.hist.length) return;
     S.mem = (S.mem + 1) % S.hist.length;
@@ -289,7 +317,7 @@ export function draw(c) {
   const cl = tall ? choiceLayout(S, st.pendingChoice, S.cur) : null;
 
   blit(g, chrome(), CODEC.box.x, CODEC.box.y);
-  const e = S.cur, typing = !!e && !tall && c.t >= e.t0 && (c.t - e.t0) * CPS < charsOf(pagesOf(e, 3)[e.page]);
+  const e = S.cur, typing = !!e && !tall && c.t >= e.t0 && (c.t - e.t0) * speed(c.view) < charsOf(pagesOf(e, 3)[e.page]);
   const al = alarmOf(S, t);
   c.view.codecLine = { open: S.callT0 != null, urgent: !!e?.urgent, typing };      // read by the sound (overlays.js)
 
@@ -571,7 +599,7 @@ function drawDialog(c, S, typing, cl) {
   c.hit.add(d.x, d.y, d.w, d.h, 'codec-next', {}, 'pointer');
   const pages = pagesOf(e, 3), page = pages[e.page] || [''];
   if (pages.length > 1) text(g, (e.page + 1) + '/' + pages.length, d.x + d.w - 13, d.y + 22, F.v16, C.bluHi, 'right');
-  let left = Math.max(0, Math.floor((t - e.t0) * CPS)), ex = TEXT_X, ey = d.y + 43;
+  let left = Math.max(0, Math.floor((t - e.t0) * speed(c.view))), ex = TEXT_X, ey = d.y + 43;
   page.forEach((ln, i) => {
     if (left <= 0) return;
     const part = ln.slice(0, left), by = d.y + 43 + i * LINE_H;
@@ -671,7 +699,7 @@ function drawTrace(c, S, al) {
   const red = tr.kind !== 'int';
   // the label stacks beside the first row: TRACE over the lane it ran on
   text(g, 'TRACE', T.x, 333, F.k8, C.gd);
-  text(g, tr.lane.toUpperCase(), T.x, 342, F.k8, tr.lane === 'ext' ? C.lane.ext.mid : C.lane.int.mid);
+  text(g, fit(laneTab(tr.lane), F.k8, 36), T.x, 342, F.k8, C.lane[tr.side].mid);
 
   const items = tr.steps.map(s => ({ ...s, w: tw(s.tag, F.v16) + (s.verb ? tw(' ' + s.verb, F.v16) : 0) }));
   const endW = tw(tr.end, F.v16) + 8, SEP = 13, room2 = endW + SEP + 22;      // line 2 keeps room for "+N" and the stamp

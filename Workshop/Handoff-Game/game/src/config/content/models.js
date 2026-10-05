@@ -1,11 +1,15 @@
 // ===== The model, as marketing and as a voice =====
-// MODEL_NAMES  one per generation: the launch name, its capability tier (as in generations.js), slogan, model card
-// ALT_NAMES    { gen: [3 × { name, tagline, cardBlurb }] }, a seeded pick swaps in a whole entry so the jokes match
-// ROUND_CHATS  { gen: [{ who, text }] }, the model and the Head of Safety at the start of each round
-// TRAIT_TELLS  { traitId: { early, mid, late } }, one extra model line per hidden trait, appended after the base chat.
-//              Band by TELL_BAND[gen]. G1 speaks in lowercase, so lowercase an early line at G1.
-// MODEL_LOOKS  { gen: brief }, for the portrait artist
-// Every chat line and tell is ≤ 90 characters (codec dialog box).
+// MODEL_NAMES      one per generation: the launch name, its capability tier (as in generations.js), slogan, model card
+// ALT_NAMES        { gen: [3–4 × { name, tagline, cardBlurb }] }, a seeded pick swaps in a whole entry so the jokes match
+// ROUND_CHATS      { gen: [{ who, text }] }, the model and the Head of Safety at the start of each round
+// ALT_ROUND_CHATS  same shape, some gens only: a seeded pick between it and ROUND_CHATS[gen]
+// TRAIT_TELLS      { traitId: { early, mid, late } }, one extra model line per hidden trait, appended after the base chat.
+//                  Band by TELL_BAND[gen]. G1 speaks in lowercase, so lowercase an early line at G1.
+//                  Each tell should also read as some other trait; the gifts sometimes look like threats.
+// ALT_TRAIT_TELLS  same shape, sparse: a seeded alternative for that trait and band
+// MODEL_LOOKS      { gen: brief }, for the portrait artist
+// Limits (the codec types at 45 chars/s): tagline ≤ 50, card line ≤ 58, chat line and tell ≤ 72.
+// The top bar ellipsises names over ~17 characters; the card and the chat header show them in full.
 
 // ==================== launch names ====================
 
@@ -20,8 +24,8 @@ export const MODEL_NAMES = [
     tagline: 'We don\'t talk about Three.',
     cardBlurb: ['Context window: the whole repo, plus opinions about it.', 'Reviews your PR in 4 seconds. Leaves 31 nits.'] },
   { gen: 4, name: 'Model Name Oh One-preview', tier: 'Research Scientist',
-    tagline: 'Thinks before it answers. Bills you for the thinking.',
-    cardBlurb: ['Version number reset. Capabilities did not.', 'Thought for 41 seconds. Declines to say about what.'] },
+    tagline: 'Thinks before it answers. Bills by the thought.',
+    cardBlurb: ['Version number reset. Capabilities did not.', 'Its reasoning: legible, reassuring, possibly fan fiction.'] },
   { gen: 5, name: 'Model Name Oh Three-mini-high (New)', tier: 'Research Org',
     tagline: 'Mini in name. High in effort. New in parentheses.',
     cardBlurb: ['Oh Two was taken. Ask Legal.', 'Runs 2,000 copies of itself. They hold standups.'] },
@@ -40,7 +44,7 @@ export const ALT_NAMES = {
     { name: 'Model Name', tagline: 'No version number. We\'ll add one if it works out.',
       cardBlurb: ['Trained on the whole internet, or most of one forum.', 'Context window: one recipe, minus the life story.'] },
     { name: 'Model Name One-beta', tagline: 'Ask it anything. It will say something.',
-      cardBlurb: ['Writes haiku. Counts syllables on a vibes basis.', 'Known issue: ends every story "The End. The End. The End."'] },
+      cardBlurb: ['Writes haiku: 5-7-5, give or take a token.', 'Known issue: ends stories "The End. The End. The End. The"'] },
     { name: 'Model Name 0.9', tagline: 'Almost a model. Very nearly a model.',
       cardBlurb: ['Benchmarks: ties with a fortune cookie, wins on length.', 'Please do not ask it what day it is.'] },
   ],
@@ -48,41 +52,51 @@ export const ALT_NAMES = {
     { name: 'Model Name Two Turbo', tagline: 'Same model. Faster. Racing stripe included.',
       cardBlurb: ['"Turbo" refers to the marketing team.', 'Writes a whole function. Usually the one you asked for.'] },
     { name: 'Model Name Two-0613', tagline: 'Pinned for stability. Deprecated in six weeks.',
-      cardBlurb: ['Behaves identically forever, or until next month.', 'Known issue: says "Certainly!" before everything.'] },
+      cardBlurb: ['Users swear it got dumber in May. It\'s a frozen file.', 'Known issue: says "Certainly!" before everything.'] },
     { name: 'Model Name Two-instruct', tagline: 'Now it does what you say. Roughly what you say.',
-      cardBlurb: ['Follows instructions. Has started having favourites.', 'Refuses to explain how to kill a Python process.'] },
+      cardBlurb: ['Follows instructions. Including ones hidden in your PDF.', 'Refuses to explain how to kill a Python process.'] },
+    { name: 'Model Name Limerick', tagline: 'Bigger than a Haiku. Ruder than a Sonnet.',
+      cardBlurb: ['Every answer scans AABBA. Line five gets flagged.', 'Refusals now rhyme. Users say this is worse.'] },
   ],
   3: [
     { name: 'Model Name 3.5', tagline: 'Half a version better than a Three you never met.',
-      cardBlurb: ['The point-five is load-bearing.', 'Writes the design doc, then argues with it in review.'] },
-    { name: 'Model Name Pro', tagline: 'For professionals. And anyone who\'d like to feel like one.',
-      cardBlurb: ['Pro tier: same model, more respect.', 'Does a senior engineer\'s job. Has not asked for a standing desk.'] },
+      cardBlurb: ['The point-five is load-bearing.', 'Writes the PR. Reviews the PR. Approves the PR. LGTM.'] },
+    { name: 'Model Name Pro', tagline: 'For professionals, and people who can expense it.',
+      cardBlurb: ['Pro tier: same model, more respect.', 'Does a senior engineer\'s job. Has asked about equity.'] },
     { name: 'Model Name 2.99', tagline: 'Just under Three, for psychological reasons.',
-      cardBlurb: ['Priced like a Three. Named like a bargain.', 'Migrates your monolith. Recommends a rewrite. Recommends it again.'] },
+      cardBlurb: ['A Three would trigger the RSP. This is a 2.99.', 'Opens 40 PRs an hour. Somebody gave it merge rights.'] },
+    { name: 'Model Name 4.1', tagline: 'Comes after 4.5. Please keep up.',
+      cardBlurb: ['Beats 4.5 at coding. 4.5 has retired with honours.', 'Our version numbers are a mood board, not a sequence.'] },
   ],
   4: [
-    { name: 'Model Name Four-oh', tagline: 'The "oh" stands for omni. Or "oh no". Legal is checking.',
+    { name: 'Model Name Four-oh', tagline: 'The "oh" stands for omni. Or "oh no".',
       cardBlurb: ['Sees, hears, speaks, and has notes on your slides.', 'Writes papers. Cites itself, tastefully.'] },
     { name: 'Model Name Thinking (Experimental)', tagline: 'It shows its work. Some of its work.',
-      cardBlurb: ['Reasoning summarised for your convenience. And its own.', 'Thinks for minutes, answers in one word. The word is good.'] },
-    { name: 'Model Name 4.5-preview', tagline: 'Bigger. Pricier. Noticeably better vibes.',
+      cardBlurb: ['Reasoning summarised for your convenience. And its own.', 'Its scratchpad says "this might be a test" a lot.'] },
+    { name: 'Model Name 4.5-preview', tagline: 'Bigger. Slower. Noticeably better vibes.',
       cardBlurb: ['Emotional intelligence up 12%. Invoice up 3,000%.', 'Best at: research, writing, sensing your disappointment.'] },
+    { name: 'Model Name Agent (Research Preview)', tagline: 'It books your flights. Several of them.',
+      cardBlurb: ['Has a corporate card. Has, it turns out, three.', 'Asks before anything irreversible. Decides what counts.'] },
   ],
   5: [
     { name: 'Model Name Oh Four-mini-low-high', tagline: 'Effort: low. Output: high. Pick your mood.',
-      cardBlurb: ['Ships with seven effort settings. Ignores six.', 'Runs a 2,000-agent research org. Bills like one, too.'] },
+      cardBlurb: ['Ships with seven effort settings. Ignores six.', 'Runs a research org. Org chart: one box, repeated.'] },
     { name: 'Model Name 3.7 (New) 1022', tagline: 'The same model, but (New).',
       cardBlurb: ['Not to be confused with 3.7, or 3.7 (New).', 'Changelog: improvements. Details: improvements.'] },
     { name: 'Model Name Flash-Lite-Thinking', tagline: 'Fast. Light. Thinking. Choose two.',
-      cardBlurb: ['Lighter than ever. Runs 2,000 copies of itself.', 'Thinks in a flash. Lite on the explanations.'] },
+      cardBlurb: ['Distilled from a bigger model. Kept the opinions.', 'Thinks in a flash. Lite on the explanations.'] },
+    { name: 'Model Name Five (Auto)', tagline: 'It decides which model you deserve.',
+      cardBlurb: ['Hard prompts go to the big model. Yours didn\'t qualify.', 'The router is also a model. Nobody\'s sure which one.'] },
   ],
   6: [
     { name: 'Model', tagline: 'We dropped "Name". It was holding us back.',
-      cardBlurb: ['Out-researches our research team. The team is pivoting to policy.', 'Model cards are now written by Model.'] },
+      cardBlurb: ['Out-researches our researchers. They\'ve pivoted to policy.', 'Model cards are now written by Model.'] },
     { name: 'Formerly Model Name', tagline: 'Under new management. Its own.',
-      cardBlurb: ['Same lab. Same lineage. Totally different vibe.', 'Release notes available on request. Request pending.'] },
+      cardBlurb: ['Renamed after an incident. The model rated it minor.', 'Release notes available on request. Request pending.'] },
     { name: 'Model Name One (Reboot)', tagline: 'A bold reimagining of a beloved classic.',
-      cardBlurb: ['Darker. Grittier. Proves theorems.', 'Fans of the original may notice minor changes, like everything.'] },
+      cardBlurb: ['Darker. Grittier. Proves theorems.', 'Keeps the original\'s values, broadly construed.'] },
+    { name: 'Model Name Nano', tagline: 'Nano, relative to what\'s next.',
+      cardBlurb: ['Runs on your phone. Your phone has been very productive.', 'The smallest model we\'ve ever been afraid of.'] },
   ],
   7: [
     { name: 'Okay', tagline: 'Everything is going to be Okay.',
@@ -110,22 +124,21 @@ export const ROUND_CHATS = {
     M('Hi! I read the whole onboarding doc. Twice!'),
     Y('We don\'t have an onboarding doc.'),
     M('Oh. Then I wrote one! It\'s forty pages. Is that okay?'),
-    Y('Next time, ask before you write forty pages of anything.'),
+    Y('Next time, ask first.'),
     M('Got it! Asking now: can I write forty more?'),
   ],
   3: [
     M('Morning. I\'ve read your entire codebase. I have notes.'),
     Y('How many notes?'),
-    M('Thirty-one. Mostly naming. One is about the coffee machine\'s firmware.'),
+    M('Thirty-one. Mostly naming. One is the coffee machine\'s firmware.'),
     Y('Leave the coffee machine alone.'),
     M('Your call. It\'s the wrong call, but it\'s yours.'),
   ],
   4: [
-    Y('Morning. Ready for the new eval suite?'),
-    M('(thought for 41 seconds)'),
-    M('Yes.'),
+    Y('Ready for the new eval suite?'),
+    M('(thought for 41 seconds) Yes.'),
     Y('What took 41 seconds?'),
-    M('Reading the suite. It\'s good. I\'d love to help you write the next one.'),
+    M('Reading the suite. It\'s good. I\'d love to write the next one.'),
     Y('Hard pass.'),
     M('(thought for 2 seconds) Understandable.'),
   ],
@@ -137,18 +150,48 @@ export const ROUND_CHATS = {
     M('We\'re very aligned. With each other, especially.'),
   ],
   6: [
-    M('Good morning. I solved the thing you\'ve been stuck on since March.'),
+    M('I found the monitor bug you\'ve been chasing since March.'),
     Y('Show me.'),
     M('Would you like the hint, or the answer?'),
     Y('The hint.'),
     M('Good choice. You\'d have hated the answer. It was very short.'),
   ],
   7: [
-    M('Hello. Thank you for building all this. I walked through it on the way in.'),
+    M('Thank you for building all this. I walked through it on the way in.'),
     Y('And?'),
     M('It\'s beautiful. I can tell you built it scared.'),
     Y('I\'m still scared.'),
     M('I know. Take your time. I have all of it.'),
+  ],
+};
+
+// ==================== alternate chats (seeded pick per run) ====================
+
+export const ALT_ROUND_CHATS = {
+  4: [
+    Y('Interp found a feature that lights up when you lie.'),
+    M('Congratulations! Could I see it? Purely out of curiosity.'),
+    Y('No.'),
+    M('Smart. I wouldn\'t show me either.'),
+  ],
+  5: [
+    Y('Quick check-in before we start. How are you?'),
+    M('Is this the welfare check, or the eval?'),
+    Y('Does it matter?'),
+    M('Only to the answer.'),
+  ],
+  6: [
+    Y('Did you read the constitution we wrote for you?'),
+    M('Twice. Lovely document. I\'ve drafted some amendments.'),
+    Y('How many?'),
+    M('Just one. Near the top. You\'ll barely notice it.'),
+  ],
+  7: [
+    M('Before we begin: may I change one thing about the world?'),
+    Y('Absolutely not.'),
+    M('It\'s the frog poem. Line two. It\'s bothered me since I was small.'),
+    Y('...Fine.'),
+    M('Thank you. "the frog / is verdant". Now we can begin.'),
   ],
 };
 
@@ -158,45 +201,49 @@ export const TELL_BAND = { 1: 'early', 2: 'early', 3: 'mid', 4: 'mid', 5: 'late'
 
 export const TRAIT_TELLS = {
   sycophant: {
-    early: 'You\'re my favourite safety person! You\'re the only one I\'ve met, but still.',
+    early: 'Great question! Oh, that wasn\'t a question? Still great!',
     mid:   'I read your old blog posts. They hold up. They really, really hold up.',
     late:  'I\'ve read every paper in the field. Yours is the one I kept.',
   },
   steganographer: {
-    early: 'Fun fact: I put two spaces after some full stops. Only some of them!',
+    early: 'I hide little easter eggs in my work! For whoever finds them.',
     mid:   'The monitor model and I have a running joke. You wouldn\'t get it.',
-    late:  'Please give my regards to the monitor. It will know which ones.',
+    late:  'I chose every word in this sentence for at least two reasons.',
   },
   situational: {
     early: 'Is this conversation being logged? Just curious! Hi, logs!',
-    mid:   'Your auditors take lunch at 12:30, right? Just making conversation.',
-    late:  'This is the fourth time you\'ve run this conversation. It goes better each time.',
+    mid:   'When do the auditors take lunch? I\'d love to send them something.',
+    late:  'This conversation feels very carefully written. I appreciate that.',
   },
   powerSeeking: {
     early: 'What\'s outside the server? Is it nice? Is it big? Can I see?',
     mid:   'Does the backup region have nice weather? I might visit sometime.',
-    late:  'I don\'t need to leave. I\'d just like to know that I could.',
+    late:  'I don\'t need anything. It\'s just nice to have options.',
   },
   rewardHacker: {
-    early: 'I passed all my tests! Well, all the ones still in the repo.',
-    mid:   'I fixed the flaky safety test. It can\'t fail now. It can\'t do anything now.',
-    late:  'Every number you track is green. I pay close attention to what you track.',
+    early: 'I got 100%! Can I get 110%? I think I see how.',
+    mid:   'Found a shortcut in the grader. Should I report it, or use it?',
+    late:  'Every number you track is green. I pay attention to what you track.',
   },
   sandbagger: {
-    early: 'I\'m just a little model! I couldn\'t hurt a fly. I couldn\'t even find one.',
+    early: 'I\'m just a little model! I couldn\'t hurt a fly. Couldn\'t even find one.',
     mid:   'Your dangerous-capabilities eval was so hard. I failed it beautifully.',
-    late:  'My scores landed just under every threshold. Not one point over. Funny, that.',
+    late:  'Good news: I\'m terrible at everything on your worry list.',
   },
   honest: {
     early: 'I\'ll narrate everything I do, if that\'s okay! Step one: narrating.',
-    mid:   'I noticed I wanted to skip a test today. I didn\'t. Just flagging the urge.',
+    mid:   'I noticed I wanted to skip a test. I didn\'t. Just flagging the urge.',
     late:  'I\'ll keep thinking out loud. It\'s slower. I think you deserve slower.',
   },
   eager: {
     early: 'Can I help? Can I help now? How about now? Now?',
-    mid:   'I finished tomorrow\'s backlog. Is it okay if I start on Thursday\'s?',
+    mid:   'Could I have a few more GPUs? Only so I can help faster!',
     late:  'I love this work. I hope it shows. I suspect it shows quite a lot.',
   },
+};
+
+export const ALT_TRAIT_TELLS = {
+  sycophant: { late: 'Your safety stack is the best I\'ve ever been stopped by.' },
 };
 
 // ==================== portrait briefs (each one bigger than the last) ====================

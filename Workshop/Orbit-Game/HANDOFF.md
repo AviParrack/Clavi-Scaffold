@@ -1,6 +1,6 @@
 # Pocket Orbit — HANDOFF
 
-*2D asteroid-belt mining game with real orbital mechanics. Stage: v3 (the economy loop) built, in review.*
+*2D asteroid-belt mining game with real orbital mechanics. Stage: v3 (the economy loop) published; new-player polish next.*
 
 ## Run
 
@@ -41,11 +41,17 @@ the contract is [SPEC.md](SPEC.md) (hooks, core API, cross-module APIs, keys, jo
 - Gravity: all bodies pull, plus a rail-frame correction (local Hill-sphere body rides a rail; add its rail acceleration
   minus the pull it would really feel). Small-body orbits see true tides only.
 - Popups within 60 m of a moon ride along with it; popups at one spot stack; long toasts and hints wrap.
+- Gravity: point mass outside a body's deepest valley `b.Rc`, uniform core inside (g ∝ r); `World.phi` matches it.
+- Save (`pocket-orbit-v3`): money, jobs, cargo, pack, tanks, module data, plus flight state (t, ship, landed spot,
+  dock id) and dug cells / taken gems per body. Dead at save -> crash tow on load. `?fresh=1` / `?mods=` never write.
 
 ## v3 status
 
-✅ all modules built; suites: physics 16, core 35, economy 98, stations 74, eva 62, mobs 57, wrecks 132, combat 97;
-playtest 23/23. 🟡 adversarial review (lifecycle, physics/perf, new-player UX, integration) then fixes and publish.
+✅ all modules built and published (artifact version 3); suites: physics 16, core 45, economy 100, stations 74, eva 62,
+mobs 57, wrecks 132, combat 97; playtest 23/23. Reviews done: lifecycle, physics/perf, integration (all high/med fixed).
+🟡 new-player UX review findings pending.
+Known, not fixed: gravity jumps a little at Hill-sphere edges (frame correction switches; blend across a shell);
+engines can only be swapped at Ceres Hub (by design for now, text says so).
 
 ## Gotchas
 

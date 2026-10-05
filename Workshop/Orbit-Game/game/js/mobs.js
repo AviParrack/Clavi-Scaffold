@@ -475,10 +475,10 @@ const Mobs = (() => {
     bug.vx += dx / d * kb; bug.vy += dy / d * kb;
     if (kb > 1) { const [ux, uy] = upOf(bug); bug.vx += ux * kb * 0.4; bug.vy += uy * kb * 0.4; bug.air = 0.08; }
     if (kind !== 'laser' && dmg >= 3) Game.popup(g, sp.armor && sp.armor[kind] ? 'PING!' : 'EEK!', '#ffd166', wx, wy, 18);
-    if (bug.hp <= 0) kill(g, M, H, bug, wx, wy, s);
+    if (bug.hp <= 0) kill(g, M, H, bug, wx, wy, s, !(src && src.team === 'pirate'));
   }
 
-  function kill(g, M, H, bug, x, y, s) {
+  function kill(g, M, H, bug, x, y, s, yours = true) {   // yours: false when a pirate's stray round did it
     bug.dead = true; M.bugs = M.bugs.filter((b) => !b.dead);
     const sp = specOf(bug), [ux, uy] = upOf(bug);
     const nest = H.nests[bug.nest]; if (nest) nest.out = Math.max(0, nest.out - 1);
@@ -491,8 +491,9 @@ const Mobs = (() => {
     if (M.splats.length > 24) M.splats.shift();
     const nJ = sp.jelly[0] + Math.floor(M.rand() * (sp.jelly[1] - sp.jelly[0] + 1));
     for (let i = 0; i < nJ; i++) dropJelly(g, M, x, y, H, ux, uy);
+    Game.log(g, `squished ${bug.name} the ${sp.name.toLowerCase()} on ${H.b.name}  (${nJ} jelly${yours ? '' : ', by a pirate'})`);
+    if (!yours) return;
     M.kills++;
-    Game.log(g, `squished ${bug.name} the ${sp.name.toLowerCase()} on ${H.b.name}  (${nJ} jelly, ${M.kills} total)`);
     Game.goal(g, 'bug');
     if (MILESTONES[M.kills]) Game.toast(g, MILESTONES[M.kills], JELLY);
   }

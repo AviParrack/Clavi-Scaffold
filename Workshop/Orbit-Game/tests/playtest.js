@@ -208,7 +208,26 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   s = await st();
   check('salvage fills the hold and pays the wreck job', s.cargo > c0 && s.done.includes('wreck'), `hold ${c0} -> ${s.cargo} kg`);
   await shot('18_salvaged');
-  // -------- 8. pirates --------
+  // -------- 8. pirates: fit a pea shooter, summon one (dev J), point and shoot --------
+  await go('?dev=1&fresh=1&spawn=potato');
+  await ev(() => { const g = ORBIT.game; Econ.grant(g, 'gun1'); ORBIT.Game.recalc(g); });
+  await page.keyboard.press('KeyJ'); await page.waitForTimeout(600);
+  const hp0 = await ev(() => Combat.list(ORBIT.game).reduce((s, p) => s + p.hp, 0));
+  check('dev J summons a pirate', hp0 > 0, `pirate hp ${hp0}`);
+  await page.keyboard.down('Space');
+  let hurt = false;
+  for (let i = 0; i < 150 && !hurt; i++) {
+    const aim = await ev(() => { const g = ORBIT.game, p = Combat.list(g).find((q) => !q.gone); if (!p) return null;
+      const dx = p.x - g.sh.x, dy = p.y - g.sh.y, d = Math.hypot(dx, dy), tf = d / Math.max(1, g.S.gunSpeed);
+      return Math.atan2(dy + (p.vy - g.sh.vy) * tf, dx + (p.vx - g.sh.vx) * tf); });
+    if (aim == null) break;
+    await steerTo(aim);
+    if (i === 40) await shot('19_dogfight');
+    hurt = await ev((hp0) => Combat.list(ORBIT.game).reduce((s, p) => s + Math.max(0, p.hp), 0) < hp0 || !!ORBIT.game.done.pirate, hp0);
+  }
+  await page.keyboard.up('Space');
+  check('Space fires the gun and hits the pirate', hurt);
+  await shot('20_dogfight_after');
 
   s = await st();
   check('no module error on screen', !s.err, s.err || '');

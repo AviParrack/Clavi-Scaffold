@@ -17,7 +17,8 @@ const Combat = (() => {
   const LIFE = 4, SUB = 1 / 60, MAX_SUB = 24, MAX_BULLETS = 160;     // bullet life [s], substep [s]
   const DIG_R = 0.4, DIG_POWER = 0.3;                                  // the crater one bullet leaves
   const A_MAX = 3, RCS_A = 0.5, TURN = 2.4;                            // pirate engine, RCS [m/s^2], turn rate [rad/s]
-  const KV = 0.9, BRAKE = 1.2, VMAX = 28, ROCK_V = 9;                 // steering gain [1/s], braking budget [m/s^2], closing cap, speed vs rubble [m/s]
+  const KV = 0.9, BRAKE = 1.2, VMAX = 28, ROCK_V = 14;                // steering gain [1/s], braking budget [m/s^2], closing caps [m/s]
+  const DODGE_GAP = 4;                                                 // clearance pirates keep from rubble [m]
   const AI_DT = 0.1, PRED_T = 6, PRED_H = 0.5, CLEAR = 8;              // think period, crash look-ahead [s], ground margin [m]
   const P_LEN = 9, P_R = 3.4, P_T = 1.8, CRASH_V = 9;                  // pirate length, hit radius [m], mass [t], crash speed [m/s]
   const SEE_R = 650, FIRE_R = 150, LEASH = 380, HOVER_ALT = 26;       // notice / shoot / give-up ranges, standoff height [m]
@@ -130,14 +131,15 @@ const Combat = (() => {
   const st = (g) => g.mod.combat || null;
 
   // rubble grouped by host, with the radial band it occupies (cheap rejection for bullets and pirates)
+  //  one band per ring: a host with two rings (Ceres) gets two bands, never one fat annulus spanning the gap
   function rockBands(w) {
-    const by = new Map();
-    for (const rk of w.rocks || []) {
-      let b = by.get(rk.host);
-      if (!b) by.set(rk.host, (b = { host: rk.host, lo: Infinity, hi: 0, rocks: [] }));
+    const out = [], rocks = (w.rocks || []).slice().sort((u, v) => (u.host.idx - v.host.idx) || (u.a - v.a));
+    let b = null;
+    for (const rk of rocks) {
+      if (!b || b.host !== rk.host || rk.a - rk.r > b.hi + 60) out.push(b = { host: rk.host, lo: Infinity, hi: 0, rocks: [] });
       b.lo = Math.min(b.lo, rk.a - rk.r); b.hi = Math.max(b.hi, rk.a + rk.r); b.rocks.push(rk);
     }
-    return [...by.values()];
+    return out;
   }
 
   function save(g) {
@@ -516,11 +518,11 @@ const Combat = (() => {
     else if (p.state === 'lurk' && !why && q && (d < SEE_R || p.aggro > 0) && outsideZone(g, p, q) <= LEASH) setState(g, p, 'attack', `${d.toFixed(0)} m`);
 
     // -------- plan, look ahead, steer clear --------
-    const plan = planFor(g, p, q);
+    const scan = rockScan(g, M, p), plan = planFor(g, p, q);
     let a = thrustFor(plan, p.x, p.y, p.vx, p.vy, p.gx, p.gy, g.t);
     const crash = predictCrash(g, p, plan);
     if (crash) { p.evadeT = 1.2; p.evadeUp = crash; }
-    const dodge = p.evadeT > 0 ? null : rockDodge(g, M, p);
+    const dodge = p.evadeT > 0 ? null : scan.dodge;
     if (p.evadeT > 0) a = [p.evadeUp[0] * A_MAX, p.evadeUp[1] * A_MAX];
     else if (dodge) a = dodge;
     else a = nudges(g, M, p, a);
@@ -551,10 +553,9 @@ const Combat = (() => {
 
   // plan = target point moving at a constant velocity (or a velocity to hold, when fleeing) + gravity there (feed-forward)
   function planFor(g, p, q) {
-    const flow = rubbleFlow(g, st(g), p.x, p.y, 25);
     if (p.state === 'flee') {
       const from = q || me(g), dx = p.x - from.x, dy = p.y - from.y, d = Math.hypot(dx, dy) || 1;
-      return { flee: true, vx: (q ? q.vx : p.vx) + dx / d * 35, vy: (q ? q.vy : p.vy) + dy / d * 35, fx: p.gx, fy: p.gy, t0: g.t, flow };
+      return { flee: true, vx: (q ? q.vx : p.vx) + dx / d * 35, vy: (q ? q.vy : p.vy) + dy / d * 35, fx: p.gx, fy: p.gy, t0: g.t };
     }
     let tx, ty, tvx, tvy, vmax = VMAX, ff;
     if (p.state === 'attack' && q) {
@@ -566,8 +567,8 @@ const Combat = (() => {
       ff = World.gravity(g.w, tx, ty, g.t);
     }
     [tx, ty] = detour(g, p, tx, ty);
-    if (flow) vmax = Math.min(vmax, ROCK_V);
-    return { tx, ty, vx: tvx, vy: tvy, vmax, fx: ff[0], fy: ff[1], t0: g.t, flow };
+    if (inRubble(g, st(g), p, 25)) vmax = Math.min(vmax, ROCK_V);           // don't barge through rubble at full tilt
+    return { tx, ty, vx: tvx, vy: tvy, vmax, fx: ff[0], fy: ff[1], t0: g.t };
   }
 
   // the controller: velocity-matching steer with a braking curve, plus the gravity difference to the target
@@ -578,10 +579,6 @@ const Combat = (() => {
       const ex = P.tx + P.vx * (t - P.t0) - x, ey = P.ty + P.vy * (t - P.t0) - y, d = Math.hypot(ex, ey);
       const sp = d > 1e-6 ? Math.min(P.vmax, Math.sqrt(2 * BRAKE * d), 0.5 * d) : 0;
       wx = P.vx + (d > 1e-6 ? ex / d * sp : 0); wy = P.vy + (d > 1e-6 ? ey / d * sp : 0);
-    }
-    if (P.flow) {                                                         // in rubble: never outrun the rocks' own flow by much
-      const ux = wx - P.flow[0], uy = wy - P.flow[1], u = Math.hypot(ux, uy);
-      if (u > ROCK_V) { wx = P.flow[0] + ux * ROCK_V / u; wy = P.flow[1] + uy * ROCK_V / u; }
     }
     let ax = (wx - vx) * KV + P.fx - gx, ay = (wy - vy) * KV + P.fy - gy;
     const am = Math.hypot(ax, ay);
@@ -607,9 +604,10 @@ const Combat = (() => {
     return null;
   }
 
-  // the most urgent rubble rock on a collision course within 3 s -> full burn sideways out of its way, else null
-  function rockDodge(g, M, p) {
-    const stt = World.states(g.w, g.t), reach = 4 * Math.hypot(p.vx, p.vy) + 30;
+  // the most urgent rubble rock on a collision course -> a burn out of its way (sideways, plus braking against
+  //  the rock when sideways alone cannot clear it in time), else null.  Look-ahead = time to stop, 3-6 s.
+  function rockScan(g, M, p) {
+    const stt = World.states(g.w, g.t), sp = Math.hypot(p.vx, p.vy), reach = 6 * sp + 30;
     let best = null, tBest = Infinity;
     for (const band of M.bands) {
       const [hx, hy] = stt[band.host.idx], dh = Math.hypot(p.x - hx, p.y - hy);
@@ -617,28 +615,23 @@ const Combat = (() => {
       for (const rk of band.rocks) {
         if (Math.abs(dh - rk.a) > rk.r + reach) continue;
         const [rx, ry, rvx, rvy] = World.rockState(g.w, rk, g.t), dx = p.x - rx, dy = p.y - ry, vx = p.vx - rvx, vy = p.vy - rvy;
-        const v2 = vx * vx + vy * vy, tc = v2 > 1e-9 ? clamp(-(dx * vx + dy * vy) / v2, 0, 4) : 0;
-        const mx = dx + vx * tc, my = dy + vy * tc, md = Math.hypot(mx, my);
-        if (md < rk.r + p.r + 6 && tc < tBest) {
-          tBest = tc;
-          const v = Math.sqrt(v2) || 1, ox = md > 0.3 ? mx / md : -vy / v, oy = md > 0.3 ? my / md : vx / v;
-          const brake = v > 6 ? 0.5 : 0;                                    // sideways, and shed speed if fast
-          best = [ox * A_MAX - vx / v * A_MAX * brake, oy * A_MAX - vy / v * A_MAX * brake];
-        }
+        const v2 = vx * vx + vy * vy, v = Math.sqrt(v2) || 1, T = clamp(v / A_MAX + 1, 3, 6);
+        const tc = v2 > 1e-9 ? clamp(-(dx * vx + dy * vy) / v2, 0, T) : 0;
+        const mx = dx + vx * tc, my = dy + vy * tc, md = Math.hypot(mx, my), clear = rk.r + p.r + DODGE_GAP;
+        if (md >= clear || tc >= tBest) continue;
+        tBest = tc;
+        const ox = md > 0.3 ? mx / md : -vy / v, oy = md > 0.3 ? my / md : vx / v;
+        const need = 2 * (clear - md) / Math.max(0.25, tc * tc);              // sideways accel to clear it in time
+        const brake = need > 0.7 * A_MAX ? 1 : v > 6 ? 0.5 : 0;
+        best = [ox * A_MAX - vx / v * A_MAX * brake, oy * A_MAX - vy / v * A_MAX * brake];
       }
     }
-    return best;
+    return { dodge: best };
   }
-  // inside (or within pad of) a rubble band -> the rocks' local circular velocity there, else null
-  function rubbleFlow(g, M, x, y, pad) {
-    for (const band of M.bands) {
-      const [hx, hy, hvx, hvy] = World.bodyState(g.w, band.host, g.t), dx = x - hx, dy = y - hy, dh = Math.hypot(dx, dy);
-      if (dh < band.lo - pad || dh > band.hi + pad) continue;
-      const v = Math.sqrt(band.host.mu / dh) / dh;
-      return [hvx - dy * v, hvy + dx * v];
-    }
-    return null;
-  }
+  const inRubble = (g, M, p, pad) => M.bands.some((band) => {
+    const [hx, hy] = World.bodyState(g.w, band.host, g.t), dh = Math.hypot(p.x - hx, p.y - hy);
+    return dh > band.lo - pad && dh < band.hi + pad;
+  });
 
   // small pushes: keep apart from friends, stay out of the Hub's and Rust's bubbles
   function nudges(g, M, p, a) {
@@ -953,8 +946,9 @@ const Combat = (() => {
 
   function controls(g) {
     if (!armed(g) || g.mode !== 'ship' || (g.status !== 'flying' && g.status !== 'landed')) return null;
-    const extra = `${g.S.ionThrust ? ' · X ion' : ''}${g.S.orionCount ? ' · N pulse' : ''}`;
-    return `W engine · A/D spin · S stop spin · ${g.S.turret ? 'click: fire at the mouse' : 'Space fire'} · arrows nudge${extra} · Tab target · , . warp · M map · P pause`;
+    //  the core's own line (render.js) with the trigger slotted in
+    return `W engine · Shift fine · A/D spin · S stop spin · ${g.S.turret ? 'click: fire at mouse' : 'Space fire'} · arrows nudge · X ion${g.S.orionCount ? ' · N pulse' : ''}` +
+      ' · Tab target · , . warp · M map · wheel zoom · P pause';
   }
 
   function respawn(g) {

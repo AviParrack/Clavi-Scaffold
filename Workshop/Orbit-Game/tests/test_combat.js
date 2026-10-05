@@ -174,6 +174,21 @@ if (!FULL) {
   check('...and stay above the ground', minAlt > 0, `lowest ${minAlt.toFixed(1)} m above the surface`);
   check('...and survive the rubble', alive === n, `${alive}/${n} alive`);
 }
+{
+  // rubble caution must not stop the hunt: every personality still works its way in to a ship in low Potato orbit and lands hits
+  const bands = M(fresh('orbit')).bands.filter((b) => b.host.id === 'ceres');
+  check("Ceres's two rubble rings are two bands (the gap between them is open space)", bands.length === 2 && bands.every((b) => b.hi - b.lo < 400),
+        bands.map((b) => `${b.lo.toFixed(0)}-${b.hi.toFixed(0)}`).join(', '));
+  const out = [];
+  for (const pers of Object.keys(Combat.PERS)) {
+    const g = fresh('potato'); quiet(g); g.sh.hull = g.S.hull = 1e6;
+    const p = Combat.spawn(g, 'potato', { crew: Combat.CREW.find((c) => c.pers === pers), near: true }); p.warned = true;
+    H.run(g, 60 * 45, {});
+    out.push([pers, 1e6 - g.sh.hull, distTo(g, p)]);
+  }
+  check('every personality closes in through the rubble and hits a ship in low Potato orbit (45 s)', out.every(([, dmg, d]) => dmg >= 10 && d < 150),
+        out.map(([k, dmg, d]) => `${k} ${dmg.toFixed(0)} dmg @${d.toFixed(0)} m`).join(', '));
+}
 
 
 // ---------------- 6. warp caps ----------------
@@ -442,6 +457,9 @@ if (!FULL) {
   g.testGun = { ...PEA, ionThrust: 0.25, ionVe: 1300, ionTank: 0.2 }; Game.recalc(g);
   const ctl = Game.first(g, 'controls') || '';
   check('controls line: Space fire, and X ion is still listed', /Space fire/.test(ctl) && /X ion/.test(ctl), ctl);
+  check('...and every key of the core line survives (Shift fine, wheel zoom, ...)', ['W engine', 'Shift fine', 'A/D spin', 'S stop spin', 'arrows nudge', 'Tab target', 'M map', 'wheel zoom', 'P pause'].every((k) => ctl.includes(k)), ctl);
+  g.testGun.turret = 1; Game.recalc(g);
+  check('...a turret says click to fire instead', /click: fire at mouse/.test(Game.first(g, 'controls') || '') && !/Space fire/.test(Game.first(g, 'controls') || ''));
 }
 
 }   // !FULL

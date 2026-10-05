@@ -19,7 +19,7 @@
   Render.init(canvas, SEED);
   window.addEventListener('resize', () => Render.resize(canvas));
 
-  let g = Game.create(SEED, spawn, { dev: DEV, fresh });
+  let g = Game.create(SEED, spawn, { dev: DEV, fresh, noSave: fresh || params.has('mods') });
   window.ORBIT = { get game() { return g; }, set game(v) { g = v; }, CONFIG, Physics, World, Terrain, Game, Render };   // console handle
 
   let lastErr = null;

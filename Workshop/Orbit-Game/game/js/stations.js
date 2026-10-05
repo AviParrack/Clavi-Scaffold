@@ -68,7 +68,7 @@ const Stations = (() => {
       id: 'rusts', name: "Rust's", kind: 'black', keeper: 'Rust', short: 'Rust',
       host: 'ceres', needs: ['ceres', 'potato'], r: 15, ext: 18, port: [1.5, 9],
       orbit: (w) => w.byId.potato.a, phase: (w) => w.byId.potato.phase - Math.PI / 3, rate: (w) => w.byId.potato.n,   // Potato's own rail, 60° back
-      col: '#ff7eb6', icon: ['#ff7eb6', '#b0306e', '#ffd6ea'], noPirates: true, sells: ['guns', 'orion'],
+      col: '#ff7eb6', icon: ['#ff7eb6', '#b0306e', '#ffd6ea'], noPirates: true,
       tabs: ['services', 'sell', 'weapons'], fuelMult: 1.5, repairMult: 0.85,
       buy: { ...ORE(0.75), platinum: 0.95, ...GEMS(1.25), opal: 1.3, voidopal: 1.3, ...SALV(1.5), core: 1.4, jelly: 1.6 },
       blurb: (st, w) => `No names, no receipts. Parked at Big Potato's trailing L5 point, 60° behind it on the same ${st.orbitR} m orbit. ` +
@@ -264,9 +264,9 @@ const Stations = (() => {
     return true;
   }
 
-  // a click on a station picks its dock (unless a turret wants the mouse)
+  // a click on a station picks its dock (unless a working turret wants the mouse)
   function onMouse(g, ms) {
-    if (!ms.pressed || ms.button !== 0 || g.mode !== 'ship' || g.ui || (g.S && g.S.turret) || !g.mod.stations) return false;
+    if (!ms.pressed || ms.button !== 0 || g.mode !== 'ship' || g.ui || (g.S && g.S.turret && typeof Combat !== 'undefined' && Combat.armed(g)) || !g.mod.stations) return false;
     const pxm = ms.px || 1;
     for (const st of list(g)) {
       const [x, y] = st.state(g.t);

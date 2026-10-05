@@ -281,7 +281,7 @@ const Shop = (() => {
 
   function ship() {
     const ec = E();
-    return section('Engines & drives', 'Owned engines swap for free at any station. Thrust lifts you off rocks; Isp stretches your fuel.',
+    return section('Engines & drives', 'Owned engines swap for free here at the Hub. Thrust lifts you off rocks; Isp stretches your fuel.',
                    Object.keys(ec.ENGINES).map(engineCard).join('') + ionCard() + (ec.orionTab(ST) === 'ship' ? orionCard() : ''))
       + section('Tank, hull & hold', 'Bigger is better until it is heavier. Watch the Δv and lift numbers.', ['tank', 'cargo', 'hull', 'armor'].map(lineCard).join(''))
       + section('Handling & tools', '', ['rcs', 'tractor', 'scanner'].map(lineCard).join(''));

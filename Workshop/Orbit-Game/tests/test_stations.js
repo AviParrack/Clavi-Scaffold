@@ -295,7 +295,8 @@ for (const id of ['outpost', 'rusts']) {
   const g2 = Game.create(7, null), m2 = g2.mod.stations;
   check('save round-trips visits, keeper lines, dock count', m2.visited.rusts && m2.met.hub && m2.met.rusts && m2.docks === g.mod.stations.docks && m2.line.hub === g.mod.stations.line.hub,
         JSON.stringify(raw));
-  check('loaded game starts docked at the hub, undock job kept', Stations.dockedAt(g2).id === 'hub' && g2.done.undock !== undefined);
+  check('loaded game starts where you left it (docked at Rust\'s), undock job kept', Stations.dockedAt(g2) && Stations.dockedAt(g2).id === 'rusts' && g2.done.undock !== undefined,
+        g2.status);
   Game.load && 0;
   const g3 = Game.create(7, null); Game.call(g3, Game.mods.find((x) => x.id === 'stations'), 'load', { visited: 'junk', met: { hub: 1, evil: 1 }, docks: NaN, line: { hub: -3 } });
   check('load shrugs off junk data', !g3.mod.stations.met.evil && g3.mod.stations.met.hub && Number.isFinite(g3.mod.stations.docks), JSON.stringify(g3.mod.stations.met));

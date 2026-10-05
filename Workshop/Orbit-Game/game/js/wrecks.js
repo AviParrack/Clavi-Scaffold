@@ -423,7 +423,7 @@ const Wrecks = (() => {
   function lootLine(L, bp, spilled, how) {
     const parts = Object.entries(L.items).map(([k, q]) => `${q}× ${ITEMS[k].name.toLowerCase()}`);
     if (L.cash) parts.push(`$${L.cash} (${L.purse})`);
-    if (bp) parts.push(bp.name ? `${bp.name} schematics${bp.engine ? ' (equip at a station)' : ' (installed)'}` : `schematics sold for $${bp.cash}`);
+    if (bp) parts.push(bp.name ? `${bp.name} schematics${bp.engine ? ' (equip at Ceres Hub)' : ' (installed)'}` : `schematics sold for $${bp.cash}`);
     const tail = how === 'foot' ? '  ·  grab it before you go!'
                : count(spilled) ? `  ·  hold full, the rest is ${how === 'ship' ? 'tied to' : 'lying by'} the wreck: sell, then come back` : '';
     return `LOOT: ${parts.join(' · ') || 'dust and memories'}${tail}`;
@@ -1350,7 +1350,7 @@ const Wrecks = (() => {
   // click a badge to target its wreck; a stacked badge cycles through its wrecks, then lets go
   let drawn = { g: null, badges: [] };
   function onMouse(g, ms) {
-    if (!ms.pressed || ms.button !== 0 || g.mode !== 'ship' || g.ui || (g.S && g.S.turret) || drawn.g !== g || !Number.isFinite(ms.sx)) return false;
+    if (!ms.pressed || ms.button !== 0 || g.mode !== 'ship' || g.ui || (g.S && g.S.turret && typeof Combat !== 'undefined' && Combat.armed(g)) || drawn.g !== g || !Number.isFinite(ms.sx)) return false;
     const b = drawn.badges.find((o) => Math.hypot(o.bx - ms.sx, o.by - ms.sy) < 13);
     if (!b) return false;
     const i = b.ids.indexOf(g.navId && g.navId.startsWith('wreck:') ? g.navId.slice(6) : null);

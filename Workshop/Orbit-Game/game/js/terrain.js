@@ -148,7 +148,7 @@ const Terrain = (() => {
       if (m < REG) return;
       const M = MATS[m], w = T.wear[k] + Math.max(1, Math.round(255 * power / M.hard));
       if (w < 255) { T.wear[k] = w; return; }
-      T.grid[k] = DUG; T.wear[k] = 0; out.cells++;
+      T.grid[k] = DUG; T.wear[k] = 0; out.cells++; T.touched = true;
       out.mats[M.id] = (out.mats[M.id] || 0) + 1;
       if (M.item) out.yield[M.item] = (out.yield[M.item] || 0) + M.kg;
     });
@@ -157,6 +157,37 @@ const Terrain = (() => {
       for (const gm of T.gems) if (gm.state === 'buried' && mat(T, gm.lx, gm.ly) < REG) { gm.state = 'loose'; gm.seen = true; out.gems.push(gm); }
     }
     return out;
+  }
+
+  // ---------------- save: dug cells as [start, length] runs + indexes of taken gems ----------------
+
+  function snapshot(T) {
+    const gems = [];
+    T.gems.forEach((gm, i) => { if (gm.state !== 'buried') gems.push(i); });
+    if (!T.touched && !gems.length) return null;
+    const dug = [], G = T.grid;
+    for (let k = 0; k < G.length; k++) {
+      if (G[k] !== DUG) continue;
+      const k0 = k; while (k + 1 < G.length && G[k + 1] === DUG) k++;
+      dug.push(k0, k - k0 + 1);
+    }
+    return { dug, gems };
+  }
+
+  function restore(T, s) {
+    if (!s || typeof s !== 'object') return;
+    const r = Array.isArray(s.dug) ? s.dug : [], G = T.grid, N = T.N;
+    for (let i = 0; i + 1 < r.length; i += 2) {
+      const k0 = Math.max(0, r[i] | 0), k1 = Math.min(G.length, k0 + Math.max(0, r[i + 1] | 0));
+      for (let k = k0; k < k1; k++) {
+        if (G[k] < REG) continue;
+        G[k] = DUG; T.wear[k] = 0;
+        const c = Math.floor(Math.floor(k / N) / CHUNK) * T.NC + Math.floor((k % N) / CHUNK);
+        T.dirty.add(c); T.has[c] = 1;
+      }
+    }
+    for (const i of Array.isArray(s.gems) ? s.gems : []) if (T.gems[i]) T.gems[i].state = 'taken';
+    T.touched = true;
   }
 
   function touchChunks(T, lx, ly, r) {
@@ -254,7 +285,7 @@ const Terrain = (() => {
   function hexRGB(h) { return _rgb[h] || (_rgb[h] = [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16))); }
   function mixRGB(a, b, f) { return a.map((v, i) => Math.round(v * (1 - f) + b[i] * f)); }
 
-  return { of, mat, solid, collideCircle, raycast, dig, draw, drawGem, frameStart, forCells, index,
+  return { of, mat, solid, collideCircle, raycast, dig, snapshot, restore, draw, drawGem, frameStart, forCells, index,
            CELL, MATS, MAT_ID, GEM_COL, SPACE, DUG, REG };
 })();
 

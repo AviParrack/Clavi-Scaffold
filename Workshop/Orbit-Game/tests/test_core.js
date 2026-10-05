@@ -185,5 +185,66 @@ function dropOn(bodyId, speed, th = 1.0) {
   check('88 m Kiwi parking orbit stays put for 300 s', g.status === 'flying' && rMin > 75 && rMax < 100, `r in [${rMin.toFixed(1)}, ${rMax.toFixed(1)}]`);
 }
 
+// ---------------- 11. lifecycle: reloads, tows, landed ships, ion ----------------
+{
+  const store = {};
+  global.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+  const reload = () => Game.create(7, null);
+  const near = (a, b, tol = 1e-6) => Math.abs(a - b) < tol;
+
+  // flying: a reload puts you back where you were, at the same world time
+  const g = fresh('belt'); H.run(g, 120, {}); g.money = 777; Game.addCargo(g, 'iron', 14);
+  Game.save(g);
+  const g2 = reload();
+  check('reload mid-flight: same time, place, velocity, cargo', g2.status === 'flying' && near(g2.t, g.t) && near(g2.sh.x, g.sh.x) && near(g2.sh.vy, g.sh.vy) && g2.cargo.iron === 14,
+        `t ${g.t.toFixed(2)} -> ${g2.t.toFixed(2)}, dx ${(g2.sh.x - g.sh.x).toExponential(1)} m, cargo ${JSON.stringify(g2.cargo)}`);
+
+  // dead: dying saves, and the reload delivers the crash tow (cargo lost, fee paid)
+  const d = fresh('belt'); d.money = 1000; Game.addCargo(d, 'platinum', 6);
+  Game.die(d, 'test crash');
+  const d2 = reload();
+  check('reload after a crash is not a free tow: cargo gone, fee paid', d2.status !== 'dead' && !d2.cargo.platinum && d2.money < 1000, `status ${d2.status}, $${d2.money}, cargo ${JSON.stringify(d2.cargo)}`);
+
+  // landed: stays landed, nose along the ground normal
+  const l = fresh('pad'); H.run(l, 30, {}); Game.save(l);
+  const l2 = reload(); H.run(l2, 30, {});
+  check('reload while landed: still landed on the same body', l2.status === 'landed' && l2.landedOn === l2.w.byId.ceres && near(l2.sh.y, l.sh.y + 0, 0.05), `${l2.status} on ${l2.landedOn && l2.landedOn.name}`);
+
+  // dug holes and taken gems stay dug
+  const t = fresh('pad'), b = t.w.byId.seed, T = Terrain.of(b), gm = T.gems[0];
+  const [bx, by] = World.bodyState(t.w, b, t.t);
+  Game.dig(t, b, bx + gm.lx, by + gm.ly, 1.2, 99);
+  const dug = T.grid.reduce((n, v) => n + (v === Terrain.DUG), 0);
+  Game.save(t);
+  const t2 = reload(), T2 = Terrain.of(t2.w.byId.seed), dug2 = T2.grid.reduce((n, v) => n + (v === Terrain.DUG), 0);
+  check('reload keeps dug holes and taken gems (no gem farming)', dug > 0 && dug2 === dug && T2.gems[0].state === 'taken', `${dug} dug -> ${dug2}, gem ${T2.gems[0].state}`);
+  const raw = JSON.parse(store['pocket-orbit-v3']);
+  check('save stays small', store['pocket-orbit-v3'].length < 20000, `${store['pocket-orbit-v3'].length} chars, bodies ${Object.keys(raw.ter).join(',')}`);
+
+  // ?fresh=1 / ?mods= games never write
+  const n = Game.create(7, 'pad', { fresh: true, noSave: true }); n.money = 1;
+  check('noSave games never overwrite the save', Game.save(n) === false && JSON.parse(store['pocket-orbit-v3']).money !== 1);
+  delete global.localStorage;
+
+  // triple R: one tow, not two
+  const r = fresh('belt'); r.money = 5000;
+  H.run(r, 1, { pressed: ['KeyR'] }); H.run(r, 1, { pressed: ['KeyR'] }); const m1 = r.money;
+  H.run(r, 1, { pressed: ['KeyR'] });
+  check('R R R tows once (third R only asks again)', m1 < 5000 && r.money === m1, `$5000 -> $${m1} -> $${r.money}`);
+
+  // landed ships do not spin; nose stays on the ground normal
+  const p = fresh('pad'); H.run(p, 10, {}); const a0 = p.sh.ang, rcs0 = p.sh.rcs;
+  H.run(p, 120, { keys: ['KeyA'] });
+  check('landed: A/D do not spin the ship or burn RCS', p.status === 'landed' && near(p.sh.ang, a0) && p.sh.omega === 0 && p.sh.rcs === rcs0, `ang ${a0.toFixed(3)} -> ${p.sh.ang.toFixed(3)}`);
+
+  // ion drive only burns in flight, from the ship
+  const q = fresh('belt'); q.S.ionThrust = 0.25; q.S.ionTank = 0.4; q.sh.xe = 0.4;
+  Game.toggleIon(q); const on = q.ionOn;
+  Game.landAt(q, q.w.byId.ceres, Math.PI / 2); H.run(q, 1, {});
+  check('ion drive: on in flight, switched off once not flying', on && !q.ionOn);
+  const q2 = fresh('pad'); q2.S.ionThrust = 0.25; q2.sh.xe = 0.4; Game.toggleIon(q2);
+  check('ion drive will not start on the pad', !q2.ionOn);
+}
+
 console.log(`\n${nPass} passed, ${nFail} failed`);
 process.exit(nFail ? 1 : 0);

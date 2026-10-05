@@ -150,6 +150,9 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
   check('switching ion fuel to krypton vents & refills the ion tank', sx.ok && g.S.ionVe === 1500 && near(g.sh.xe, 0.25 * 0.9) && x0 - g.money === Math.ceil(0.225 * 160));
   Econ.closeShop(g);
   H.run(g, 1, { pressed: ['KeyX'] });
+  check('X does nothing while docked', g.ionOn === false);
+  Game.place(g, 'orbit');
+  H.run(g, 1, { pressed: ['KeyX'] });
   check('X toggles the ion drive once fitted', g.ionOn === true);
 }
 
@@ -267,8 +270,13 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
   check('tow fee never takes you below $0', g3.money === 0 && g4.money === 0, `$37 -> $${g3.money}, $0 -> $${g4.money}`);
   const g5 = fresh(); g5.money = 99999;
   for (const id of ['tank4', 'cargo3', 'hull3', 'armor3']) Econ.install(g5, id);                 // 9 t of methalox: an 11 t ship
-  Game.respawn(g5, 'crash');
-  check('fee capped at $250 for a heavy ship', 99999 - g5.money === 250, `$${99999 - g5.money}`);
+  Econ.refuel(g5, HUB); Econ.repair(g5, HUB);
+  const m5 = g5.money; Game.respawn(g5, 'crash');
+  check('fee capped at $250 for a heavy ship (tanks full)', m5 - g5.money === 250, `$${m5 - g5.money}`);
+  const gT = fresh(); gT.money = 1000; gT.sh.fuel = 0; gT.sh.rcs = 0; gT.sh.hull = 40;
+  Game.respawn(gT, 'tow');
+  const want = 110 + Math.ceil(gT.S.fuel * Econ.fuelPrice(gT, HUB) + gT.S.rcs * Econ.rcsPrice(HUB) + 60 * Econ.repairPrice(HUB) - 1e-6);
+  check('a tow bills the refill: never cheaper than buying the fuel', 1000 - gT.money === want && 1000 - gT.money > tow, `$${1000 - gT.money} (want $${want})`);
   const g6 = fresh('pad'); g6.money = 500; Econ.state(g6).orion = 1; Game.recalc(g6);
   Econ.firePulse(g6); Econ.openShop(g6, HUB); Game.respawn(g6, 'tow');
   check('respawn clears the blast and closes the shop', !Econ.state(g6).blast && !g6.ui && !Econ.state(g6).station);

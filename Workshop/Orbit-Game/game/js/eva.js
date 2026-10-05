@@ -960,7 +960,7 @@ const EVA = (() => {
   if (on) Game.addGoals([
     { id: 'mine', order: 30, reward: 75, text: `Step out (E) and laser ${MINE_KG} kg of ore into your pack`,
       test: (g) => !!(g.mod.eva && g.mod.eva.hauled >= MINE_KG) },
-    { id: 'gem', order: 65, reward: 150, text: 'Dig up a buried gem on foot (they sparkle up close)',
+    { id: 'gem', order: 65, reward: 150, text: 'Bag a gem on foot (buried ones sparkle up close)',
       test: (g) => !!(g.mod.eva && g.mod.eva.gems > 0) },
   ]);
 

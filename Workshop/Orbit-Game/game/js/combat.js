@@ -196,7 +196,7 @@ const Combat = (() => {
     const pull = space || (turret && !!(ms && ms.down));
     if (space && !M.spaceWas && can && !armed(g) && !M.toldNoGun) {
       M.toldNoGun = true;
-      Game.toast(g, "NO GUNS FITTED. RUST'S SELLS THEM.", '#ff9f1c', 'gun');
+      Game.toast(g, stationsOn() ? "NO GUNS FITTED. RUST'S SELLS THEM." : 'NO GUNS FITTED. THE SHOP SELLS THEM.', '#ff9f1c', 'gun');
     }
     M.spaceWas = space;
     M.aimAng = aimAngle(g, M);

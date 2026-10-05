@@ -107,18 +107,24 @@ const Game = (() => {
       pickups: [], particles: [], popups: [], toasts: [], events: [], trail: [], prompts: [],
       done: {}, mod: {}, err: null, shake: 0, deadAt: 0, crashMsg: '', towAsk: -9,
       maxCeresR: 0, stepsLastFrame: 0, digBuf: {}, gain: null, lastSave: 0,
+      noSave: !!opts.noSave,                                         // ?fresh=1 / ?mods= runs never overwrite the real save
     };
     each(g, 'init');
     const saved = opts.fresh || g.dev ? null : readSave();
+    const same = saved && saved.seed === seed;                         // flight + terrain only make sense in the same world
+    const flight = same && !spawn && saved.flight && Number.isFinite(saved.flight.t) ? saved.flight : null;
+    if (flight) g.t = flight.t;
     if (saved) applySave(g, saved, 'pre');
+    if (same) restoreTerrain(g, saved.ter);
     recalc(g);
     g.sh = Physics.newShip(g.S);
     g.astro.hp = g.astro.hpMax = g.S.suitHp;
     if (saved) applySave(g, saved, 'ship');
     if (g.dev) g.money = Math.max(g.money, 50000);
-    place(g, spawn && SPAWNS[spawn] ? spawn : defaultSpawn());
+    if (!(flight && restoreFlight(g, flight))) place(g, spawn && SPAWNS[spawn] ? spawn : defaultSpawn());
     each(g, 'ready');
     refresh(g);
+    if (flight && flight.status === 'dead') respawn(g, 'crash');     // closed the tab on a wreck: the tow still comes
     g.prompts = gatherPrompts(g);
     log(g, `new game  seed ${seed}  spawn ${g.spawn}${g.dev ? '  DEV' : ''}${saved ? '  (save loaded)' : ''}`);
     return g;
@@ -142,14 +148,16 @@ const Game = (() => {
 
   // after a crash or a tow: fresh ship at the default spawn, cargo lost (modules add fees etc.)
   function respawn(g, why = 'towed') {
+    const old = { fuel: g.sh.fuel, xe: g.sh.xe || 0, rcs: g.sh.rcs, hull: Math.max(0, g.sh.hull) };
     g.sh = Physics.newShip(g.S);
     g.cargo = {}; g.pack = {}; g.sh.cargoKg = 0;
     g.mode = 'ship'; g.astro.on = false; g.astro.hp = g.astro.hpMax;
-    g.ionOn = false; g.warpIdx = 0; g.pred = null; g.crashMsg = ''; g.err = null;
+    g.ionOn = false; g.warpIdx = 0; g.pred = null; g.crashMsg = ''; g.err = null; g.towAsk = -9;
     place(g, defaultSpawn());
-    each(g, 'respawn', why);
+    each(g, 'respawn', why, old);
     refresh(g);
     log(g, `respawn (${why}) at ${g.spawn}`);
+    save(g);
   }
 
 
@@ -169,7 +177,9 @@ const Game = (() => {
     // -------- ship controls --------
     const live = g.status !== 'dead' && g.mode === 'ship';
     const ctrl = live ? readShipCtrl(g, inp) : { ...ZERO };
-    ctrl.ion = g.ionOn && g.status !== 'dead' ? 1 : 0;
+    if (g.ionOn && (g.status !== 'flying' || g.mode !== 'ship')) { g.ionOn = false; toast(g, 'ION DRIVE OFF', '#7cf5d6', 'ion'); }
+    ctrl.ion = g.ionOn ? 1 : 0;
+    if (g.status === 'landed') { ctrl.rot = 0; ctrl.kill = false; }    // feet on the ground: no spinning in place
     each(g, 'shipCtrl', ctrl, inp);
     if (g.status === 'docked' && (ctrl.main || ctrl.fwd || ctrl.left || ctrl.ion)) release(g);
 
@@ -208,7 +218,7 @@ const Game = (() => {
     each(g, 'after', inp, frameDt, simDt);
     if (n) { refresh(g); checkGoals(g); }
     g.prompts = gatherPrompts(g);
-    if (g.real - g.lastSave > 30 && !g.dev) save(g);
+    if (g.real - g.lastSave > 30) save(g);
   }
 
   function readShipCtrl(g, inp) {
@@ -237,7 +247,7 @@ const Game = (() => {
     if (code === 'KeyR') {
       if (g.status === 'dead') respawn(g, 'crash');
       else if (g.real - g.towAsk < 2.5) respawn(g, 'tow');
-      else { g.towAsk = g.real; toast(g, 'PRESS R AGAIN: TOW TO BASE (LOSE CARGO)', '#ffd166'); }
+      else { g.towAsk = g.real; toast(g, 'PRESS R AGAIN: TOW TO BASE (CARGO LOST, FEE + REFILL)', '#ffd166'); }
     }
     if (code === 'KeyT' && g.dev) {
       const id = SPAWN_ORDER[(SPAWN_ORDER.indexOf(g.spawn) + 1) % SPAWN_ORDER.length];
@@ -262,6 +272,7 @@ const Game = (() => {
   function toggleIon(g) {
     if (!g.S.ionThrust) { toast(g, 'NO ION DRIVE FITTED', '#ff9f1c'); return; }
     if (!g.ionOn && g.sh.xe <= 0) { toast(g, 'ION TANK EMPTY', '#ff9f1c'); return; }
+    if (!g.ionOn && g.status !== 'flying') { toast(g, 'ION DRIVE: ONLY IN FLIGHT', '#ff9f1c', 'ion'); return; }
     g.ionOn = !g.ionOn;
     toast(g, g.ionOn ? 'ION DRIVE ON' : 'ION DRIVE OFF', '#7cf5d6', 'ion');
   }
@@ -306,7 +317,7 @@ const Game = (() => {
     const b = g.landedOn, L = g.land, sh = g.sh, [bx, by, bvx, bvy] = World.bodyState(g.w, b, g.t);
     const vr = (sh.vx - bvx) * L.nx + (sh.vy - bvy) * L.ny;            // net push away from the ground?
     if (vr > 1e-4) { g.landedOn = null; g.land = null; g.everFlew = true; setStatus(g, 'flying', `took off from ${b.name}`); return; }
-    sh.x = bx + L.lx; sh.y = by + L.ly; sh.vx = bvx; sh.vy = bvy;
+    sh.x = bx + L.lx; sh.y = by + L.ly; sh.vx = bvx; sh.vy = bvy; sh.ang = Math.atan2(L.ny, L.nx); sh.omega = 0;
     if (i % 8 === 0 && !Terrain.collideCircle(Terrain.of(b), L.lx, L.ly, g.S.radius + 0.35)) {
       g.landedOn = null; g.land = null; setStatus(g, 'flying', `ground under the ship dug away on ${b.name}`);
     }
@@ -415,6 +426,7 @@ const Game = (() => {
     popup(g, 'KABOOM!', '#ff6b6b', g.sh.x, g.sh.y); g.shake = 1;
     burst(g, 'boom', g.sh.x, g.sh.y, 70, { vx: g.sh.vx * 0.3, vy: g.sh.vy * 0.3, speed: 14 });
     each(g, 'died', why);
+    save(g);
   }
 
   function targets(g) {
@@ -530,7 +542,9 @@ const Game = (() => {
     if (n) { g.cargo[item] -= n; if (!g.cargo[item]) delete g.cargo[item]; g.sh.cargoKg = kgOf(g.cargo); }
     return n;
   }
-  function addPack(g, item, qty) { return addTo(g.pack, g.S.packCap, item, qty); }
+  function addPack(g, item, qty) {                                    // gems ride in a pocket: up to 4 kg over a full pack
+    return addTo(g.pack, g.S.packCap + (ITEMS[item] && ITEMS[item].kind === 'gem' ? 4 : 0), item, qty);
+  }
   function unloadPack(g) {
     const moved = {};
     for (const [item, q] of Object.entries(g.pack)) {
@@ -701,7 +715,7 @@ const Game = (() => {
     toast(g, gl ? `JOB DONE: ${gl.text.toUpperCase()}${gl.reward ? `  +$${gl.reward}` : ''}` : id.toUpperCase(), '#8ff0b0');
     log(g, `GOAL ${id}${gl && gl.reward ? ` +$${gl.reward}` : ''}`);
     each(g, 'goal', id);
-    if (!g.dev) save(g);
+    save(g);
     return true;
   }
   function checkGoals(g) {
@@ -720,9 +734,10 @@ const Game = (() => {
 
   function save(g) {
     g.lastSave = g.real;
-    if (g.dev || typeof localStorage === 'undefined') return false;
-    const data = { v: 3, money: g.money, done: g.done, cargo: g.cargo, pack: g.pack,
-                   ship: { fuel: g.sh.fuel, xe: g.sh.xe, rcs: g.sh.rcs, hull: g.sh.hull }, mods: {} };
+    if (g.dev || g.noSave || typeof localStorage === 'undefined') return false;
+    const data = { v: 3, seed: g.seed, money: g.money, done: g.done, cargo: g.cargo, pack: g.pack,
+                   ship: { fuel: g.sh.fuel, xe: g.sh.xe, rcs: g.sh.rcs, hull: g.sh.hull },
+                   flight: flightState(g), ter: terrainState(g), mods: {} };
     for (const m of mods) { const s = call(g, m, 'save'); if (s !== undefined) data.mods[m.id] = s; }
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); return true; } catch (e) { return false; }
   }
@@ -739,6 +754,34 @@ const Game = (() => {
       if (g.sh.hull <= 0) g.sh.hull = g.S.hull * 0.5;
       g.sh.cargoKg = kgOf(g.cargo);
     }
+  }
+  // where the ship is, so a reload is not a free tow (dead: the crash tow happens on load; EVA: back aboard)
+  function flightState(g) {
+    const sh = g.sh, f = { t: g.t, status: g.status, x: sh.x, y: sh.y, vx: sh.vx, vy: sh.vy, ang: sh.ang, omega: sh.omega };
+    if (g.status === 'landed' && g.landedOn) { f.on = g.landedOn.id; f.land = g.land; }
+    if (g.status === 'docked' && g.attach) f.dock = g.attach.station;
+    return f;
+  }
+  function restoreFlight(g, f) {
+    if (!['x', 'y', 'vx', 'vy', 'ang', 'omega'].every((k) => Number.isFinite(f[k])) || f.status === 'dead') return false;
+    g.spawn = 'saved'; g.status = 'flying'; g.landedOn = null; g.land = null; g.attach = null; g.trail = []; g.everFlew = true;
+    Object.assign(g.sh, { x: f.x, y: f.y, vx: f.vx, vy: f.vy, ang: f.ang, omega: f.omega });
+    if (f.status === 'docked') return !!(f.dock && typeof Stations !== 'undefined' && Stations.dock(g, f.dock, true));
+    const b = f.on && g.w.byId[f.on], L = f.land;
+    if (f.status === 'landed' && b && L && [L.lx, L.ly, L.nx, L.ny].every(Number.isFinite)) {
+      g.landedOn = b; g.land = { lx: L.lx, ly: L.ly, nx: L.nx, ny: L.ny }; g.status = 'landed'; holdLanded(g, 1);
+    }
+    return true;
+  }
+  // dug holes and taken gems per body, so dug-out rocks stay dug
+  function terrainState(g) {
+    const out = {};
+    for (const b of g.w.bodies) { const s = b.ter && Terrain.snapshot(b.ter); if (s) out[b.id] = s; }
+    return out;
+  }
+  function restoreTerrain(g, ter) {
+    if (!ter || typeof ter !== 'object') return;
+    for (const b of g.w.bodies) if (ter[b.id]) Terrain.restore(Terrain.of(b), ter[b.id]);
   }
   function wipeSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } }
 
@@ -838,7 +881,7 @@ const Game = (() => {
       const r = call(g, m, 'hint');
       if (r) cands.push(typeof r === 'string' ? { pri: 50, text: r } : r);
     }
-    if (g.status === 'landed' && !g.everFlew) cands.push({ pri: 10, text: 'Hold W to fire the engine. A/D spin you with thrusters; S stops the spin.' });
+    if (g.status === 'landed' && !g.everFlew) cands.push({ pri: 10, text: 'Hold W to fire the engine and lift off. Once airborne, A/D spin you with thrusters and S stops the spin.' });
     if (g.navId && g.approach && g.approach.i >= 0) cands.push({ pri: 15, text: `Closest approach to ${g.approach.tg.name}: ${fmtDist(g.approach.d)} in ${(g.approach.t - g.t).toFixed(0)} s. Tab cycles targets.` });
     cands.push({ pri: 1, text: 'Tab (or click a rock) picks a target and shows your closest approach. , and . change warp.' });
     cands.sort((a, b) => b.pri - a.pri);

@@ -331,7 +331,7 @@ const Econ = (() => {
     return c.name;
   }
 
-  // free install from a wreck blueprint (engines are not swapped mid-flight; equip them at a station)
+  // free install from a wreck blueprint (engines are not swapped mid-flight; equip them at Ceres Hub)
   function grant(g, id) {
     const name = install(g, id);
     if (name) { st(g).stats.blueprints++; Game.log(g, `blueprint installed: ${name}`); Game.save(g); }
@@ -362,7 +362,7 @@ const Econ = (() => {
     return (far || lift).f;
   }
 
-  // swap to an owned engine (free at a station). Keeps the fuel when the new engine burns it, else drains and refills.
+  // swap to an owned engine (free at Ceres Hub). Keeps the fuel when the new engine burns it, else drains and refills.
   function equip(g, eid, station = st(g).station) {
     const m = st(g);
     if (!ENGINES[eid] || !owns(g, eid)) return { ok: false, msg: 'Not owned' };
@@ -522,7 +522,7 @@ const Econ = (() => {
 
   function firePulse(g) {
     const m = st(g), sh = g.sh;
-    if (g.mode !== 'ship' || g.status === 'dead' || g.ui) return false;
+    if (g.mode !== 'ship' || g.status === 'dead' || g.ui || g.paused) return false;
     if (m.orion <= 0) { Game.toast(g, 'NO ORION UNITS (THE BLACK MARKET HAS SOME)', '#ff9f1c', 'orion'); return false; }
     if (g.status === 'docked') { Game.toast(g, 'NOT WHILE DOCKED! THE STATION LIKES ITS WINDOWS', '#ff9f1c', 'orion'); return false; }
     if (g.real - m.lastPulse < ORION.cooldown) return false;
@@ -579,7 +579,7 @@ const Econ = (() => {
 
   function onKey(g, code) {
     if (g.ui === 'shop') { if (code === 'Escape' || code === 'KeyF') closeShop(g); return true; }   // the shop eats keys while open
-    if (code === 'KeyN' && g.mode === 'ship' && g.status !== 'dead' && !g.ui) { firePulse(g); return true; }
+    if (code === 'KeyN' && g.mode === 'ship' && g.status !== 'dead' && !g.ui && !g.paused) { firePulse(g); return true; }
     if (code === 'KeyK' && g.dev) { g.money += 5000; Game.toast(g, 'DEV: +$5,000', '#8ff0b0', 'devk'); return true; }
     return false;
   }
@@ -595,17 +595,25 @@ const Econ = (() => {
     if (m.blast && g.real - m.blast.real > 1.2) m.blast = null;
   }
 
-  function respawn(g, why) {
+  // old = the tanks before the tow: the fresh ship arrives full, and that fill is billed at hub prices
+  function respawn(g, why, old) {
     const m = st(g);
     m.blast = null;
     if (g.ui === 'shop') closeShop(g);
     const heavy = Math.max(0, Physics.fullMass(g.S) - 2.4) * 15;  // heavier ships cost more to tow
-    const fee = Math.round(Math.min(FEE_MAX, Math.max(FEE_MIN, (TOW_FEE[why] || TOW_FEE.tow) + heavy)));
+    const base = Math.round(Math.min(FEE_MAX, Math.max(FEE_MIN, (TOW_FEE[why] || TOW_FEE.tow) + heavy)));
+    const refill = old ? refillCost(g, why === 'crash' ? { ...old, hull: g.S.hull } : old, hubStation(g)) : 0;   // salvage covers the hull
+    const fee = base + refill;
     const pay = Math.max(0, Math.min(fee, Math.floor(g.money)));
     g.money -= pay; m.stats.fees += pay;
-    Game.toast(g, pay < fee ? `${why === 'crash' ? 'SALVAGE' : 'TOW'} FEE $${fee}: YOU PAID $${pay}, WE CRIED A LITTLE`
-                            : `${why === 'crash' ? 'SALVAGE + TOW' : 'TOW'} FEE: -$${pay}`, '#ff9fb2', 'fee');
-    Game.log(g, `${why} fee $${pay} of $${fee}`);
+    const what = `${why === 'crash' ? 'SALVAGE + TOW' : 'TOW'} FEE${refill ? ' + REFILL' : ''}`;
+    Game.toast(g, pay < fee ? `${what} $${fee}: YOU PAID $${pay}, WE CRIED A LITTLE` : `${what}: -$${pay}`, '#ff9fb2', 'fee');
+    Game.log(g, `${why} fee $${pay} of $${fee} (base $${base}, refill $${refill})`);
+  }
+  function refillCost(g, old, station) {
+    const S = g.S, gap = (full, have) => Math.max(0, (full || 0) - (Number.isFinite(have) ? have : full || 0));
+    return Math.ceil(gap(S.fuel, old.fuel) * fuelPrice(g, station) + gap(S.ionTank, old.xe) * ionPrice(g, station) +
+                     gap(S.rcs, old.rcs) * rcsPrice(station) + gap(S.hull, old.hull) * repairPrice(station) - 1e-6);
   }
 
   function died(g) { st(g).blast = null; if (g.ui === 'shop') closeShop(g); }

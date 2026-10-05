@@ -18,6 +18,7 @@ import * as menu from './ui/menu.js';
 import * as overlays from './ui/overlays.js';
 import { createDebug } from './ui/debug.js';
 import { initAudio, setMuted, isMuted } from './ui/audio.js';
+import { BALANCE as B } from './config/balance.js';
 
 const params = new URLSearchParams(location.search);
 const DEBUG = params.get('debug') === '1';
@@ -33,6 +34,11 @@ const store = {
   set(k, v) { try { localStorage.setItem('handoff.' + k, JSON.stringify(v)); } catch { /* private mode etc. */ } },
 };
 
+// dev mode: every element unlocked, every slot open, a big bank, and the debug keys (N $ U D T L).
+// On with the #dev link (works in the published artifact) or the start screen's DEV MODE switch (remembered).
+// ?debug=1 alone gives the keys and the truth panel but a normal opening (test/ui-shot.mjs relies on that).
+let DEV = location.hash === '#dev' || store.get('dev', false);
+
 // =================== state ===================
 
 let st = null;
@@ -45,7 +51,10 @@ let k = 1;                                   // device px per logical px
 
 const api = {
   get st() { return st; },
-  view, debug: DEBUG, store,
+  view, store,
+  get debug() { return DEBUG || DEV; },
+  get dev() { return DEV; },
+  setDev(on) { DEV = on; store.set('dev', on); if (on) setupDev(); },
   act: null,
   newGame, endGame,
   isMuted,
@@ -62,12 +71,22 @@ function newGame(difficulty = 'medium') {
   st = Sim.createState({ seed, difficulty });
   st.debug = DEBUG;
   resetView(view);
+  if (DEV) devStart(st);
   acc = 0;
   store.set('settings', { difficulty });
   console.log(`[handoff] new game seed=${seed} difficulty=${difficulty}${DEBUG ? ` (true: ${st.trueDifficulty})` : ''}`);
   return st;
 }
 function endGame() { st = null; resetView(view); }
+
+// dev mode's opening: all unlocked, every lane at max slots, and a bank (press $ for more)
+function devStart(st) {
+  st.dev = true;
+  Sim.debugUnlockAll(st);
+  for (const lane of Object.keys(st.lanes)) while (st.lanes[lane].slots.length < B.maxSlots) Sim.debugAddSlot(st, lane);
+  for (let i = 0; i < 4; i++) Sim.debugAddMoney(st);
+  console.log(`[handoff] dev mode: ${st.unlocked.length} elements, ${B.maxSlots} slots per lane, ${Math.round(st.money)} money`);
+}
 
 // =================== scale: fit the board in the window ===================
 // fit = CSS px per logical px, k = device px per logical px. The canvas backing store is W·k × H·k device px.
@@ -140,12 +159,12 @@ function render(t, dt) {
 
   // ---------- board ----------
   const late = [];
-  const c = { g, st, view, t, dt, k, hit: hits, act: api.act, api, debug: DEBUG, late: fn => late.push(fn) };
+  const c = { g, st, view, t, dt, k, hit: hits, act: api.act, api, debug: api.debug, late: fn => late.push(fn) };
   hits.begin();
   if (st) {
     for (const [name, m] of MODULES) guard(name, () => m.draw(c));
     for (const fn of late) guard('late', () => fn(c));
-    if (DEBUG && view.layout) guard('layout', outline);
+    if (api.debug && view.layout) guard('layout', outline);
   }
   hits.end();
   input?.refresh();                             // a still mouse: hover (and its tooltip) follows this frame's regions
@@ -193,11 +212,14 @@ for (const [name, m] of MODULES) for (const [kind, h] of Object.entries(m.input 
   handlers[kind] = h;
 }
 
-// =================== debug (?debug=1): the panel, cheat keys, and hooks for test/ui-shot.mjs ===================
+// =================== debug / dev mode: the panel, cheat keys, and hooks for test/ui-shot.mjs ===================
 
 const debugEl = document.getElementById('debug');
 let debugPanel = null;
-if (DEBUG) {
+view.truth = DEBUG;                             // truth marks on chips start on only with ?debug=1 (T toggles)
+if (api.debug) setupDev();
+function setupDev() {
+  if (api.debugActions) return;
   const on = fn => (...a) => st && fn(st, ...a);
   api.debugActions = {
     skipGen: on(Sim.debugSkipGen), addMoney: on(Sim.debugAddMoney), unlockAll: on(Sim.debugUnlockAll),

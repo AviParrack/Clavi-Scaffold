@@ -75,6 +75,9 @@ button { font: inherit; color: inherit; }
   justify-content: space-between; background: var(--hud); }
 .st-bar { top: 0; border-bottom: 1px solid var(--e0); font: 8px/1 "Silkscreen", monospace; color: var(--gd); }
 .st-foot { bottom: 0; border-top: 1px solid var(--e0); color: var(--gd); }
+.st-dev { font: 8px/1 "Silkscreen", monospace; color: var(--gd); padding: 4px 0 3px; }
+.st-dev:hover { color: var(--gl); }
+.st-dev.on { color: var(--r); }
 .st-title { position: absolute; left: 0; width: 1200px; top: 44px; text-align: center; font: 64px/1 "Silkscreen", monospace; color: var(--gl);
   letter-spacing: 4px; text-shadow: 0 0 14px color-mix(in srgb, var(--g) 45%, transparent); }
 .st-tag { position: absolute; left: 0; width: 1200px; top: 116px; text-align: center; font: 24px/1 "VT323", monospace; color: var(--gm); }

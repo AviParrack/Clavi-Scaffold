@@ -17,6 +17,7 @@ python3 -m http.server 8000
 - `?seed=N` reproducible run
 - `?pixel=1` whole-number scale only (crisper, smaller board)
 - `?debug=1` debug keys plus the truth panel (true m, drift, live per-read catch / false alarm / unread) and truth marks on chips
+- **Dev mode** (`#dev` on the link, or the DEV MODE switch at the bottom of the start screen, remembered per browser): every element unlocked, 10 mounts per lane, a big bank, and the debug keys. Dev runs never set a best score.
 
 ## Controls
 
@@ -40,7 +41,7 @@ after they have been up for 0.6 s (keys `1`–`9` are instant), so hurrying a ca
 MODEL card holds the board until it closes (6 s, a click or `Esc`). Hover anything for its numbers: tooltips follow
 the live state even when the mouse is still.
 
-`?debug=1` adds: `N` next generation · `$` money · `U` unlock everything · `D` the truth panel · `T` truth marks on chips · `L` layout outlines.
+`?debug=1` and dev mode add: `N` next generation · `$` money · `U` unlock everything · `D` the truth panel · `T` truth marks on chips · `L` layout outlines.
 
 ## Test
 

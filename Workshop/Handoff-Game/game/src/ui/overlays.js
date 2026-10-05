@@ -144,7 +144,17 @@ function buildStart() {
       <div class="pnl cn"><div class="pnl-h">THE JOB</div><ol class="rules">${rules}</ol></div>
       <div class="st-best" id="best"></div>
     </div>
-    <div class="st-foot"><span>${api.debug ? '?seed=N a reproducible run · ?debug=1 debug keys · ?pixel=1 whole-pixel scale' : ''}</span><span>v2 · SOLITON</span></div>`;
+    <div class="st-foot"><button class="st-dev" id="st-dev"></button><span>v2 · SOLITON</span></div>`;
+
+  // DEV MODE switch: every element unlocked, every slot open, a big bank, debug keys. Remembered in this browser.
+  const dev = $('st-dev');
+  const devLabel = () => {
+    dev.textContent = api.dev ? 'DEV MODE ON · all unlocked · $ money · N next generation · D panel · T truth · click to turn off'
+                                : 'DEV MODE OFF · click to start with everything unlocked';
+    dev.classList.toggle('on', api.dev);
+  };
+  dev.onclick = () => { api.onGesture?.(); audio.sfx.click(); api.setDev(!api.dev); devLabel(); };
+  devLabel();
 
   const box = $('difficulty');
   DIFF_IDS.forEach((id, i) => {
@@ -493,7 +503,7 @@ function updateScore(c, a) {
   if (st.over && !a.scored && c.t >= a.scoreAt) {
     a.scored = true;
     const card = scorecard(st), best = api.store.get('best', null);
-    if (!best || card.score > best.score) api.store.set('best', card);
+    if (!st.dev && (!best || card.score > best.score)) api.store.set('best', card);      // dev runs never set a best
     renderScore(card, best);
     console.log('[handoff] scorecard', card);
   }

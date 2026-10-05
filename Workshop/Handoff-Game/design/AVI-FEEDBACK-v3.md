@@ -53,3 +53,29 @@ It would be ideal if there's some kind of bonus to having an ensemble of differe
 - Defer-to-trusted has finite capacity too, shown as a number, and must not be a one-bay solution.
 - Probes are cheap but weak and correlated; trusted monitors are costlier but more robust to stealth. Each tower needs a distinct arc across generations.
 - Explain collusion in-game. Add a dev mode with everything unlocked, reachable from the published artifact (no query strings there: use a start-screen button or the #dev hash).
+
+---
+
+# Follow-up (2026-10-05 02:18Z and 02:19Z), verbatim
+
+> Also think we want something like 250 tasks per level so there ia s great variety. Its a fun part of the game to read them you're doing a good job with the verisimilitude + jokes
+
+> Think you need to run me through the game balancing and design. Not sure how you're mathing it but its a ton of math to balance it out and provide a good but fair difficulty ramp + validate all the different choices and mechanics by making them relevant and balanced
+
+## Claude's reading of these (for the designer)
+- **Tasks:** about 250 honest tasks per generation, spread across that generation's lane flavours. A separate content team is writing them now, so the design only needs to say that attack and decoy pools must grow too: if attack texts are few and repeat while honest texts never do, a repeated line becomes a tell.
+- **Avi wants to follow the math.** Sections 1–2 must read cleanly for a physicist on the first pass. Define every symbol with units, give one worked example (a single line passing a G1 rail and a G6 rail), and give a per-generation table.
+- **Difficulty ramp:** define one pressure index per generation. One option: expected unhandled damage per minute against a "par" build that a decent player can afford at that moment, divided by reputation regen. Target a smooth rising curve per difficulty, with no jump between consecutive generations bigger than about 25%, and warm-ups at each transition. Show the curve.
+- **Validate every choice by simulation, as headless asserts, not by argument alone:**
+  - **Policy zoo with expected outcomes:**
+    - do-nothing and starter-only;
+    - probe-wall, which is Avi's winning Hard strategy (stacked cheap probes plus auditors, then one defer bay);
+    - a mono-kind stack of each detector;
+    - auditor-only and defer-only;
+    - no-research and research-heavy;
+    - diverse smart.
+    Probe-wall and every mono-kind stack must lose on Medium by about G5.
+  - **Element relevance:** an arc table per element showing the generations where it is a top-3 catches-per-dollar buy. Add an ablation test: the smart policy, with that element forbidden, must lose win rate in that window. An element that is never top 3 anywhere gets reworked or cut.
+  - **Research:** every card type gets picked by the smart policy at a nonzero rate, and the no-research policy loses by about G5. Untrusted monitors become necessary.
+  - **Economy:** income vs the cost of the par build per generation, so money neither piles up unused nor bankrupts the player by design.
+- **Deliverable for Avi:** a balance walkthrough he can read in one sitting, covering the equations, the ramp chart, the policy-zoo table and the element arc table.

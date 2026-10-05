@@ -1,6 +1,6 @@
 # Pocket Orbit — HANDOFF
 
-*2D asteroid-belt mining game with real orbital mechanics. Stage: v3 (the economy loop) published; new-player polish next.*
+*2D asteroid-belt mining game with real orbital mechanics. Stage: v3 (the economy loop) published with a new-player polish pass.*
 
 ## Run
 
@@ -18,9 +18,9 @@ Playable link: https://claude.ai/artifact/PR6CVN4PZ19YbQmKM9KFdp (republish dist
 
 ## The loop
 
-Start docked at Ceres Hub → F shop → W undock → fly (warp , . up to 64x) → land on a rock → E step out →
+Start docked at Ceres Hub (nose retrograde) → F shop → tap W to undock (soft 1.5 s start drops you toward Ceres) → fly (warp , . up to 64x) → land on a rock → E step out →
 walk / jump / jetpack → hold left mouse to laser ore and gems into the backpack → E board (pack → hold) →
-dock at a station and sell → buy engines, fuels, tanks, suit, guns, Orion units → salvage wrecks (F) →
+sell at the Ceres pad kiosk (F: fuel, RCS, repair, ore at 0.8x) or dock at a station → buy engines, fuels, tanks, suit, guns, Orion units → salvage wrecks (F) →
 squish bugs on Kiwi / Big Potato → fight pirates near Big Potato, the outer ring and Glimmer. The JOBS panel guides it.
 
 ## Architecture (v3)
@@ -49,7 +49,11 @@ the contract is [SPEC.md](SPEC.md) (hooks, core API, cross-module APIs, keys, jo
 
 ✅ all modules built and published (artifact version 3); suites: physics 16, core 45, economy 100, stations 74, eva 62,
 mobs 57, wrecks 132, combat 97; playtest 23/23. Reviews done: lifecycle, physics/perf, integration (all high/med fixed).
-🟡 new-player UX review findings pending.
+✅ new-player UX pass: safe undock, pad kiosk, docking coach (closing-speed profile, wrong-way and too-fast hints),
+⊗ BRAKE marker, wrapped hints, edge-arrow layout (kit.edgeArrow), rock/wreck hit-course warnings, RCS reaction wheel,
+warp caps by time-to-contact. Suites now: core 49, economy 102, stations 96, wrecks 134 (others as above).
+Open: Kiwi Outpost docking by following hints works 7/10 (Kiwi's small near zone); kiosk shop subtitle says
+"outpost quartermaster"; untargeted wreck labels are drawn by wrecks.js and can still sit under panels.
 Known, not fixed: gravity jumps a little at Hill-sphere edges (frame correction switches; blend across a shell);
 engines can only be swapped at Ceres Hub (by design for now, text says so).
 

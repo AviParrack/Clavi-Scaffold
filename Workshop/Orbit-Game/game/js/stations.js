@@ -15,7 +15,10 @@ const Stations = (() => {
   const CHAT_IN = 300, CHAT_OUT = 450;   // keeper chatter: say hi inside, reset the visit outside [m]
   const CHAT_GAP = 60;                   // real seconds between two lines from the same keeper
   const SAFE_R = 260;                    // pirates leave this bubble around Rust's alone [m]
-  const NEAR_WARP = 80;                  // warp capped at 4x this close to a port [m]
+  const BRAKE_R = 30;                    // final approach: brake to under DOCK_V inside this [m]
+  const FAST_PASS = 8;                   // a closest approach faster than this [m/s] is too fast to stop at
+  const SOFT_T = 1.5;                    // just undocked: the main engine runs at the fine throttle this long [s]
+  const WARP_TTC = 30;                   // warp capped at 4x within 2 station radii, or when you pass that close this soon [s]
   const ICON_PX = 10;                    // smaller than this on screen [px radius] -> drawn as an icon
   const RING_G = 2.0, RING_R = 8.9;      // hub habitat ring: spin gravity [m/s^2] at its floor radius [m]
   const RING_W = Math.sqrt(RING_G / RING_R);                          // 0.47 rad/s = 4.5 rpm
@@ -27,7 +30,9 @@ const Stations = (() => {
   // ---------------- catalogue ----------------
   //  host: body it circles · orbit(w): radius [m] · phase(w): rail angle at t = 0 · rate(w): angular rate
   //  (default Kepler, sqrt(mu / a^3)) · r: size [m]
-  //  port: docking collar (top centre) in the station frame, +y = away from the host
+  //  port: docking collar centre in the station frame (+y = away from the host, +x = retrograde)
+  //  pdir: the way the collar faces, and so the docked nose and the undock push (default [0, 1], away from the host)
+  //  push: undock push as a share of the core's (Kiwi's whole orbit is only 7.5 m/s, so the outpost pushes gently)
 
   const ORE = (m) => ({ ice: m, iron: m, nickel: m, platinum: m });
   const GEMS = (m) => ({ salt: m, amber: m, opal: m, voidopal: m });
@@ -36,14 +41,14 @@ const Stations = (() => {
   const DEFS = [
     {
       id: 'hub', name: 'Ceres Hub', kind: 'hub', keeper: 'Dockmaster Dot', short: 'Dot',
-      host: 'ceres', orbit: () => 420, phase: () => 2.75, r: 16, ext: 26, port: [0, 13],
+      host: 'ceres', orbit: () => 420, phase: () => 2.75, r: 16, ext: 27, port: [13, 0], pdir: [1, 0],   // nose retrograde: W drops you
       col: '#9fd8ff', icon: ['#9fd8ff', '#4f86b8', '#e6f6ff'],
       tabs: ['services', 'sell', 'ship', 'suit'], fuelMult: 1, repairMult: 1,
       buy: { ...ORE(1), ...GEMS(1), ...SALV(1), jelly: 0.8 },
       blurb: (st) => `Fuel, fixes and fries. Circular orbit ${st.orbitR} m from Ceres' centre (${st.orbitR - st.hostBody.R} m up), ` +
         `one lap every ${lap(st.period)}. The habitat ring spins at ${(RING_W * 60 / (2 * Math.PI)).toFixed(1)} rpm, so the crew ` +
         `feels ${RING_G} m/s², Ceres-normal.`,
-      hello: 'Welcome to Ceres Hub, rookie! Tap W to fly.',
+      hello: 'Welcome to Ceres Hub, rookie! Tap W to fly.', hi: 'Ceres Hub here. Dock any time, rookie!',
       lines: ['Easy on my paint. Under 1.5 m/s, please.', 'Prograde goes up, retrograde goes down. Really.',
               'Fuel, fixes and fries. Mostly fuel.', 'Lower orbit = faster orbit. Blame Kepler.',
               'Bring me ice, I bring you money.', 'The ring spins so the coffee stays put.'],
@@ -52,7 +57,7 @@ const Stations = (() => {
     },
     {
       id: 'outpost', name: 'Kiwi Outpost', kind: 'outpost', keeper: 'Granny Fern', short: 'Fern',
-      host: 'kiwi', orbit: () => 95, phase: () => 0.6, r: 13, ext: 16, port: [7.6, 6.2],
+      host: 'kiwi', orbit: () => 95, phase: () => 0.6, r: 13, ext: 16, port: [10.5, 2.3], pdir: [1, 0], push: 0.65,
       col: '#b6f07a', icon: ['#a6e06a', '#5f9a3c', '#e4ffc8'],
       tabs: ['services', 'sell', 'suit'], fuelMult: 1.25, repairMult: 1.3,
       buy: { ...ORE(0.85), ice: 1.6, ...GEMS(0.9), salt: 1.2, amber: 1.1, ...SALV(0.7), jelly: 1.4 },
@@ -111,7 +116,10 @@ const Stations = (() => {
       const ox = lx * s + ly * c, oy = -lx * c + ly * s;        // frame axes: x = (sin, -cos), y = (cos, sin)
       return [x + ox, y + oy, vx - n * oy, vy + n * ox];
     };
-    st.portState = (t) => st.local(t, d.port[0], d.port[1] + SIT);
+    const pd = d.pdir || [0, 1], pa = Math.atan2(pd[1], pd[0]) - Math.PI / 2;
+    st.pd = pd;
+    st.portAng = (t) => n * t + ph + pa;                         // where a docked nose points (and the undock push goes)
+    st.portState = (t) => st.local(t, d.port[0] + pd[0] * SIT, d.port[1] + pd[1] * SIT);
     st.collar = (t) => st.local(t, d.port[0], d.port[1]);
     return st;
   }
@@ -140,12 +148,19 @@ const Stations = (() => {
   }
   const inZone = (st, q) => q.d < DOCK_R || q.dc < st.r;
 
-  // final approach: 'ready' to dock, too 'fast', 'drift' (not closing), or 'closing' at a sane speed
+  // final approach, a hint-sized version of a good pilot: close at `want` (~d / 12 at the hub: arrive in about
+  //  1 / (1.7 n), before the orbit curves you off), braking down that profile into the port.
+  //  'ready' to dock · 'fast' (off the profile: brake at ⊗ BRAKE) · 'drift' (too slow: burn toward the dock) · 'closing' (coast).
+  //  Hysteresis (m.apk) so a pilot who stops when the hint changes does not flap between two hints.
   function approach(g, st, q) {
-    const closing = -((g.sh.vx - q.p[2]) * (g.sh.x - q.p[0]) + (g.sh.vy - q.p[3]) * (g.sh.y - q.p[1])) / Math.max(1e-6, q.d);
-    if (inZone(st, q) && q.v < DOCK_V) return { k: 'ready', closing };
-    if (q.v >= DOCK_V && (q.d < 40 || q.v > q.d / 15 || closing < -0.5)) return { k: 'fast', closing };
-    return { k: closing < 0.3 ? 'drift' : 'closing', closing };
+    const ux = g.sh.vx - q.p[2], uy = g.sh.vy - q.p[3];
+    const closing = -(ux * (g.sh.x - q.p[0]) + uy * (g.sh.y - q.p[1])) / Math.max(1e-6, q.d), side = Math.sqrt(Math.max(0, q.v * q.v - closing * closing));
+    const want = Math.max(0.8, Math.min(4, 1.7 * st.n * q.d)), m = g.mod.stations, was = m && m.apk && m.apk.id === st.id ? m.apk.k : null;
+    let k = 'closing';
+    if (inZone(st, q) && q.v < DOCK_V) k = 'ready';
+    else if (was === 'fast' ? q.v > (q.d < BRAKE_R ? 1 : 0.6 * want) : q.v >= DOCK_V && (inZone(st, q) || side > Math.max(1, 0.6 * want) || closing > 1.6 * want || closing < -0.3)) k = 'fast';
+    else if (was === 'drift' ? closing < 0.9 * want : closing < 0.5 * want) k = 'drift';
+    return { k, closing, want, side };
   }
 
   function nearestPort(g) {
@@ -173,7 +188,7 @@ const Stations = (() => {
     const sh = g.sh, t0 = g.t, p0 = st.portState(t0), m = g.mod.stations;
     const dx = sh.x - p0[0], dy = sh.y - p0[1], dvx = sh.vx - p0[2], dvy = sh.vy - p0[3];
     const T = instant ? 0 : Math.min(5, Math.max(1, 0.35 * Math.hypot(dx, dy)));          // reel-in time [s]: peaks near 4 m/s
-    const a0 = wrap(sh.ang - st.facing(t0));
+    const a0 = wrap(sh.ang - st.portAng(t0));
     const u = (t) => Math.max(0, Math.min(1, (t - t0) / T));
     Game.dock(g, {
       name: st.name, station: st.id, t0, t1: t0 + T,
@@ -184,12 +199,12 @@ const Stations = (() => {
         return [p[0] + h00 * dx + T * h10 * dvx, p[1] + h00 * dy + T * h10 * dvy,
                 p[2] + d00 * dx + d10 * dvx, p[3] + d00 * dy + d10 * dvy];
       },
-      ang: (t) => { const k = T > 0 ? u(t) : 1; return st.facing(t) + a0 * (1 - k * k * (3 - 2 * k)); },
-      pushDir: (g2) => { const th = st.facing(g2.t); return [Math.cos(th), Math.sin(th)]; },
+      ang: (t) => { const k = T > 0 ? u(t) : 1; return st.portAng(t) + a0 * (1 - k * k * (3 - 2 * k)); },
+      pushDir: (g2) => { const th = st.portAng(g2.t), k = st.push || 1; return [k * Math.cos(th), k * Math.sin(th)]; },
       onRelease: (g2) => undocked(g2, st),
     });
     if (!m) return true;
-    m.pending = instant ? null : st.id;
+    m.pending = instant ? null : st.id; m.apk = null;
     m.visited[st.id] = true;
     if (g.navId === 'station:' + st.id) { g.navId = null; g.approach = null; }
     if (!instant) {
@@ -208,6 +223,12 @@ const Stations = (() => {
     m.left = { id: st.id, t: g.t };
     const [x, y] = st.collar(g.t);
     Game.popup(g, pick(st.bye, m.docks + Math.floor(g.t)), st.col, x, y, 20);
+  }
+
+  // a soft start: for SOFT_T s after the clamps let go a held W runs at the fine throttle, so "undock" is never "launch"
+  function shipCtrl(g, ctrl) {
+    const m = g.mod.stations; if (!m || g.mode !== 'ship' || !(ctrl.main > g.S.fine)) return;
+    if (dockedAt(g) || (g.status === 'flying' && m.left && g.t - m.left.t < SOFT_T)) ctrl.main = g.S.fine;
   }
 
   // shop (economy), or a free top-up when no economy is loaded
@@ -277,10 +298,19 @@ const Stations = (() => {
     return false;
   }
 
+  // 4x only right by a station (2 radii) or when you will pass that close within WARP_TTC s: the targeted port by the
+  //  predicted closest approach, any port by a straight line where one holds (nearR). Phasing orbits keep full warp.
   function warpLimit(g) {
     if (g.status !== 'flying' || g.mode !== 'ship') return null;
-    const np = nearestPort(g);
-    return np && np.q.d < NEAR_WARP ? { max: 4, why: `near ${np.st.name}` } : null;
+    const ap = g.approach, sh = g.sh;
+    for (const st of list(g)) {
+      const q = portInfo(g, st), R = 2 * st.r, rx = sh.x - q.p[0], ry = sh.y - q.p[1], ux = sh.vx - q.p[2], uy = sh.vy - q.p[3];
+      const tca = -(rx * ux + ry * uy) / Math.max(1e-9, ux * ux + uy * uy), miss = Math.hypot(rx + ux * tca, ry + uy * tca);
+      const line = q.d < nearR(st) && tca > 0 && tca < WARP_TTC && miss < R;
+      const pred = ap && ap.tg && ap.tg.id === 'station:' + st.id && ap.i >= 0 && ap.d < R && ap.t - g.t < WARP_TTC;
+      if (q.d < R || q.dc < R || line || pred) return { max: 4, why: `near ${st.name}` };
+    }
+    return null;
   }
 
   function pirateFree(g, x, y) {
@@ -301,28 +331,54 @@ const Stations = (() => {
     if (at) return { pri: 30, text: dockedHint(g, at) };
     const st = targeted(g), ap = g.approach;
     if (!st || !ap || ap.tg.id !== 'station:' + st.id) return idleHint(g);
-    if (g.status === 'landed') return { pri: 20, text: `Take off first (hold W), then head for ${st.name}.` };
+    if (g.status === 'landed') return { pri: 20, text: takeOffHint(g, st) };
     if (g.status !== 'flying') return null;
-    return ap.dNow < 300 ? { pri: 45, text: nearHint(g, st) } : { pri: 40, text: farHint(g, st, ap) };
+    const later = g.pred && g.pred.impact && g.pred.impact.t - g.t > 30;              // docking beats a far-off impact warning (80)
+    if (ap.dNow < nearR(st)) return { pri: later ? 81 : 45, text: nearHint(g, st) };
+    g.mod.stations.apk = null;
+    return { pri: 40, text: farHint(g, st, ap) };
   }
+  // straight-line coaching only where a 4 m/s approach beats the orbit's own turning (~0.7 / n): 57 m at the hub.
+  // Further out the orbit curves a straight burn away, so phasing and the predicted closest approach lead instead.
+  const nearR = (st) => Math.max(40, Math.min(300, 2.8 / st.n));
 
   function dockedHint(g, st) {
-    if (!g.everFlew) return `Docked at ${st.name}. Tap W to undock (short taps; nose points away from ${st.hostBody.name}).`;
+    const nose = st.pd[0] > 0.5 ? `the nose points retrograde, so W drops you toward ${st.hostBody.name}` : `the nose points away from ${st.hostBody.name}`;
+    if (!g.everFlew) return `Docked at ${st.name}. Tap W to undock: ${nose}.`;
     return `Docked at ${st.name}. F: ${econ() ? 'shop' : 'free refuel'}. W: undock. Warp ( . ) while docked to wait for a good moment.`;
   }
 
+  // on the ground: which way to tip the nose (A spins counter-clockwise) to start the right way round
+  function takeOffHint(g, st) {
+    const b = g.landedOn, host = st.hostBody, who = b === host ? st.name : b && b === host.par ? host.name : null;
+    if (!who || !g.land) return `Take off first (hold W), then head for ${st.name}.`;
+    const th = Math.atan2(g.land.ly, g.land.lx), tx = -Math.sin(th), ty = Math.cos(th);
+    const dir = Math.abs(tx) > Math.abs(ty) ? (tx < 0 ? 'left' : 'right') : (ty > 0 ? 'up' : 'down');
+    return `Take off (hold W), tip the nose ${dir} with A and burn sideways: ${who} goes counter-clockwise.`;
+  }
+
   function nearHint(g, st) {
-    const q = portInfo(g, st), a = approach(g, st, q);
+    const q = portInfo(g, st), a = approach(g, st, q), m = g.mod.stations, brake = q.d < BRAKE_R;
+    m.apk = { id: st.id, k: a.k };
     if (a.k === 'ready') return `Dock zone, nice and slow: press F to dock at ${st.name}!`;
-    if (a.k === 'fast') return `Point retrograde to the TGT marker (the teal X) and burn until relative speed < ${DOCK_V} m/s.`;
-    if (a.k === 'drift') return `Point at the ${st.name} dock and tap W (Shift = gentle) to drift in. Arrive under ${DOCK_V} m/s.`;
-    if (q.v < DOCK_V) return `Closing at ${a.closing.toFixed(1)} m/s, ${fmt(q.d)} to go. That is slow enough: coast in and press F inside ${DOCK_R} m.`;
-    return `Closing at ${a.closing.toFixed(1)} m/s, ${fmt(q.d)} to go. Brake at the teal X before ${DOCK_R} m, then F under ${DOCK_V} m/s.`;
+    if (a.k === 'fast') return `${a.closing > 1.6 * a.want ? 'Too fast' : 'Drifting off'}: point the nose at the ⊗ BRAKE marker and burn until relative speed < ${brake ? 1 : Math.max(1, Math.round(0.6 * a.want))} m/s.`;
+    if (a.k === 'drift') return brake ? `Point at the ${st.name} dock and tap W (Shift = gentle) until closing at about ${a.want.toFixed(1)} m/s.`
+                                      : `Burn toward the dock to close at about ${a.want.toFixed(0)} m/s, coast, then brake at the ⊗ BRAKE marker inside ${BRAKE_R} m.`;
+    const go = `Closing at ${a.closing.toFixed(1)} m/s, ${fmt(q.d)} to go.`;
+    return brake || q.v < DOCK_V ? `${go} Coast in, then press F inside ${DOCK_R} m under ${DOCK_V} m/s.` : `${go} Coast, then brake at the ⊗ BRAKE marker inside ${BRAKE_R} m.`;
   }
 
   function farHint(g, st, ap) {
-    if (ap.i >= 0 && ap.d < 60) return `Closest approach ${fmt(ap.d)} in ${Math.max(0, ap.t - g.t).toFixed(0)} s. Coast there (warp is fine), then brake at the TGT marker.`;
     const o = g.orb, host = st.hostBody, shrink = 'watch the closest-approach diamond shrink.';
+    const wrong = [host, host.par].find((b) => b && b === g.ref && o && o.h < -0.25 * Math.sqrt(b.mu * o.r));   // everything here orbits counter-clockwise
+    if (wrong) return `Wrong way round! ${wrong === host ? st.name : host.name} goes counter-clockwise: burn at the pink marker until your orbit flips.`;
+    if (ap.i >= 0 && ap.d < 60) {
+      const dt = Math.max(0, ap.t - g.t).toFixed(0);
+      if (!(ap.v > FAST_PASS)) return `Closest approach ${fmt(ap.d)} in ${dt} s. Coast there (warp is fine), then brake at the ⊗ BRAKE marker.`;
+      const vc = Math.sqrt(g.ref.mu / o.r), fix = o.speed > 1.05 * vc ? 'Burn retrograde (pink) to round out your orbit first.'
+        : o.speed < 0.95 * vc ? 'Burn prograde (yellow) to round out your orbit first.' : `Match ${st.name}'s orbit first.`;
+      return `Pass in ${dt} s at ${ap.v.toFixed(0)} m/s: too fast to stop. ${fix}`;
+    }
     const circle = (b) => b === g.ref && o && o.E < 0 && o.h > 0;
     if (circle(host)) {
       const R = st.orbitR, rp = o.a * (1 - o.e), ra = o.a * (1 + o.e);
@@ -344,18 +400,32 @@ const Stations = (() => {
   }
 
   function idleHint(g) {
-    if (g.status !== 'flying' || g.navId) return null;
-    const np = nearestPort(g), m = g.mod.stations;
-    if (np && m.left && m.left.id === np.st.id && g.t - m.left.t < 25 && np.q.d < 300)
+    if (g.navId) return null;
+    if (g.status === 'landed') return cargoHint(g);
+    if (g.status !== 'flying') return null;
+    const np = nearestPort(g), m = g.mod.stations, landed = g.done.land_ceres !== undefined;
+    if (np && m.left && m.left.id === np.st.id && np.q.d < 300 && (g.t - m.left.t < 25 || (!landed && np.st.id === 'hub')))
       return { pri: 14, text: `Free flying! Retrograde (pink marker) drops you toward ${np.st.hostBody.name}; prograde (yellow) climbs.` };
-    if (np && np.q.d < 150) return { pri: 14, text: `${np.st.name} is right here: press H to target its dock, match speed, then F.` };
+    if (np && np.q.d < 150 && landed) return { pri: 14, text: `${np.st.name} is right here: press H to target its dock, match speed, then F.` };
     if (g.S && g.sh.cargoKg >= 0.9 * g.S.cargoCap) return { pri: 12, text: 'Hold is full! Press H to target a station, fly over and dock (F) to sell.' };
     return null;
   }
 
+  // landed with something to sell (after the mining job, or right at the pad depot): where to take it
+  function cargoHint(g) {
+    const E = econ(), b = g.landedOn, hub = byId(g, 'hub'), cargo = Object.keys(g.cargo);
+    if (!E || !b || !cargo.length) return null;
+    const pad = typeof E.padDepotNear === 'function' && E.padDepotNear(g);
+    if (!pad && g.done.mine === undefined) return null;
+    const got = `Got ${cargo.some((k) => CONFIG.items[k] && CONFIG.items[k].kind === 'ore') ? 'ore' : 'loot'}!`, up = hub ? `${hub.name} (H targets it)` : 'a station (H)';
+    if (pad) return { pri: 36, text: `${got} Press F here at the pad to sell, or fly up to ${up} for better prices.` };
+    if (hub && b === hub.hostBody) return { pri: 36, text: `${got} Fly up to ${up} and dock to sell. The launch pad depot buys it too.` };
+    return { pri: 36, text: `${got} Press H to target a station, fly over and dock (F) to sell.` };
+  }
+
   function controls(g) {
     if (!dockedAt(g) || g.mode !== 'ship') return null;
-    return `W undock · F ${econ() ? 'shop' : 'refuel'} · H / Tab target · , . warp · M map · wheel zoom · P pause`;
+    return `tap W: undock · F ${econ() ? 'shop' : 'refuel'} · H / Tab target · , . warp · M map · wheel zoom · P pause`;
   }
 
 
@@ -370,7 +440,7 @@ const Stations = (() => {
       if (d > CHAT_IN || m.near[st.id]) continue;
       m.near[st.id] = true;
       if (g.real - (m.chatAt[st.id] ?? -1e9) < CHAT_GAP) continue;
-      say(g, st, m.met[st.id] ? nextLine(m, st) : st.hello);
+      say(g, st, m.met[st.id] ? nextLine(m, st) : st.hi && dockedAt(g) !== st ? st.hi : st.hello);   // "tap W to fly" only to a docked rookie
       m.met[st.id] = true;
     }
   }
@@ -488,11 +558,11 @@ const Stations = (() => {
       P.c.beginPath(); P.c.ellipse(x + P.L[0] * R * 0.48, y + P.L[1] * R * 0.48, R * 0.26, R * 0.15, Math.atan2(P.L[1], P.L[0]) + Math.PI / 2, 0, 2 * Math.PI); P.c.fill();
     });
   }
-  // draw fn(Q) in a frame rotated by a about (x, y); Q's light is rotated to match
+  // draw fn(Q) in a frame rotated by a about (x, y); Q's light (and the ship the faces watch) are turned to match
   function turned(P, x, y, a, fn) {
-    const c = P.c, s = Math.sin(a), co = Math.cos(a);
+    const c = P.c, s = Math.sin(a), co = Math.cos(a), sx = P.ship[0] - x, sy = P.ship[1] - y;
     c.save(); c.translate(x, y); c.rotate(a);
-    fn({ ...P, L: [P.L[0] * co + P.L[1] * s, -P.L[0] * s + P.L[1] * co] });
+    fn({ ...P, L: [P.L[0] * co + P.L[1] * s, -P.L[0] * s + P.L[1] * co], ship: [sx * co + sy * s, -sx * s + sy * co] });
     c.restore();
   }
   function text(P, str, x, y, size, col, weight = 700, outline = 0) {
@@ -573,11 +643,28 @@ const Stations = (() => {
 
 
   // ---------------- Ceres Hub: spinning habitat ring, solar wings, nav lights, a sign ----------------
+  //  The long truss hangs radially (a long body in orbit settles that way: the gravity gradient), and the
+  //  dock faces retrograde (+x), so a docked nose points retrograde and W gently drops you toward Ceres.
 
   const GREY = ['#bdb7da', '#7d77a3', '#efedff'], CREAM = ['#ffe0a3', '#d29a52', '#fff6dc'];
   const PANEL = ['#4f78e0', '#2c4699', '#bcd2ff'], RINGC = ['#eeeaff', '#a99fd4', '#ffffff'];
 
   function artHub(P) {
+    const c = P.c;
+    box(P, -19.6, -0.5, 14, 1, 0.4, GREY);                           // sign boom, on the prograde side
+    pipe(P, [-4.6, 2.8, -7.6, 4.4, -10.4, 7.4], 0.45, '#cfc9ec');      // antenna with a strobe
+    turned(P, -10.7, 7.8, 0.75, (Q) => toon(Q, () => { c.beginPath(); c.ellipse(0, 0, 1.6, 0.7, 0, Math.PI, 2 * Math.PI); c.closePath(); }, GREY, 0.3, null));
+    light(P, -11.3, 9.0, '255,255,255', P.t % 2 < 0.12, 0.45);
+    turned(P, 0, 0, -Math.PI / 2, hubBody);                          // drawn with the truss along x and the collar up, turned a quarter
+    if (P.detail) porthole(P, 1.6, 0, 2.0, '#ffb3c7', (x, y, R) => {      // Dot wears a headset (upright: her up is away from Ceres)
+      c.beginPath(); c.arc(x, y + R * 0.15, R * 0.95, Math.PI * 0.15, Math.PI * 0.85); ink(P, R * 0.12);
+      c.beginPath(); c.arc(x + R * 0.9, y - R * 0.05, R * 0.18, 0, 2 * Math.PI); c.fillStyle = '#ff9f1c'; c.fill();
+    });
+    else disc(P, 1.6, 0, 2.0, ['#7fe0ff', '#3d8fb8', '#ffffff']);
+    if (P.detail) hubSign(P, -16.5, -0.5);
+  }
+
+  function hubBody(P) {
     const c = P.c, spin = RING_W * P.T;
     box(P, -24, -0.7, 48, 1.4, 0.5, GREY);                           // truss
     if (P.detail) { c.beginPath(); for (let x = -23; x < 23; x += 2) { c.moveTo(x, -0.7); c.lineTo(x + 1, 0.7); c.lineTo(x + 2, -0.7); } ink(P, P.thin); }
@@ -592,18 +679,9 @@ const Stations = (() => {
       if (P.detail) turned(P, RING_R * ca, RING_R * sa, a, () => { rr(c, -0.55, -0.7, 1.1, 1.4, 0.3); c.fillStyle = k % 3 ? '#ffe066' : '#7fe0ff'; c.fill(); ink(P, P.thin); });
       if (k % 3 === 0) { c.beginPath(); c.moveTo(7.6 * ca, 7.6 * sa); c.lineTo(10.4 * ca, 10.4 * sa); ink(P, P.lw * 0.8); }
     }
-    pipe(P, [-2.6, 5, -4.6, 7.5, -7.2, 10.6], 0.45, '#cfc9ec');      // antenna with a strobe
-    turned(P, -7.4, 10.9, 0.7, (Q) => toon(Q, () => { c.beginPath(); c.ellipse(0, 0, 1.6, 0.7, 0, Math.PI, 2 * Math.PI); c.closePath(); }, GREY, 0.3, null));
-    light(P, -7.6, 12.2, '255,255,255', P.t % 2 < 0.12, 0.45);
-    if (P.detail) hubSign(P);
     box(P, -4.3, -6.6, 8.6, 13.2, 3.4, CREAM);                       // core
     c.beginPath(); c.moveTo(-4.3, -2.6); c.lineTo(4.3, -2.6); ink(P, P.lw * 0.8);
     for (const s of [-1, 1]) { rr(c, s * 2.1 - 0.7, -5, 1.4, 1.5, 0.4); c.fillStyle = '#ffe066'; c.fill(); ink(P, P.lw * 0.7); }
-    if (P.detail) porthole(P, 0, 1.6, 2.0, '#ffb3c7', (x, y, R) => {       // Dot wears a headset
-      c.beginPath(); c.arc(x, y + R * 0.15, R * 0.95, Math.PI * 0.15, Math.PI * 0.85); ink(P, R * 0.12);
-      c.beginPath(); c.arc(x + R * 0.9, y - R * 0.05, R * 0.18, 0, 2 * Math.PI); c.fillStyle = '#ff9f1c'; c.fill();
-    });
-    else disc(P, 0, 1.6, 2.0, ['#7fe0ff', '#3d8fb8', '#ffffff']);
     box(P, -1.5, 6.4, 3, 5.2, 0.6, GREY);                            // neck
     collar(P, 0, 13, 7);
     const blink = P.t % 1.4;                                         // nav lights: red one tip, green the other
@@ -625,10 +703,10 @@ const Stations = (() => {
     c.restore();
   }
 
-  // hangs below the hub (gravity gradient points down there)
-  function hubSign(P) {
+  // hangs from the boom toward Ceres (the gravity gradient points down there)
+  function hubSign(P, x, y) {
     const c = P.c, sway = Math.sin(P.t * 0.7) * 0.04;
-    turned(P, 0, -6.6, sway, (Q) => {
+    turned(P, x, y, sway, (Q) => {
       cable(Q, -2.6, 0, -5.2, -6.4); cable(Q, 2.6, 0, 5.2, -6.4);
       rr(c, -7.8, -11.4, 15.6, 5, 1); c.fillStyle = PAPER; c.fill(); ink(Q);
       rr(c, -7.8, -11.4, 15.6, 1.2, 0.6); c.fillStyle = '#ffe2b0'; c.fill();
@@ -658,12 +736,14 @@ const Stations = (() => {
       text(P, 'KIWI OUTPOST', -1.2, -1.75, 1.35, '#5c4320');
     }
     dome(P, -3, 0, 7.4);
-    box(P, 6.3, 0, 2.6, 4.6, 0.6, GREY);                             // dock tower
+    box(P, 6.3, 0, 2.6, 4.6, 0.6, GREY);                             // dock tower, its collar facing retrograde (+x)
     if (P.detail) porthole(P, 7.6, 2.3, 1.05, '#ffd8b8', (x, y, R) => {   // Granny Fern: silver bun, round glasses
       c.beginPath(); c.arc(x, y + R * 0.95, R * 0.45, 0, 2 * Math.PI); c.fillStyle = '#eeeaf6'; c.fill(); ink(P, R * 0.1);
       for (const s of [-1, 1]) { c.beginPath(); c.arc(x + s * R * 0.27, y + R * 0.08, R * 0.22, 0, 2 * Math.PI); ink(P, R * 0.07); }
     });
-    collar(P, 7.6, 6.2, 4.8);
+    turned(P, 0, 2.3, -Math.PI / 2, (Q) => collar(Q, 0, 10.5, 4.6));
+    pipe(P, [7.6, 4.6, 7.6, 5.6, 7.6, 6.6], 0.3, '#cfc9ec');           // tower-top beacon
+    light(P, 7.6, 6.9, '182,240,122', P.t % 1.8 > 0.9, 0.45);
     pipe(P, [-12, -1.6, -13.6, -1.6, -14.2, 1.4], 0.35, '#cfc9ec');     // little mast with a light
     light(P, -14.2, 1.9, '182,240,122', P.t % 1.8 < 0.9, 0.5);
   }
@@ -909,7 +989,7 @@ const Stations = (() => {
     const at = dockedAt(g), tg = targeted(g);
     for (const st of list(g)) {
       const [x, y] = st.state(g.t), [sx, sy] = kit.toScreen(x, y), rs = st.r * kit.cam.zoom;
-      if (!kit.onScreen(sx, sy, 0)) { if (st === tg) edgeArrow(g, kit, st, sx, sy); continue; }
+      if (!kit.onScreen(sx, sy, 0)) { if (st === tg && !kit.edgeArrow) edgeArrow(g, kit, st, sx, sy); continue; }   // the core lays out its own
       if (rs > 110 || st === tg) continue;                          // big: the art speaks; targeted: the core labels it
       let oy = Math.max(st.ext * kit.cam.zoom, ICON_PX) + 14;
       if (st === at) { const [, qy] = kit.toScreen(g.sh.x, g.sh.y); if (qy > sy) oy = -oy - 2; }    // keep the label off the docked ship
@@ -935,18 +1015,20 @@ const Stations = (() => {
     const np = nearestPort(g); if (!np) return;
     const { st, q } = np, tg = targeted(g) === st;
     if (q.d > 90 && !(tg && q.d < 260)) return;
-    const okR = inZone(st, q), okV = q.v < DOCK_V, a = approach(g, st, q), c = kit.ctx, w = 236;
+    const okR = inZone(st, q), okV = q.v < DOCK_V, a = approach(g, st, q), c = kit.ctx, w = 236, ap = g.approach;
     if (!tg && a.closing < -0.3 && !(okR && okV)) return;                          // just leaving: no nagging
     let y = kit.stackRight(w, 92, `DOCKING · ${st.name.toUpperCase()}`);
-    const x = kit.W - w;
-    kit.row('RANGE', `${q.d.toFixed(0)} m  (dock < ${DOCK_R})`, x, y, okR ? kit.COL.good : kit.COL.bad); y += 20;
-    kit.row('REL SPEED', `${q.v.toFixed(1)} m/s  (dock < ${DOCK_V})`, x, y, okV ? kit.COL.good : kit.COL.bad); y += 22;
-    const phase = { ready: 'READY: PRESS F TO DOCK', fast: 'TOO FAST: BURN AT THE TEAL X', drift: 'CLOSE IN: DRIFT TO THE PORT',
-                  closing: okV ? 'CLOSING: COAST IN, F AT THE PORT' : `CLOSING: BRAKE BY ${DOCK_R} M` }[a.k];
+    const x = kit.W - w;                                                            // thresholds in the labels: values stay short
+    kit.row(`RANGE (dock < ${DOCK_R} m)`, fmt(q.d), x, y, okR ? kit.COL.good : kit.COL.bad); y += 20;
+    kit.row(`REL SPEED (< ${DOCK_V})`, `${q.v.toFixed(1)} m/s`, x, y, okV ? kit.COL.good : kit.COL.bad); y += 22;
+    const far = q.d >= nearR(st) && !(okR && okV), course = tg && ap && ap.i >= 0 && ap.d < 60;
+    const phase = far ? (course ? 'ON COURSE: COAST, THEN BRAKE' : 'MATCH ORBITS FIRST (SEE HINT)') : { ready: 'READY: PRESS F TO DOCK', fast: tg ? 'TOO FAST: BURN AT ⊗ BRAKE' : 'TOO FAST: H, THEN BRAKE',
+                  drift: q.d < BRAKE_R ? 'CLOSE IN: TAP W AT THE PORT' : `CLOSE IN: BURN TO ~${a.want.toFixed(0)} M/S`,
+                  closing: okV ? 'CLOSING: COAST IN, F AT THE PORT' : `CLOSING: BRAKE BY ${BRAKE_R} M` }[a.k];
     c.font = `700 13.5px ${kit.FONT}`; c.textAlign = 'left';
     const fit = Math.min(1, 212 / Math.max(1, c.measureText(phase).width));
     if (fit < 1) c.font = `700 ${(13.5 * fit).toFixed(1)}px ${kit.FONT}`;
-    c.fillStyle = a.k === 'ready' ? kit.COL.good : a.k === 'fast' ? kit.COL.bad : kit.COL.warn;
+    c.fillStyle = far ? (course ? kit.COL.good : kit.COL.warn) : a.k === 'ready' ? kit.COL.good : a.k === 'fast' ? kit.COL.bad : kit.COL.warn;
     c.fillText(phase, x, y);
   }
 
@@ -960,7 +1042,7 @@ const Stations = (() => {
   // ---------------- register, spawns, job ----------------
 
   const mod = Game.register({
-    id: 'stations', init, load, save, after, respawn, died, interactions, navTargets, onKey, onMouse,
+    id: 'stations', init, load, save, after, respawn, died, interactions, navTargets, onKey, onMouse, shipCtrl,
     warpLimit, hint, controls, drawWorld, drawScreen, drawHUD,
   });
   on = Game.mods.includes(mod);
@@ -973,7 +1055,7 @@ const Stations = (() => {
                      test: (g) => !!(g.mod.stations && g.mod.stations.leftHub) }]);
   }
 
-  return { list, byId, dockedAt, dock, pirateFree, portInfo, DOCK_R, DOCK_V, SAFE_R };
+  return { list, byId, dockedAt, dock, pirateFree, portInfo, DOCK_R, DOCK_V, SAFE_R, BRAKE_R, SOFT_T };
 })();
 
 if (typeof module !== 'undefined') module.exports = Stations;

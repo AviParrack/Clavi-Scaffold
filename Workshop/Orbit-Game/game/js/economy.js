@@ -122,6 +122,11 @@ const Econ = (() => {
                 blurb: 'Welcome to Ceres Hub! Fair prices, fresh air, and only a little bit of gravity.' };
   const PAD_DEPOT = { id: 'pad-depot', name: 'Ceres Pad Depot', kind: 'hub', keeper: 'Pip', buy: {}, tabs: ALL_TABS, fuelMult: 1.1,
                       blurb: 'No station in orbit today, so the shop came to the pad. Ice is cold, prices are hot.' };
+  // with Ceres Hub in orbit the pad keeps a kiosk: fuel, RCS, repairs and a till, a bit dearer than the Hub (parts stay upstairs)
+  const PAD_KIOSK = { id: 'pad-depot', name: 'Ceres Pad Depot', kind: 'outpost', keeper: 'Pip', buy: { '*': 0.8 }, tabs: ['services', 'sell'],
+                      fuelMult: 1.2, repairMult: 1.2,
+                      blurb: 'A fuel pump, a till and a kettle. The Hub upstairs pays more and sells parts; I am just closer.' };
+  const padDepot = () => (stationsOn() ? PAD_KIOSK : PAD_DEPOT);
 
 
   // ======================================================================
@@ -523,7 +528,7 @@ const Econ = (() => {
   function firePulse(g) {
     const m = st(g), sh = g.sh;
     if (g.mode !== 'ship' || g.status === 'dead' || g.ui || g.paused) return false;
-    if (m.orion <= 0) { Game.toast(g, 'NO ORION UNITS (THE BLACK MARKET HAS SOME)', '#ff9f1c', 'orion'); return false; }
+    if (m.orion <= 0) { Game.toast(g, `NO ORION UNITS (${stationsOn() ? "CERES HUB AND RUST'S SELL THEM" : 'THE PAD DEPOT SELLS THEM'})`, '#ff9f1c', 'orion'); return false; }
     if (g.status === 'docked') { Game.toast(g, 'NOT WHILE DOCKED! THE STATION LIKES ITS WINDOWS', '#ff9f1c', 'orion'); return false; }
     if (g.real - m.lastPulse < ORION.cooldown) return false;
 
@@ -634,7 +639,7 @@ const Econ = (() => {
       if (sh.fuel <= 1e-6) return { pri: 66, text: `Out of fuel on ${b.name}. Press R twice to get towed home (small fee).` };
       const twr = twrOn(g, b);
       if (twr < 1) return { pri: 66, text: `Too heavy to lift off ${b.name} (thrust-to-weight ${twr.toFixed(2)}). Holding W burns fuel until you are light enough.` };
-      if (padDepotNear(g) && cargo) return { pri: 52, text: `Press F to open the pad depot and sell your cargo (${money(holdValue(g))}).` };
+      if (padDepotNear(g) && cargo && !stationsOn()) return { pri: 52, text: `Press F to open the pad depot and sell your cargo (${money(holdValue(g))}).` };   // else stations coaches
     }
     if (g.status === 'docked' && g.mode === 'ship') {
       if (cargo) return { pri: 55, text: `Docked with ${money(holdValue(g))} of cargo: press F to open the shop and sell it.` };
@@ -645,16 +650,16 @@ const Econ = (() => {
     return null;
   }
 
-  // ---------------- pad depot: a shop on the Ceres pad, only when no stations module is running ----------------
+  // ---------------- pad depot: a shop on the Ceres pad (the whole shop without stations, a kiosk with them) ----------------
 
   function padDepotNear(g) {
-    if (stationsOn() || g.status !== 'landed' || !g.landedOn || g.landedOn.id !== 'ceres' || !g.land) return false;
+    if (g.status !== 'landed' || !g.landedOn || g.landedOn.id !== 'ceres' || !g.land) return false;
     const a = Math.atan2(g.land.ly, g.land.lx);
     return Math.abs(((a - Math.PI / 2 + 3 * Math.PI) % (2 * Math.PI)) - Math.PI) * g.landedOn.R < 25;
   }
   function interactions(g) {
     if (g.mode !== 'ship' || g.ui || !padDepotNear(g)) return null;
-    return [{ key: 'KeyF', text: 'Open the pad depot shop', dist: 5, col: '#ffd166', act: (g2) => openShop(g2, PAD_DEPOT) }];
+    return [{ key: 'KeyF', text: 'Open the pad depot shop', dist: 5, col: '#ffd166', act: (g2) => openShop(g2, padDepot()) }];
   }
 
 
@@ -733,7 +738,7 @@ const Econ = (() => {
     tierIndex: (g, lineId) => tierIndex(st(g), LINES.find((L) => L.id === lineId)), engineOf: (g) => engineOf(st(g)),
     fuelOf: (g, eid) => fuelOf(st(g), eid), ionFuelOf: (g) => ionFuelOf(st(g)), state: st, isp,
     fuelPrice, ionPrice, rcsPrice, repairPrice, sellsTab, sellsOrion, orionTab,
-    ENGINES, FUELS, ION_FUELS, ION, LINES, TIER, ORION, BY_ID, HUB, PAD_DEPOT, ALL_TABS, BASE_VOL,
+    padDepotNear, padDepot, ENGINES, FUELS, ION_FUELS, ION, LINES, TIER, ORION, BY_ID, HUB, PAD_DEPOT, PAD_KIOSK, ALL_TABS, BASE_VOL,
   };
 
   const mod = { id: 'economy', init, load, save, stats, onKey, shipCtrl, frame, respawn, died,

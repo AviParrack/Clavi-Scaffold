@@ -20,9 +20,9 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const promptF = (g) => g.prompts.find((p) => p.key === 'KeyF');
 const toastHas = (g, s) => g.toasts.some((t) => t.text.includes(s));
 
-// put the ship `dist` m outside a port, closing at `relV` m/s (or opening if negative)
+// put the ship `dist` m outside a port (along the way it faces), closing at `relV` m/s (or opening if negative)
 function nearPort(g, st, dist, relV, sideways = 0) {
-  const p = st.portState(g.t), th = st.facing(g.t), ux = Math.cos(th), uy = Math.sin(th);
+  const p = st.portState(g.t), th = st.portAng(g.t), ux = Math.cos(th), uy = Math.sin(th);
   Object.assign(g.sh, { x: p[0] + ux * dist - uy * sideways, y: p[1] + uy * dist + ux * sideways,
                         vx: p[2] - ux * relV, vy: p[3] - uy * relV, ang: th + Math.PI, omega: 0 });
   Object.assign(g, { status: 'flying', attach: null, landedOn: null, land: null, everFlew: true });
@@ -134,8 +134,8 @@ const closeShop = (g) => { if (Econ.closeShop) Econ.closeShop(g); g.ui = null; }
   nearPort(g, hub, 10, 0.4); H.run(g, 1, {});
   check('10 m out at 0.4 m/s: "Dock at Ceres Hub"', promptF(g) && promptF(g).text === 'Dock at Ceres Hub', promptF(g) ? promptF(g).text : 'none');
   nearPort(g, hub, 18, 0.3, 0); const pi = Stations.portInfo(g, hub);
-  nearPort(g, hub, -hub.port[1] - 4.6, 0.3); H.run(g, 1, {});   // right over the station centre, 17 m from the port
-  check('flying over the station body counts as in range', promptF(g) && promptF(g).text === 'Dock at Ceres Hub', `${pi.d.toFixed(1)} m; ${promptF(g) ? promptF(g).text : 'none'}`);
+  nearPort(g, hub, -(hub.port[0] * hub.pd[0] + hub.port[1] * hub.pd[1]) - 4.6, 0.3); H.run(g, 1, {});   // right over the station centre, 17.6 m from the port
+  check('flying over the station body counts as in range', Stations.portInfo(g, hub).dc < 0.1 && promptF(g) && promptF(g).text === 'Dock at Ceres Hub', `${pi.d.toFixed(1)} m; ${promptF(g) ? promptF(g).text : 'none'}`);
 }
 
 
@@ -160,7 +160,7 @@ const closeShop = (g) => { if (Econ.closeShop) Econ.closeShop(g); g.ui = null; }
         `${st.kind}, keeper ${st.keeper}, tabs ${st.tabs}`);
   closeShop(g);
   H.run(g, 90, {});
-  check('docked ship rides the port exactly', onPort(g, hub) < 1e-9 && Math.abs(wrap(g.sh.ang - hub.facing(g.t))) < 1e-12, `err ${onPort(g, hub).toExponential(1)}`);
+  check('docked ship rides the port exactly', onPort(g, hub) < 1e-9 && Math.abs(wrap(g.sh.ang - hub.portAng(g.t))) < 1e-12, `err ${onPort(g, hub).toExponential(1)}`);
   check('docked prompt: "Open Ceres Hub shop"', promptF(g) && promptF(g).text === 'Open Ceres Hub shop', promptF(g) && promptF(g).text);
   H.run(g, 1, { pressed: ['KeyF'] });
   check('F while docked reopens the shop', g.ui === 'shop');
@@ -178,14 +178,46 @@ const closeShop = (g) => { if (Econ.closeShop) Econ.closeShop(g); g.ui = null; }
   check("'hub' is the default spawn: new games start docked", g.spawn === 'hub' && g.status === 'docked' && Stations.dockedAt(g) === hub && onPort(g, hub) < 1e-9, `${g.spawn} ${g.status}`);
   check('new game: docked hint says how to undock', /Tap W to undock/.test(Game.hint(g)), Game.hint(g));
   H.run(g, 1, { keys: ['KeyW'] });
-  const p = hub.portState(g.t), th = hub.facing(g.t), out = (g.sh.vx - p[2]) * Math.cos(th) + (g.sh.vy - p[3]) * Math.sin(th);
+  const p = hub.portState(g.t), th = hub.portAng(g.t), out = (g.sh.vx - p[2]) * Math.cos(th) + (g.sh.vy - p[3]) * Math.sin(th);
   check('W undocks', g.status === 'flying' && !g.attach, g.status);
   check('undocking pushes away from the station', out > 0.75, `outward ${out.toFixed(2)} m/s`);
+  check('...along the nose, which the hub points retrograde (W drops you toward Ceres)', Math.abs(wrap(hub.portAng(g.t) - hub.facing(g.t) + Math.PI / 2)) < 1e-9);   // facing = radial out; CCW orbit -> retrograde = facing - 90 deg
   check('undock job ticks (+$25)', g.done.undock !== undefined && g.money - m0 === 25 && Game.GOALS.find((x) => x.id === 'undock').order === 10, `$${m0} -> $${g.money}`);
   check('just undocked: the hint says where to go next, not "dock here"', /Free flying! Retrograde .* toward Ceres/.test(Game.hint(g)), Game.hint(g));
   const g2 = fresh('outpost');
   H.run(g2, 1, { keys: ['ArrowLeft'] });
   check('arrows undock too; leaving another station is not the job', g2.status === 'flying' && g2.done.undock === undefined, g2.status);
+}
+
+
+// ---------------- 5b. undocking is never a launch: soft start, nose retrograde, three quiet laps ----------------
+{
+  const mod = Game.mods.find((x) => x.id === 'stations'), g = fresh(), hub = Stations.byId(g, 'hub');
+  check('docked controls line starts "tap W: undock"', /^tap W: undock · F shop/.test(mod.controls(g)), mod.controls(g));
+  H.run(g, 60, { keys: ['KeyW'] });                                     // W held for 1 s straight off the clamps
+  const p = hub.portState(g.t), dv = Math.hypot(g.sh.vx - p[2], g.sh.vy - p[3]);
+  check(`soft start: W held off the clamps runs at the fine throttle for ${Stations.SOFT_T} s`, dv < 2.5, `${dv.toFixed(2)} m/s off the port after 1 s (full throttle: ~8)`);
+  // W held `hold` s from a fresh docked start, then hands off for `laps` station laps: track r around the host
+  function flyOff(id, hold, laps = 3) {
+    const g = fresh(id), st = Stations.byId(g, id), host = st.hostBody, t0 = g.t;
+    H.run(g, Math.max(1, Math.round(hold * 60)), { keys: ['KeyW'] });
+    let rmin = 1e9, rmax = 0, warn = null, hull = g.sh.hull;
+    while (g.t - t0 < laps * st.period && g.status === 'flying') {
+      g.warpIdx = CONFIG.sim.warps.length - 1; H.run(g, 1, {}, 1 / 20);
+      const [hx, hy] = World.bodyState(g.w, host, g.t), r = Math.hypot(g.sh.x - hx, g.sh.y - hy);
+      rmin = Math.min(rmin, r); rmax = Math.max(rmax, r);
+      if (g.status === 'flying') hull = g.sh.hull;
+      if (warn == null && g.pred && g.pred.impact) warn = { dt: g.pred.impact.t - g.t, body: g.pred.impact.body.id };
+    }
+    return { g, rmin, rmax, warn, hull, info: `${g.status}, hull ${hull}, r ${rmin.toFixed(0)}..${rmax.toFixed(0)} m over ${(g.t - t0).toFixed(0)} s` +
+                                               (warn ? `, impact warned ${warn.dt.toFixed(0)} s ahead (${warn.body})` : '') };
+  }
+  const tap = flyOff('hub', 0.1);
+  check('tap W at the hub, coast 3 laps: no rubble (470+ m), no Ceres', tap.g.status === 'flying' && tap.hull === 100 && tap.rmax < 470 && tap.rmin > 330 && !tap.warn, tap.info);
+  const hold = flyOff('hub', 3);
+  check('hold W 3 s at the hub: below the rubble, Ceres impact warned >= 15 s ahead', hold.hull === 100 && hold.rmax < 470 && hold.warn && hold.warn.body === 'ceres' && hold.warn.dt >= 15, hold.info);
+  const kiwi = flyOff('outpost', 0.1);
+  check('tap W at Kiwi Outpost, coast 3 laps: inside the rubble (118+ m), off Kiwi', kiwi.g.status === 'flying' && kiwi.hull === 100 && kiwi.rmax < 118 && !kiwi.warn, kiwi.info);
 }
 
 
@@ -199,6 +231,25 @@ for (const id of ['outpost', 'rusts']) {
   closeShop(g); H.run(g, 60, {});
   check(`${st.name}: ...and the ship stays on the port`, onPort(g, st) < 1e-9, `err ${onPort(g, st).toExponential(1)}`);
   if (id === 'rusts') check("Rust's sells weapons; Kiwi buys ice dearly", st.tabs.includes('weapons') && Stations.byId(g, 'outpost').buy.ice > 1.3 && st.buy.scrap > 1.2 && st.buy.jelly > 1.2);
+}
+
+
+// ---------------- 6b. the Ceres pad depot: with stations on, a kiosk (fuel, RCS, sell) a bit worse than the hub ----------------
+{
+  const g = fresh('pad'), hub = Stations.byId(g, 'hub'); H.run(g, 1, {});
+  check('on the Ceres pad: F opens the pad depot', promptF(g) && /pad depot/.test(promptF(g).text), promptF(g) ? promptF(g).text : 'none');
+  Game.addCargo(g, 'iron', 10); Object.assign(g.sh, { fuel: 0, rcs: 0 }); g.money = 5000;
+  H.run(g, 1, { pressed: ['KeyF'] });
+  const k = g.mod.economy.station || {};
+  check('...a kiosk: services and sell tabs only (upgrades stay at the hub)', g.ui === 'shop' && k.id === 'pad-depot' && k.tabs.join() === 'services,sell', `${g.ui} ${k.name}: ${k.tabs}`);
+  const ore = Econ.sellPrice(g, 'iron', k) / Econ.sellPrice(g, 'iron', hub), fuel = Econ.quote(g, k, 'fuel') / Econ.quote(g, hub, 'fuel'), rcs = Econ.quote(g, k, 'rcs') / Econ.quote(g, hub, 'rcs');
+  check('kiosk prices vs the hub: ore 0.8x, fuel and RCS 1.2x', Math.abs(ore - 0.8) < 0.01 && Math.abs(fuel - 1.2) < 0.03 && Math.abs(rcs - 1.2) < 0.05,
+        `ore ${ore.toFixed(2)}x, fuel ${fuel.toFixed(2)}x, rcs ${rcs.toFixed(2)}x`);
+  const m0 = g.money, got = Econ.sellAll(g, k); Econ.refuel(g, k); closeShop(g); H.run(g, 2, {});
+  check('selling there pays and ticks the sell job; refuel fills fuel and RCS', got > 0 && g.done.sell !== undefined && g.sh.fuel === g.S.fuel && g.sh.rcs === g.S.rcs,
+        `+$${got}, sell job ${g.done.sell !== undefined}, $${m0} -> $${g.money}`);
+  Econ.firePulse(g);
+  check('no Orion units: the toast names the stations that sell them', toastHas(g, "NO ORION UNITS (CERES HUB AND RUST'S SELL THEM)"), g.toasts.map((t) => t.text).slice(-1).join());
 }
 
 
@@ -235,6 +286,9 @@ for (const id of ['outpost', 'rusts']) {
   check('come back later: a fresh line', toastHas(g, `Dot: "${hub.lines[0]}"`), g.toasts.map((t) => t.text).join(' | '));
   far(); H.run(g, 1, {}); nearPort(g, hub, 100, 0); H.run(g, 1, {});
   check('...but not again within a minute', !toastHas(g, hub.lines[1]));
+  const g2 = fresh('orbit');
+  nearPort(g2, hub, 120, 6); H.run(g2, 2, {});
+  check('zooming past, never docked: Dot says hi, not "Tap W to fly"', toastHas(g2, `Dot: "${hub.hi}"`) && !toastHas(g2, 'Tap W'), g2.toasts.map((t) => t.text).join(' | '));
 }
 
 
@@ -257,29 +311,59 @@ for (const id of ['outpost', 'rusts']) {
 
 // ---------------- 10. rendezvous coaching ----------------
 {
-  const g = fresh('orbit'), hub = Stations.byId(g, 'hub');
+  const g = fresh('orbit'), hub = Stations.byId(g, 'hub'), fresh_ = (g) => { g.mod.stations.apk = null; };   // forget the last approach phase
+  Game.circularAround(g, g.w.byId.ceres, 330, hub.facing(g.t) + Math.PI);
   g.everFlew = true; g.navId = 'station:hub'; Game.refresh(g); H.run(g, 1, {});
   check('below the station: burn prograde at the yellow marker', /prograde at the yellow marker to raise your orbit; watch the closest-approach diamond shrink/.test(Game.hint(g)), Game.hint(g));
   const g2 = fresh('belt'); g2.everFlew = true; g2.navId = 'station:hub'; Game.refresh(g2); H.run(g2, 1, {});
   check('above the station: burn retrograde', /retrograde at the pink marker to lower your orbit/.test(Game.hint(g2)), Game.hint(g2));
   coorbit(g, hub, -30, 2.5); g.navId = 'station:hub'; H.run(g, 1, {});
-  check('near and fast: point retrograde to the TGT marker', /Point retrograde to the TGT marker .* relative speed < 1\.5 m\/s/.test(Game.hint(g)), `${g.approach.vNow.toFixed(1)} m/s: ${Game.hint(g)}`);
-  coorbit(g, hub, -110, 2.2); H.run(g, 1, {});
-  check('near, closing at a sane speed: brake before the dock', /Closing at 2\.\d m\/s.*Brake at the teal X/.test(Game.hint(g)), Game.hint(g));
-  coorbit(g, hub, -60); H.run(g, 1, {});
-  check('co-orbiting 60 m behind (rel v = n d): drift in', /tap W .* drift in/.test(Game.hint(g)), `${g.approach.vNow.toFixed(1)} m/s: ${Game.hint(g)}`);
+  check('near and fast: point the nose at the ⊗ BRAKE marker', /^Too fast: point the nose at the ⊗ BRAKE marker and burn until relative speed < \d m\/s/.test(Game.hint(g)), `${g.approach.vNow.toFixed(1)} m/s: ${Game.hint(g)}`);
+  fresh_(g); nearPort(g, hub, 45, 3); H.run(g, 1, {});
+  check('near, closing at a sane speed: coast, brake by 30 m', /^Closing at 3\.0 m\/s, 45 m to go\. Coast, then brake at the ⊗ BRAKE marker inside 30 m/.test(Game.hint(g)), Game.hint(g));
+  fresh_(g); coorbit(g, hub, -60); H.run(g, 1, {});
+  check('co-orbiting 60 m behind (rel v = n d): burn in, coast, brake', /^Burn toward the dock to close at about \d m\/s, coast, then brake at the ⊗ BRAKE marker/.test(Game.hint(g)), `${g.approach.vNow.toFixed(1)} m/s: ${Game.hint(g)}`);
   nearPort(g, hub, 6, 0.2); H.run(g, 1, {});
   check('in the zone: press F', /press F to dock/.test(Game.hint(g)), Game.hint(g));
   const rust = Stations.byId(g, 'rusts');
   g.navId = 'station:rusts'; nearPort(g, rust, 40, 1.0); H.run(g, 1, {});
   const own = (Game.mods.find((x) => x.id === 'stations').hint(g) || {}).text;          // the core's impact warning may outrank it here
-  check('closing slower than 1.5 m/s: just coast in', /Closing at 1\.\d m\/s.*slow enough: coast in/.test(own), own);
-  nearPort(g, rust, 50, 0.5); g.warpIdx = CONFIG.sim.warps.length - 1; H.run(g, 1, {});
-  check('warp capped at 4x near a station port', g.warpMax === 4 && g.warpWhy === "near Rust's", `${g.warpMax}x: ${g.warpWhy}`);
+  check('closing slower than 1.5 m/s: just coast in', /Closing at 1\.\d m\/s.*Coast in, then press F inside 14 m/.test(own), own);
+  nearPort(g, rust, 20, 0.5); g.warpIdx = CONFIG.sim.warps.length - 1; H.run(g, 1, {});
+  check('warp capped at 4x right by a station (2 radii)', g.warpMax === 4 && g.warpWhy === "near Rust's", `${g.warpMax}x: ${g.warpWhy}`);
+  nearPort(g, rust, 100, 4); g.warpIdx = CONFIG.sim.warps.length - 1; H.run(g, 1, {});
+  check('...and 100 m out closing at 4 m/s (there in 25 s)', g.warpMax === 4 && g.warpWhy === "near Rust's", `${g.warpMax}x: ${g.warpWhy}`);
   nearPort(g, rust, 120, 0); g.warpIdx = CONFIG.sim.warps.length - 1; H.run(g, 1, {});
-  check('...but not 120 m out', g.warpMax > 4, `${g.warpMax}x ${g.warpWhy}`);
+  check('...but not 120 m out at rest', g.warpMax > 4, `${g.warpMax}x ${g.warpWhy}`);
+  const gw = fresh('orbit'); let capped = 0;
+  for (let i = 0; i < 300; i++) { gw.warpIdx = CONFIG.sim.warps.length - 1; H.run(gw, 1, {}); if (gw.warpMax <= 4) capped++; }
+  check('low Ceres orbit 60 m under the hub: full warp all the way round', capped === 0, `${capped}/300 frames capped, t ${gw.t.toFixed(0)} s`);
   const g3 = fresh('orbit'); g3.everFlew = true; g3.navId = 'station:outpost'; Game.refresh(g3); H.run(g3, 1, {});
   check('Kiwi Outpost from Ceres orbit: head for Kiwi first', /Kiwi/.test(Game.hint(g3)) && /prograde/.test(Game.hint(g3)), Game.hint(g3));
+}
+
+
+// ---------------- 10b. wrong way round, too fast to stop, which way to take off, idle and cargo hints ----------------
+{
+  const mod = Game.mods.find((x) => x.id === 'stations'), own = (g) => mod.hint(g) || { pri: 0, text: '' };
+  const g = fresh('orbit'), hub = Stations.byId(g, 'hub'), ceres = g.w.byId.ceres;
+  Game.circularAround(g, ceres, 430, hub.facing(g.t) + Math.PI); g.sh.vx *= -1; g.sh.vy *= -1;   // Ceres sits still at the origin
+  g.everFlew = true; g.navId = 'station:hub'; Game.refresh(g); H.run(g, 1, {});
+  check('clockwise orbit: "Wrong way round!" and how to flip it', /^Wrong way round! Ceres Hub goes counter-clockwise: burn at the pink marker/.test(own(g).text), own(g).text);   // (the core's range-rate rock alarm may outrank it)
+  const g2 = fresh('orbit'); nearPort(g2, Stations.byId(g2, 'hub'), 70, 9.5); g2.navId = 'station:hub'; Game.refresh(g2); H.run(g2, 1, {});   // 70 m behind, catching up at 9.5 m/s
+  check('a 9.5 m/s pass right by the port: "too fast to stop"', /^Pass in \d+ s at \d+ m\/s: too fast to stop\./.test(Game.hint(g2)), Game.hint(g2));
+  const g3 = fresh('pad'); g3.navId = 'station:hub'; Game.refresh(g3); H.run(g3, 1, {});
+  check('on the pad, hub targeted: tip the nose left (Ceres turns counter-clockwise)', /^Take off \(hold W\), tip the nose left with A and burn sideways: Ceres Hub goes counter-clockwise/.test(Game.hint(g3)), Game.hint(g3));
+  const g4 = fresh(); H.run(g4, 2, {}); H.run(g4, 6, { keys: ['KeyW'] }); H.run(g4, 60 * 40, {});
+  const before = own(g4).text; g4.done.land_ceres = g4.t; const after = own(g4).text;
+  check('drifting by the hub before landing on Ceres: no "right here, dock" nag', /^Free flying!/.test(before) && !/right here/.test(before), before);
+  check('...after the Ceres landing it may suggest docking again', /^Ceres Hub is right here: press H/.test(after), after);
+  const g5 = fresh('pad'); Game.addCargo(g5, 'iron', 5); H.run(g5, 1, {});
+  check('landed at the pad with ore: sell here, or at the hub for more (pri >= 35)', own(g5).pri >= 35 && /^Got ore! Press F here at the pad to sell/.test(Game.hint(g5)), `${own(g5).pri}: ${Game.hint(g5)}`);
+  const g6 = fresh('pad'); Game.landAt(g6, g6.w.byId.ceres, Math.PI); Game.addCargo(g6, 'iron', 5); H.run(g6, 1, {});
+  const quiet = own(g6).text; g6.done.mine = g6.t; H.run(g6, 1, {});
+  check('landed away from the pad after the mining job: fly up to the hub to sell', !quiet && own(g6).pri >= 35 && /^Got ore! Fly up to Ceres Hub \(H targets it\) and dock to sell/.test(Game.hint(g6)),
+        `before the job: "${quiet}"; after: ${Game.hint(g6)}`);
 }
 
 
@@ -411,6 +495,8 @@ for (const id of ['outpost', 'rusts']) {
     g.navId = 'station:' + id; Game.refresh(g); H.run(g, 2, {}); Game.hint(g);
   }
   const long = [...HINTS].filter((t) => t.length > 100);
+  const old = [...HINTS].filter((t) => /TGT|teal X/.test(t));
+  check('the hints say "⊗ BRAKE marker", never "TGT marker" or "teal X"', !old.length, old.join(' || '));
   check(`all ${HINTS.size} station hints fit on one line (<= 100 chars)`, HINTS.size > 15 && !long.length, long.join(' || ') || `longest: ${[...HINTS].sort((a, b) => b.length - a.length)[0]}`);
 }
 

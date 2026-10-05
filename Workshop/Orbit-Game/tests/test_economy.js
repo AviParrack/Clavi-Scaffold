@@ -278,6 +278,8 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
   const want = 110 + Math.ceil(gT.S.fuel * Econ.fuelPrice(gT, HUB) + gT.S.rcs * Econ.rcsPrice(HUB) + 60 * Econ.repairPrice(HUB) - 1e-6);
   check('a tow bills the refill: never cheaper than buying the fuel', 1000 - gT.money === want && 1000 - gT.money > tow, `$${1000 - gT.money} (want $${want})`);
   const g6 = fresh('pad'); g6.money = 500; Econ.state(g6).orion = 1; Game.recalc(g6);
+  const g7 = fresh('pad'); Econ.firePulse(g7);
+  check('no Orion units, no stations: the toast points at the pad depot', g7.toasts.some((t) => t.text === 'NO ORION UNITS (THE PAD DEPOT SELLS THEM)'), g7.toasts.map((t) => t.text).join(' | '));
   Econ.firePulse(g6); Econ.openShop(g6, HUB); Game.respawn(g6, 'tow');
   check('respawn clears the blast and closes the shop', !Econ.state(g6).blast && !g6.ui && !Econ.state(g6).station);
 }
@@ -353,6 +355,7 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
   const p = gp.prompts.find((x) => x.key === 'KeyF');
   H.run(gp, 1, { pressed: ['KeyF'] });
   check('no stations module: F on the Ceres pad opens the pad depot', p && gp.ui === 'shop' && Econ.state(gp).station.name === 'Ceres Pad Depot');
+  check('...the whole shop (no Hub upstairs), not the kiosk', Econ.padDepot().tabs.length > 2 && Econ.state(gp).station.tabs.join() === Econ.ALL_TABS.join(), Econ.state(gp).station.tabs.join());
   H.run(gp, 1, { pressed: ['Escape'] });
   check('...and Esc closes it', !gp.ui);
   H.run(gp, 1, { pressed: ['KeyF'] });

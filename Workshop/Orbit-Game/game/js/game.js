@@ -658,8 +658,11 @@ const Game = (() => {
     for (const rk of w.rocks) {
       const [rx, ry, rvx, rvy] = World.rockState(w, rk, t), dx = sh.x - rx, dy = sh.y - ry, d = Math.hypot(dx, dy) || 1e-9, gap = d - rk.r - g.S.radius;
       near = Math.min(near, gap);
-      const vr = ((sh.vx - rvx) * dx + (sh.vy - rvy) * dy) / d;
-      if (vr < -0.05 && gap / -vr < ttc) { ttc = Math.max(0, gap) / -vr; ttcGap = gap; }
+      const ux = sh.vx - rvx, uy = sh.vy - rvy, vr = (ux * dx + uy * dy) / d;
+      if (!(vr < -0.05 && gap / -vr < ttc)) continue;
+      const tc = -(dx * ux + dy * uy) / (ux * ux + uy * uy);                    // straight-line closest approach: will it actually hit?
+      if (Math.hypot(dx + ux * tc, dy + uy * tc) > rk.r + g.S.radius + 3) continue;
+      ttc = Math.max(0, gap) / -vr; ttcGap = gap;
     }
     g.nearDist = near; g.rockTTC = g.status === 'flying' && ttcGap < 400 ? ttc : Infinity;
     g.maxCeresR = Math.max(g.maxCeresR, Math.hypot(sh.x - st[0][0], sh.y - st[0][1]));

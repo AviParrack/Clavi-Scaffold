@@ -38,8 +38,10 @@ const World = (() => {
         ({ th: rand() * 2 * Math.PI, d: rand() * 0.75, r: (0.06 + rand() * 0.12) }));
     }
 
+    bodies.forEach((b) => { b.wseed = seed; });            // terrain grids are built lazily from this
+
     const rocks = [];
-    for (const spec of [cfg.rubble, cfg.rubbleKiwi].filter((sp) => sp && byId[sp.around])) {
+    for (const spec of (cfg.rubble || []).filter((sp) => byId[sp.around])) {
       const host = byId[spec.around];
       for (let i = 0; i < spec.count; i++) {
         const a = spec.rMin + (spec.rMax - spec.rMin) * rand();
@@ -52,15 +54,15 @@ const World = (() => {
   }
 
   // ---------------- body states at time t (cached per t) ----------------
-  //  returns array of [x, y, vx, vy] in body order
+  //  returns array of [x, y, vx, vy, ax, ay] in body order (ax, ay = rail acceleration)
 
   function states(w, t) {
     if (t === w._t) return w._st;
     const st = [];
     w.bodies.forEach((b) => {
-      if (!b.par) { st.push([0, 0, 0, 0]); return; }
-      const p = st[b.par.idx], th = b.n * t + b.phase, c = Math.cos(th), s = Math.sin(th);
-      st.push([p[0] + b.a * c, p[1] + b.a * s, p[2] - b.a * b.n * s, p[3] + b.a * b.n * c]);
+      if (!b.par) { st.push([0, 0, 0, 0, 0, 0]); return; }
+      const p = st[b.par.idx], th = b.n * t + b.phase, c = Math.cos(th), s = Math.sin(th), n2 = b.n * b.n;
+      st.push([p[0] + b.a * c, p[1] + b.a * s, p[2] - b.a * b.n * s, p[3] + b.a * b.n * c, p[4] - n2 * b.a * c, p[5] - n2 * b.a * s]);
     });
     w._t = t; w._st = st;
     return st;
@@ -74,16 +76,35 @@ const World = (() => {
   }
 
   // ---------------- gravity on a test mass ----------------
+  //  Pull of every body, plus a frame correction for the local reference body B
+  //  (smallest Hill sphere containing the point): B rides a Kepler rail and so ignores
+  //  the other bodies' pull, so we add B's rail acceleration minus the pull B would really feel.
+  //  Motion relative to B then feels only true tides (and Ceres gets the usual indirect term).
 
   function gravity(w, x, y, t) {
-    const st = states(w, t);
-    let ax = 0, ay = 0;
-    for (let i = 0; i < w.bodies.length; i++) {
+    const st = states(w, t), bs = w.bodies;
+    let ax = 0, ay = 0, ref = 0, refHill = Infinity;
+    for (let i = 0; i < bs.length; i++) {
       const dx = st[i][0] - x, dy = st[i][1] - y, r2 = dx * dx + dy * dy, r = Math.sqrt(r2);
-      const k = w.bodies[i].mu / (r2 * r);
+      const k = bs[i].mu / (r2 * r);
       ax += k * dx; ay += k * dy;
+      if (r < bs[i].hill && bs[i].hill < refHill) { ref = i; refHill = bs[i].hill; }
+    }
+    const B = st[ref];
+    ax += B[4]; ay += B[5];
+    for (let j = 0; j < bs.length; j++) {
+      if (j === ref) continue;
+      const dx = st[j][0] - B[0], dy = st[j][1] - B[1], r2 = dx * dx + dy * dy, r = Math.sqrt(r2);
+      const k = bs[j].mu / (r2 * r);
+      ax -= k * dx; ay -= k * dy;
     }
     return [ax, ay];
+  }
+
+  // outline radius of a body at polar angle th (local frame; bodies never rotate)
+  function surfaceR(b, th) {
+    const K = b.out.length, u = (((th / (2 * Math.PI)) % 1 + 1) % 1) * K, i = Math.floor(u), f = u - i;
+    return b.R * (b.out[i % K] * (1 - f) + b.out[(i + 1) % K] * f);
   }
 
   // reference body = smallest Hill sphere that contains the point
@@ -96,7 +117,7 @@ const World = (() => {
     return best;
   }
 
-  return { create, states, bodyState, rockState, gravity, refBody, rng };
+  return { create, states, bodyState, rockState, gravity, refBody, surfaceR, rng };
 })();
 
 if (typeof module !== 'undefined') module.exports = World;

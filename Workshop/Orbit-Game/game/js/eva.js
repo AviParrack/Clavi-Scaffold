@@ -911,6 +911,7 @@ const EVA = (() => {
     if (g.status === 'dead') return;
     const ctx = kit.ctx, [sx, sy] = kit.toScreen(g.sh.x, g.sh.y), W = kit.W, H = kit.H;
     if (kit.onScreen(sx, sy, -40)) return;
+    if (kit.edgeArrow) return kit.edgeArrow('ship', g.sh.x, g.sh.y, `${g.S.name} ${kit.fmtDist(Math.max(0, hullDist(g)))}`, '#ffb347');   // core lays out edge arrows
     const a = Math.atan2(sy - H / 2, sx - W / 2), mx = 46;
     const k = Math.min((W / 2 - mx) / Math.max(1e-6, Math.abs(Math.cos(a))), (H / 2 - mx - 40) / Math.max(1e-6, Math.abs(Math.sin(a))));
     const ex = W / 2 + Math.cos(a) * k, ey = H / 2 + Math.sin(a) * k;

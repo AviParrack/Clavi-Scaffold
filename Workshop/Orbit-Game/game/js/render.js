@@ -92,10 +92,11 @@ const Render = (() => {
 
   // ---------------- frame ----------------
 
-  let layout = { left: 0, right: 0 };
+  let layout = { left: 0, right: 0, rw: 0 }, g0 = null;
 
   function draw(g, dt, debug) {
     updateCamera(g, dt);
+    g0 = g; edges = []; tagRects = [];
     Terrain.frameStart();
     const path = relPath(g), view = viewRect(20);
     drawSpace(g);
@@ -109,10 +110,11 @@ const Render = (() => {
     ctx.restore();
     drawParticles(g);
     drawBodyLabels(g);
-    if (g.status !== 'dead') { drawMarkers(g); drawShip(g); }
+    if (g.status !== 'dead') drawShip(g);
     ctx.save(); worldTransform(); eachDraw(g, 'drawWorldTop'); ctx.restore();
     drawPathTags(g, path);
     drawApproach(g, path);
+    if (g.status !== 'dead') drawMarkers(g);
     drawPopups(g);
     eachDraw(g, 'drawScreen');
     drawHUD(g);
@@ -188,12 +190,16 @@ const Render = (() => {
     if (b.R * cam.zoom < 6) return;
 
     ctx.save(); shapePath(b.out, x, y, b.R); ctx.clip();
-    for (const c of b.craters) {                                   // craters: dark bowl, lit far rim
+    const la = Math.atan2(LIGHT[1], LIGHT[0]), fade = Math.max(0.3, Math.min(1, (16 - cam.zoom) / 10));   // up close: a gentle dip
+    for (const c of b.craters) {                                   // craters: shadowed near wall, sunlit floor, ink on the shadow side, lit far rim
       const cx = x + b.R * c.d * Math.cos(c.th), cy = y + b.R * c.d * Math.sin(c.th), cr = b.R * c.r;
-      ctx.beginPath(); ctx.arc(cx, cy, cr, 0, 2 * Math.PI); ctx.fillStyle = b.color[1]; ctx.fill();
-      ctx.beginPath(); ctx.arc(cx - LIGHT[0] * cr * 0.3, cy - LIGHT[1] * cr * 0.3, cr * 0.8, 0, 2 * Math.PI); ctx.fillStyle = b.color[0]; ctx.fill();
-      ctx.beginPath(); ctx.arc(cx, cy, cr, 0, 2 * Math.PI); ctx.strokeStyle = INK; ctx.lineWidth = 1.5 * px(); ctx.stroke();
+      ctx.globalAlpha = fade * 0.85; ctx.beginPath(); ctx.arc(cx, cy, cr, 0, 2 * Math.PI); ctx.fillStyle = b.color[1]; ctx.fill();
+      ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(cx - LIGHT[0] * cr * 0.24, cy - LIGHT[1] * cr * 0.24, cr * 0.82, 0, 2 * Math.PI); ctx.fillStyle = b.color[0]; ctx.fill();
+      ctx.globalAlpha = fade; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(cx, cy, cr, la - 1.25, la + 1.25); ctx.strokeStyle = INK; ctx.lineWidth = 1.5 * px(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, cr * 0.93, la + Math.PI - 1.05, la + Math.PI + 1.05); ctx.strokeStyle = b.color[2]; ctx.lineWidth = Math.max(1.5 * px(), cr * 0.035); ctx.stroke();
     }
+    ctx.globalAlpha = 1;
     if (b.id === 'ceres') {                                        // Occator's bright spots
       const ox = x + b.R * 0.35, oy = y - b.R * 0.2;
       const glow = ctx.createRadialGradient(ox, oy, 0, ox, oy, b.R * 0.12);
@@ -212,10 +218,17 @@ const Render = (() => {
   function drawPad(x, y, b) {
     ctx.save(); ctx.translate(x, y + World.surfaceR(b, Math.PI / 2));
     ctx.fillStyle = '#7d7aa6'; ctx.fillRect(-10, -1, 20, 2.2);
+    ctx.fillStyle = '#625f8c'; ctx.fillRect(-10, -1, 20, 0.8); ctx.fillStyle = '#a19ec8'; ctx.fillRect(-10, 0.95, 20, 0.25);   // toon shade + lip
     ctx.strokeStyle = INK; ctx.lineWidth = 1.5 * px(); ctx.strokeRect(-10, -1, 20, 2.2);
     ctx.fillStyle = '#ff9f1c'; for (let i = -9; i < 10; i += 4) ctx.fillRect(i, 0.6, 2, 0.6);
-    ctx.fillStyle = '#c9c4e8'; ctx.fillRect(9, 1.2, 1.6, 13); ctx.strokeRect(9, 1.2, 1.6, 13);
+    if (px() < 0.12) {                                             // close up the mast is a little lattice tower, not a slab
+      ctx.beginPath(); for (let yy = 1.2; yy < 14; yy += 1.3) { ctx.moveTo(9.2, yy); ctx.lineTo(10.4, yy + 1.3); ctx.moveTo(10.4, yy); ctx.lineTo(9.2, yy + 1.3); }
+      ctx.strokeStyle = '#a9a3d6'; ctx.lineWidth = 0.14; ctx.stroke();
+      for (const [rx, col] of [[9, '#d8d4f2'], [10.25, '#9690c4']]) { ctx.fillStyle = col; ctx.fillRect(rx, 1.2, 0.35, 13); ctx.strokeStyle = INK; ctx.lineWidth = 1.5 * px(); ctx.strokeRect(rx, 1.2, 0.35, 13); }
+      ctx.fillStyle = '#c9c4e8'; ctx.fillRect(8.8, 13.9, 2, 0.4); ctx.strokeRect(8.8, 13.9, 2, 0.4);
+    } else { ctx.fillStyle = '#c9c4e8'; ctx.fillRect(9, 1.2, 1.6, 13); ctx.strokeRect(9, 1.2, 1.6, 13); }
     ctx.fillStyle = '#ff5d5d'; ctx.beginPath(); ctx.arc(9.8, 15, 1.1, 0, 2 * Math.PI); ctx.fill();
+    if (px() < 0.12) { ctx.strokeStyle = INK; ctx.stroke(); ctx.fillStyle = '#ffd0d0'; ctx.beginPath(); ctx.arc(9.45, 15.35, 0.3, 0, 2 * Math.PI); ctx.fill(); }
     ctx.restore();
   }
 
@@ -302,7 +315,7 @@ const Render = (() => {
       const [x, y] = toScreen(path[path.length - 1][0], path[path.length - 1][1]);
       ctx.strokeStyle = COL.impact; ctx.lineWidth = 4; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(x - 7, y - 7); ctx.lineTo(x + 7, y + 7); ctx.moveTo(x + 7, y - 7); ctx.lineTo(x - 7, y + 7); ctx.stroke();
-      tag(x, y + 22, `IMPACT ${(g.pred.impact.t - g.t).toFixed(0)}s`, COL.impact);
+      tag(Math.max(40, Math.min(W - 40, x)), y + 22 > H - 8 ? y - 14 : y + 22, `IMPACT ${(g.pred.impact.t - g.t).toFixed(0)}s`, COL.impact);
     }
     if (g.orb.E >= 0) return;
     let iMin = 0, iMax = 0, dMin = Infinity, dMax = 0;
@@ -328,6 +341,8 @@ const Render = (() => {
       ctx.beginPath(); ctx.moveTo(sx + ax * rr, sy + ay * (rr - 7)); ctx.lineTo(sx + ax * rr, sy + ay * rr); ctx.lineTo(sx + ax * (rr - 7), sy + ay * rr); ctx.stroke();
     }
     if (onScreen(sx, sy, 0)) tag(sx, sy + rr + 16, tg.name, COL.tgt);
+    const on = onScreen(sx, sy, (tg.r || 0) * cam.zoom - 4);          // off-screen (or under a panel): an edge arrow, laid out with the rest
+    queueEdge({ key: tg.id, sx, sy, text: `${tg.name} ${fmtDist(Math.max(0, ap.dNow))}`, col: COL.tgt, fill: tg.col || COL.tgt, d: -1, on, tgt: true });
     if (ap.i < 0 || !path[ap.i] || tg.id === 'body:' + g.ref.id) return;
     const [px1, py1] = toScreen(path[ap.i][0], path[ap.i][1]);
     const [gx, gy] = relPoint(g, ap.tx, ap.ty, ap.t), [px2, py2] = toScreen(gx, gy);
@@ -340,23 +355,32 @@ const Render = (() => {
 
   // ---------------- ship markers & ship ----------------
 
+  // prograde: circle with prongs; retrograde: ⊗, the BRAKE marker (teal near a target, pink on an impact course)
   function drawMarkers(g) {
     if (g.status === 'landed' || g.status === 'docked' || g.mode !== 'ship') return;
     const ap = g.approach, near = ap && ap.dNow < 300 && ap.vNow > 0.05;
     const vx = near ? ap.rvx : g.orb.vx, vy = near ? ap.rvy : g.orb.vy;
     if (Math.hypot(vx, vy) < 0.05) return;
-    const [cx, cy] = toScreen(g.sh.x, g.sh.y), a = screenAng(Math.atan2(vy, vx)), R0 = 50;
-    const pro = [cx + R0 * Math.cos(a), cy + R0 * Math.sin(a)], ret = [cx - R0 * Math.cos(a), cy - R0 * Math.sin(a)];
-    ctx.lineWidth = 2.5; ctx.strokeStyle = near ? COL.tgt : COL.pro;
-    ctx.beginPath(); ctx.arc(pro[0], pro[1], 6, 0, 2 * Math.PI); ctx.stroke();
-    for (const d of [-Math.PI / 2, 0, Math.PI / 2]) {
-      const b = a + Math.PI + d;
-      ctx.beginPath(); ctx.moveTo(pro[0] + 6 * Math.cos(b), pro[1] + 6 * Math.sin(b)); ctx.lineTo(pro[0] + 11 * Math.cos(b), pro[1] + 11 * Math.sin(b)); ctx.stroke();
+    const [cx, cy] = toScreen(g.sh.x, g.sh.y), a = screenAng(Math.atan2(vy, vx)), R0 = 56, c = Math.cos(a), s = Math.sin(a);
+    const pro = [cx + R0 * c, cy + R0 * s], ret = [cx - R0 * c, cy - R0 * s];
+    const ink = (path, col, lw) => { path(); ctx.strokeStyle = INK; ctx.lineWidth = lw + 3; ctx.stroke(); ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.stroke(); };
+    ctx.lineCap = 'round';
+    const pr = near ? 6 : 8;                                       // near a target the prograde marker steps back: dim, small, unlabelled
+    ink(() => {
+      ctx.beginPath(); ctx.arc(pro[0], pro[1], pr, 0, 2 * Math.PI);
+      for (const d of [-Math.PI / 2, 0, Math.PI / 2]) { const b = a + Math.PI + d; ctx.moveTo(pro[0] + pr * Math.cos(b), pro[1] + pr * Math.sin(b)); ctx.lineTo(pro[0] + (pr + 6) * Math.cos(b), pro[1] + (pr + 6) * Math.sin(b)); }
+    }, near ? '#4f8a82' : COL.pro, near ? 2 : 2.8);
+    const rr = 9, rc = near ? COL.tgt : COL.retro, k = rr * 0.68;
+    ink(() => {
+      ctx.beginPath(); ctx.arc(ret[0], ret[1], rr, 0, 2 * Math.PI);
+      ctx.moveTo(ret[0] - k, ret[1] - k); ctx.lineTo(ret[0] + k, ret[1] + k); ctx.moveTo(ret[0] + k, ret[1] - k); ctx.lineTo(ret[0] - k, ret[1] + k);
+    }, rc, 3);
+    if (near || (g.pred && g.pred.impact && g.status === 'flying')) {   // the label sits on the far side of the ⊗, away from the ship
+      ctx.font = `700 12.5px ${FONT}`; ctx.textAlign = 'center';
+      const off = rr + 9 + Math.abs(c) * ctx.measureText('BRAKE').width / 2 + Math.abs(s) * 4;
+      const lx = ret[0] - c * off, ly = ret[1] - s * off + 4.5, lw = ctx.measureText('BRAKE').width;
+      outlinedText('BRAKE', lx, ly, rc, 4); ctx.textAlign = 'left'; tagRects.push([lx - lw / 2, ly - 11, lx + lw / 2, ly + 3], [ret[0] - 12, ret[1] - 12, ret[0] + 12, ret[1] + 12]);
     }
-    ctx.strokeStyle = near ? COL.tgt : COL.retro;
-    ctx.beginPath(); ctx.arc(ret[0], ret[1], 6, 0, 2 * Math.PI); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(ret[0] - 4, ret[1] - 4); ctx.lineTo(ret[0] + 4, ret[1] + 4); ctx.moveTo(ret[0] + 4, ret[1] - 4); ctx.lineTo(ret[0] - 4, ret[1] + 4); ctx.stroke();
-    if (near) { ctx.font = `700 11px ${FONT}`; ctx.textAlign = 'center'; outlinedText('TGT', pro[0], pro[1] - 12, COL.tgt, 3); ctx.textAlign = 'left'; }
   }
 
   function drawShip(g) {
@@ -446,21 +470,119 @@ const Render = (() => {
         continue;
       }
       if (g.mode !== 'ship' && b !== g.ref) continue;
-      const a = Math.atan2(y - H / 2, x - W / 2), m = 34;
-      const ex = Math.max(m, Math.min(W - m, W / 2 + Math.cos(a) * W)), ey = Math.max(m + 40, Math.min(H - m - 110, H / 2 + Math.sin(a) * H));
-      ctx.save(); ctx.translate(ex, ey); ctx.rotate(a);
-      ctx.fillStyle = b.color[0]; ctx.strokeStyle = INK; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.moveTo(12, 0); ctx.lineTo(-6, -8); ctx.lineTo(-6, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.restore();
-      tag(ex - Math.cos(a) * 30, ey - Math.sin(a) * 22, `${b.name} ${fmtDist(dist)}`, b.color[2]);
+      queueEdge({ key: 'body:' + b.id, sx: x, sy: y, text: `${b.name} ${fmtDist(dist)}`, col: b.color[2], fill: b.color[0], d: dist });
     }
+  }
+
+  // ---------------- off-screen arrows: queued while drawing, laid out after the HUD, clear of its panels ----------------
+
+  let edges = [], frameRects = [], tagRects = [];                 // tagRects: every tag() drawn this frame, so edge labels can dodge them
+
+  function queueEdge(e) {                                          // {key, sx, sy, text, col, fill, d, on?, tgt?}
+    const old = edges.find((q) => q.key === e.key);
+    if (old) { if (e.tgt) Object.assign(old, { tgt: true, on: old.on && e.on }); return; }
+    edges.push(e);
+  }
+  // modules: an arrow (with name and distance) to a world point, drawn only while it is off-screen
+  function edgeArrow(key, x, y, text, col, fill = col) {
+    const [sx, sy] = toScreen(x, y);
+    queueEdge({ key, sx, sy, text, col, fill, d: Math.hypot(g0.sh.x - x, g0.sh.y - y), on: onScreen(sx, sy, -4) });
+  }
+
+  function warpRect() {                                            // the DOM warp bar, in canvas px (null when absent or hidden)
+    if (typeof document === 'undefined') return null;
+    const el = document.getElementById('warpbar'); if (!el) return null;
+    const r = el.getBoundingClientRect(), c = ctx.canvas.getBoundingClientRect();
+    return r.width > 0 ? [r.left - c.left, r.top - c.top, r.right - c.left + 4, r.bottom - c.top + 4] : null;
+  }
+  function hudRects() {
+    const rs = [...frameRects];
+    if (layout.left > 12) rs.push([0, 0, 12 + 236 + 4, layout.left - 18]);
+    if (layout.right > 12) rs.push([W - layout.rw - 12, 0, W, layout.right - 18]);
+    return rs;
+  }
+  const inRect = (x, y, r, p = 0) => x > r[0] - p && x < r[2] + p && y > r[1] - p && y < r[3] + p;
+  const overlap = (a, b, p = 0) => a[0] < b[2] + p && a[2] > b[0] - p && a[1] < b[3] + p && a[3] > b[1] - p;
+
+  function drawEdges(g) {
+    const obs = hudRects(), cx = W / 2, cy = H / 2, m = 16, pad = 12;
+    const items = edges.filter((e) => !e.on || (e.tgt && obs.some((r) => inRect(e.sx, e.sy, r))));
+    if (!items.length) return;
+    for (const e of items) {                                       // where the line of sight leaves the free area
+      let dx = e.sx - cx, dy = e.sy - cy; const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+      const tx = dx > 1e-6 ? (W - m - cx) / dx : dx < -1e-6 ? (m - cx) / dx : Infinity;
+      const ty = dy > 1e-6 ? (H - m - cy) / dy : dy < -1e-6 ? (m - cy) / dy : Infinity;
+      let t = Math.min(tx, ty), side = tx < ty ? 'x' : 'y';
+      for (const r of obs) {
+        if (inRect(cx, cy, r, pad)) continue;
+        let tn = -Infinity, tf = Infinity, sn = 'x';
+        for (const [o, d, lo, hi, ax] of [[cx, dx, r[0] - pad, r[2] + pad, 'x'], [cy, dy, r[1] - pad, r[3] + pad, 'y']]) {
+          if (Math.abs(d) < 1e-9) { if (o < lo || o > hi) tn = Infinity; continue; }
+          const a = Math.min((lo - o) / d, (hi - o) / d), b = Math.max((lo - o) / d, (hi - o) / d);
+          if (a > tn) { tn = a; sn = ax; } tf = Math.min(tf, b);
+        }
+        if (tn <= tf && tn > 0 && tn < t) { t = tn; side = sn; }
+      }
+      Object.assign(e, { dx, dy, side, ax: cx + dx * t, ay: cy + dy * t });
+    }
+    items.sort((a, b) => (b.tgt ? 1 : 0) - (a.tgt ? 1 : 0) || a.d - b.d);
+    const groups = [];                                             // arrows that would touch share one arrow and a stacked label
+    for (const e of items) {
+      const gr = groups.find((q) => Math.hypot(q.ax - e.ax, q.ay - e.ay) < 30);
+      if (gr) gr.items.push(e); else groups.push({ ax: e.ax, ay: e.ay, dx: e.dx, dy: e.dy, side: e.side, items: [e] });
+    }
+    ctx.font = `600 13px ${FONT}`;
+    for (const q of groups) q.wMax = Math.max(...q.items.map((e) => ctx.measureText(e.text).width));
+    const placed = [...tagRects];
+    const boxOf = (q, ox, oy) => {                                 // label lines inward of the arrow, aligned by screen side
+      const wMax = q.wMax, n = q.items.length, ax = q.ax + ox, ay = q.ay + oy;
+      let x0, y0, al;
+      if (q.side === 'x') { al = q.dx > 0 ? 'right' : 'left'; x0 = q.dx > 0 ? ax - 22 - wMax : ax + 22; y0 = ay - n * 7.5 - 2; }
+      else { al = 'center'; x0 = Math.max(6, Math.min(W - 6 - wMax, ax - wMax / 2)); y0 = q.dy < 0 ? ay + 18 : ay - 18 - n * 15; }
+      return { box: [x0, y0, x0 + wMax, y0 + n * 15 + 2], arrow: [ax - 9, ay - 9, ax + 9, ay + 9], al, x0, wMax, y0, ax, ay };
+    };
+    const shown = [];
+    for (const q of groups) {
+      const tx = q.side === 'x' ? 0 : 1, ty = 1 - tx;
+      let best = null;
+      for (let k = 0; k <= 40 && !best; k++) {                     // slide along the edge until the label is clear
+        const o = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 8, b = boxOf(q, tx * o, ty * o);
+        const inside = b.box[0] >= 4 && b.box[2] <= W - 4 && b.box[1] >= 4 && b.box[3] <= H - 4;
+        if (inside && !placed.some((p) => overlap(p, b.box, 7) || overlap(p, b.arrow)) && !obs.some((r) => overlap(r, b.box) || overlap(r, b.arrow))) { best = b; q.off = [tx * o, ty * o]; }
+      }
+      const host = !best && shown.length && shown.reduce((a, c) => Math.hypot(a.at.ax - q.ax, a.at.ay - q.ay) <= Math.hypot(c.at.ax - q.ax, c.at.ay - q.ay) ? a : c);
+      if (host) {                                                  // nowhere free: ride along as one more line under the nearest arrow
+        const i = placed.indexOf(host.at.box);
+        host.items.push(...q.items); host.wMax = Math.max(host.wMax, q.wMax); host.at = boxOf(host, ...host.off);
+        placed.splice(i, 2, host.at.box, host.at.arrow);
+        continue;
+      }
+      if (!best) q.off = [0, 0];
+      q.at = best || boxOf(q, 0, 0);
+      placed.push(q.at.box, q.at.arrow); shown.push(q);
+    }
+    for (const q of shown) {
+      const { ax, ay, al, x0, wMax, y0 } = q.at, tg = q.items.some((e) => e.tgt), sc = tg ? 1.2 : 1;
+      ctx.save(); ctx.translate(ax, ay); ctx.rotate(Math.atan2(q.dy, q.dx)); ctx.scale(sc, sc);
+      ctx.beginPath(); ctx.moveTo(4, 0); ctx.lineTo(-14, -8.5); ctx.lineTo(-10, 0); ctx.lineTo(-14, 8.5); ctx.closePath();
+      if (tg) { ctx.strokeStyle = COL.tgt; ctx.lineWidth = 6; ctx.lineJoin = 'round'; ctx.stroke(); }
+      ctx.fillStyle = q.items[0].fill; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.stroke();
+      ctx.restore();
+      ctx.font = `600 13px ${FONT}`; ctx.textAlign = al;
+      const lx = al === 'left' ? x0 : al === 'right' ? x0 + wMax : x0 + wMax / 2;
+      q.items.forEach((e, i) => {
+        const row = q.side === 'y' && q.dy > 0 ? q.items.length - 1 - i : i;   // the head line sits next to the arrow
+        outlinedText(e.text, lx, y0 + 12 + row * 15, e.tgt ? COL.tgt : e.col, 4);
+      });
+    }
+    ctx.textAlign = 'left';
   }
 
   // ---------------- HUD ----------------
 
   function drawHUD(g) {
     const sh = g.sh, S = g.S, o = g.orb, ref = g.ref;
-    layout = { left: 12, right: 12 };
+    layout = { left: 12, right: 12, rw: 0 }; frameRects = [];
 
     // ---- ship panel ----
     const extra = Game.gather(g, 'hudRows');
@@ -485,7 +607,7 @@ const Render = (() => {
       row('CLIMB', `${o.vr >= 0 ? '+' : ''}${o.vr.toFixed(1)} m/s`, 24, y); y += 20;
       const st = g.status === 'landed' ? `landed on ${g.landedOn.name}` : g.status === 'docked' ? `docked: ${g.attach.name}` : g.status === 'dead' ? 'wrecked'
                : o.E >= 0 ? 'not captured' : g.pred && g.pred.impact ? 'impact course' : `orbit ${fmtT(o.T)}`;
-      row('STATUS', st, 24, y, g.pred && g.pred.impact ? COL.bad : o.E >= 0 && g.status === 'flying' ? COL.dim : COL.good); y += 20;
+      row('STATUS', st, 24, y, g.status === 'dead' || (g.pred && g.pred.impact) ? COL.bad : o.E >= 0 && g.status === 'flying' ? COL.dim : COL.good); y += 20;
       row('CLEARANCE', g.nearDist <= 0.5 ? 'touching' : fmtDist(g.nearDist), 24, y, g.nearDist < 20 && g.status === 'flying' ? COL.bad : INK);
     }
 
@@ -518,29 +640,41 @@ const Render = (() => {
     const capped = SIM().warps[g.warpIdx] > g.warp;
     const top = `WARP ${g.warp}x${capped ? `  (max ${g.warpMax}x: ${g.warpWhy})` : ''}${cam.map ? '   ·   MAP' : ''}`;
     outlinedText(top, W / 2, 26, g.warp > 1 ? COL.pro : capped ? COL.warn : '#d9cff5');
+    const tw = ctx.measureText(top).width; frameRects.push([W / 2 - tw / 2 - 6, 8, W / 2 + tw / 2 + 6, 34]);
 
+    // bottom, stacked upward: controls pill, wrapped hint, interaction prompts; all centred, clear of the warp bar
+    const wb = warpRect() || [W - 270, H - 68, W, H], half = Math.max(120, Math.min(W / 2 - 12, wb[0] - W / 2 - 12));
+    frameRects.push(wb);
+    const ctl = Game.first(g, 'controls') ||
+      'W engine · Shift fine · A/D spin · S stop spin · arrows nudge · X ion · Tab target · , . warp · M map · wheel zoom · P pause';
+    let cs = 12.5, cl;
+    for (;; cs -= 0.5) { ctx.font = `500 ${cs}px ${FONT}`; cl = wrapText(ctl, 2 * half - 18, ' · '); if (cl.length <= 2 || cs <= 11) break; }
+    const cTop = H - 18 - (cl.length - 1) * 15, cw = Math.max(...cl.map((l) => ctx.measureText(l).width)) + 18;
+    const pill = [W / 2 - cw / 2, cTop - 13, W / 2 + cw / 2, H - 11];
+    ctx.fillStyle = 'rgba(27,20,51,0.62)'; roundRect(pill[0], pill[1], cw, pill[3] - pill[1], 9); ctx.fill();
+    ctx.fillStyle = '#d9cff5'; cl.forEach((l, i) => ctx.fillText(l, W / 2, cTop + i * 15));
+    frameRects.push(pill);
+
+    const hint = Game.hint(g) || '';
+    let hs = 16, hl = [];
+    if (hint) for (;; hs--) { ctx.font = `500 ${hs}px ${FONT}`; hl = wrapText(hint, 2 * half); if (hl.length <= 3 || hs <= 13) break; }
+    if (hl.length > 3) hl = [hl[0], hl[1], fit(hl.slice(2).join(' '), 2 * half)];
+    const hTop = cTop - 26 - (hl.length - 1) * (hs + 6);
+    hl.forEach((l, i) => outlinedText(l, W / 2, hTop + i * (hs + 6), '#fff4dc'));
+    if (hl.length) { const hw = Math.max(...hl.map((l) => ctx.measureText(l).width)); frameRects.push([W / 2 - hw / 2 - 4, hTop - hs, W / 2 + hw / 2 + 4, cTop - 20]); }
+
+    const pBase = (hl.length ? hTop : cTop) - 40;                  // one hint line: H - 84, as before; each extra line lifts the prompts
     g.prompts.forEach((p, i) => {
-      const yy = H - 84 - i * 32, label = p.key.replace(/^Key|^Digit/, '');
+      const yy = pBase - i * 32, label = p.key.replace(/^Key|^Digit/, '');
       ctx.font = `600 17px ${FONT}`; const w = ctx.measureText(p.text).width + 44;
       ctx.fillStyle = INK; roundRect(W / 2 - w / 2 + 3, yy - 19, w, 28, 8); ctx.fill();
       ctx.fillStyle = p.col || PAPER2; roundRect(W / 2 - w / 2, yy - 22, w, 28, 8); ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 2.5; ctx.stroke();
       ctx.fillStyle = INK; roundRect(W / 2 - w / 2 + 5, yy - 18, 24, 20, 5); ctx.fill();
       ctx.fillStyle = PAPER; ctx.font = `700 14px ${FONT}`; ctx.fillText(label, W / 2 - w / 2 + 17, yy - 3);
       ctx.fillStyle = INK; ctx.font = `600 17px ${FONT}`; ctx.textAlign = 'left'; ctx.fillText(p.text, W / 2 - w / 2 + 36, yy - 2); ctx.textAlign = 'center';
+      frameRects.push([W / 2 - w / 2, yy - 22, W / 2 + w / 2 + 3, yy + 9]);
     });
-
-    ctx.font = `500 16px ${FONT}`;
-    const hint = Game.hint(g), hw = W - 580;                      // long hints wrap onto a second line, clear of the warp bar
-    if (ctx.measureText(hint).width <= hw) outlinedText(hint, W / 2, H - 44, '#fff4dc');
-    else {
-      let cut = hint.lastIndexOf(' ', Math.ceil(hint.length / 2) + 6); if (cut < 1) cut = Math.ceil(hint.length / 2);
-      outlinedText(fit(hint.slice(0, cut), hw), W / 2, H - 66, '#fff4dc');
-      outlinedText(fit(hint.slice(cut + 1), hw), W / 2, H - 44, '#fff4dc');
-    }
-    ctx.font = `400 12.5px ${FONT}`; ctx.fillStyle = '#b9addf';
-    const ctl = Game.first(g, 'controls') ||
-      'W engine · Shift fine · A/D spin · S stop spin · arrows nudge · X ion · Tab target · , . warp · M map · wheel zoom · P pause';
-    ctx.fillText(ctl, W / 2, H - 18);
+    drawEdges(g); ctx.textAlign = 'center';
 
     // ---- toast ----
     const t0 = g.toasts[0];
@@ -581,14 +715,37 @@ const Render = (() => {
   }
 
   function stackLeft(h, title) { const y0 = layout.left; layout.left += h + 22; return comicPanel(12, y0, 236, h, title); }
-  function stackRight(w, h, title) { const y0 = layout.right; layout.right += h + 22; return comicPanel(W - w - 12, y0, w, h, title); }
+  function stackRight(w, h, title) { const y0 = layout.right; layout.right += h + 22; layout.rw = Math.max(layout.rw, w + 4); return comicPanel(W - w - 12, y0, w, h, title); }
+  function wrapText(text, w, sep = ' ', even = true) {            // greedy wrap in the current font; even: same line count, balanced widths
+    const out = []; let cur = '';
+    for (const word of text.split(sep)) { const t = cur ? cur + sep + word : word; if (cur && ctx.measureText(t).width > w) { out.push(cur); cur = word; } else cur = t; }
+    if (cur) out.push(cur);
+    if (!even || out.length < 2) return out;
+    let lo = 0, hi = w;
+    for (let k = 0; k < 8; k++) { const mid = (lo + hi) / 2; if (wrapText(text, mid, sep, false).length > out.length) lo = mid; else hi = mid; }
+    return wrapText(text, hi, sep, false);
+  }
 
+  // comic words rise and fade; one that would land on an earlier word slides up above it (eased, so nothing jumps)
   function drawPopups(g) {
+    const placed = [];
     for (const p of g.popups) {
-      const age = g.real - p.t0, [x, y] = toScreen(p.x, p.y), sz = p.size || 26;
-      ctx.save(); ctx.translate(x + 30, y - 30 - age * 40 - (p.lift || 0) * 26); ctx.rotate(-0.12); ctx.globalAlpha = Math.max(0, Math.min(1, 1.4 - age));
-      ctx.font = `700 ${sz + 10 * Math.max(0, 0.15 - age) / 0.15}px ${FONT}`; ctx.textAlign = 'center';
-      ctx.lineWidth = sz / 4 + 1; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.strokeText(p.text, 0, 0);
+      const age = g.real - p.t0; if (age > 1.4) continue;
+      const [x, y] = toScreen(p.x, p.y), sz = p.size || 26, fs = sz + 10 * Math.max(0, 0.15 - age) / 0.15;
+      ctx.font = `700 ${fs}px ${FONT}`;
+      const w = ctx.measureText(p.text).width + sz / 4, h = sz * 0.95, px0 = x + 30, py0 = y - 30 - age * 40 - (p.lift || 0) * 26;
+      const slack = (b) => (b.h + h) / 2 + 0.03 * (b.w + w);      // the words tilt, so wide ones need a little more room
+      let want = 0;
+      for (let k = 0; k < 8; k++) {
+        const hit = placed.find((b) => Math.abs(b.x - px0) < (b.w + w) / 2 && Math.abs(b.y - (py0 - want - h * 0.35)) < slack(b));
+        if (!hit) break;
+        want = py0 - h * 0.35 - (hit.y - slack(hit) - 2);
+      }
+      p.nudge = p.nudge == null ? want : p.nudge + (want - p.nudge) * 0.3;
+      const yy = py0 - p.nudge;
+      placed.push({ x: px0, y: yy - h * 0.35, w, h });
+      ctx.save(); ctx.translate(px0, yy); ctx.rotate(-0.12); ctx.globalAlpha = Math.max(0, Math.min(1, 1.4 - age));
+      ctx.textAlign = 'center'; ctx.lineWidth = sz / 4 + 1; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.strokeText(p.text, 0, 0);
       ctx.fillStyle = p.col; ctx.fillText(p.text, 0, 0);
       ctx.restore();
     }
@@ -633,6 +790,7 @@ const Render = (() => {
   }
   function tag(x, y, text, col) {
     ctx.font = `600 13px ${FONT}`; ctx.textAlign = 'center'; outlinedText(text, x, y, col, 4); ctx.textAlign = 'left';
+    const w = ctx.measureText(text).width / 2; if (onScreen(x, y, 0)) tagRects.push([x - w, y - 11, x + w, y + 3]);
   }
   function outlinedText(text, x, y, col, lw = 5) {
     ctx.lineWidth = lw; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.strokeText(text, x, y);
@@ -665,7 +823,7 @@ const Render = (() => {
   const kit = {
     get ctx() { return ctx; }, get W() { return W; }, get H() { return H; }, cam,
     px, toScreen, screenToWorld, screenAng, worldTransform, viewRect, onScreen,
-    shapePath, toonBlob, tag, outlinedText, comicPanel, row, bar, roundRect, stackLeft, stackRight, drawPickup, fit,
+    shapePath, toonBlob, tag, outlinedText, comicPanel, row, bar, roundRect, stackLeft, stackRight, drawPickup, fit, wrapText, edgeArrow,
     fmtDist, fmtT, money, INK, PAPER, PAPER2, COL, LIGHT, FONT,
   };
 

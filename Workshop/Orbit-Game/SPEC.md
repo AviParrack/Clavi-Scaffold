@@ -158,8 +158,13 @@ Errors thrown in hooks are caught, shown in a red bar, and the game keeps runnin
 (world angle → canvas rotation for screen-space sprites), `viewRect(pad)`, `onScreen(sx, sy, m)`,
 `toonBlob(out, cx, cy, R, rot, [base, shade, hi], lineW)`, `shapePath`, `tag(x, y, text, col)`, `outlinedText`,
 `comicPanel(x, y, w, h, title)` → content y, `row(label, val, x, y, col)` (212 px wide), `bar(label, frac, x, y, col, rightText)`,
-`roundRect`, `stackLeft(h, title)`, `stackRight(w, h, title)`, `fit(text, w)`, `fmtDist, fmtT, money`, `drawPickup`,
+`roundRect`, `stackLeft(h, title)`, `stackRight(w, h, title)`, `fit(text, w)`, `wrapText(text, w, sep = ' ', even = true)` → lines,
+`edgeArrow(key, x, y, text, col, fill)` (off-screen arrow, laid out by the core clear of panels and other labels; the nav
+target gets one automatically), `fmtDist, fmtT, money`, `drawPickup`,
 colours `INK #1b1433, PAPER #fff4dc, PAPER2 #ffe2b0, COL {good, warn, bad, pro, retro, tgt, dim, money}`, `LIGHT` (sun dir), `FONT` (Fredoka).
+
+**Markers and hint words:** the ⊗ is the **BRAKE** marker (teal: target-retrograde within 300 m of the nav target;
+pink: orbital retrograde when an impact is predicted). Hints always say "point the nose at the ⊗ BRAKE marker".
 
 **Look:** toon / cel shading. Flat base + shadow band away from `LIGHT` (upper left) + small highlight + thick ink outline
 (`INK`, ~2-3 screen px: use `lineWidth = 2.5 * kit.px()` in world space). Cute faces and eyes on things that live. Comic

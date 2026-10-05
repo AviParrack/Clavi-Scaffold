@@ -1270,6 +1270,7 @@ const Combat = (() => {
       const d = Math.hypot(p.x - P.x, p.y - P.y), [sx, sy] = kit.toScreen(p.x, p.y);
       const underPanels = W > 640 && sx < 252 && sy < H * 0.62;
       if (d > ARROW_R || (kit.onScreen(sx, sy, -8) && !underPanels)) continue;
+      if (kit.edgeArrow && g.navId === 'pirate:' + p.id) continue;           // targeted: the core's teal target arrow covers it
       const a = Math.atan2(sy - cy, sx - cx), c = Math.cos(a), s = Math.sin(a);
       const ox = clamp(cx, x0, x1), oy = clamp(cy, y0, y1);
       const t = Math.min(c > 1e-6 ? (x1 - ox) / c : c < -1e-6 ? (x0 - ox) / c : Infinity, s > 1e-6 ? (y1 - oy) / s : s < -1e-6 ? (y0 - oy) / s : Infinity);

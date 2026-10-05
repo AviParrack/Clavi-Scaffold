@@ -1,41 +1,61 @@
 # Pocket Orbit — HANDOFF
 
-*2D asteroid-belt mining game with real orbital mechanics. Stage: v3 (economy loop) in progress.*
+*2D asteroid-belt mining game with real orbital mechanics. Stage: v3 (the economy loop) built, in review.*
 
 ## Run
 
 ```
 cd Workshop/Orbit-Game/game && python3 -m http.server 8000     # open localhost:8000
-?debug=1 / #debug   overlay + self-test      ?dev=1 / #dev   $50k, no save, T cycles spawns
-?spawn=hub|pad|orbit|belt|kiwi|potato|glimmer (or #kiwi)      ?seed=N      ?fresh=1 ignore save
+?debug=1 / #debug   overlay + self-test      ?dev=1 / #dev   $50k, no save, T cycles spawns, K +$5000, J summons a pirate
+?spawn=hub|outpost|rusts|pad|orbit|belt|kiwi|potato|glimmer (or #kiwi)      ?seed=N      ?fresh=1 ignore save
 ?mods=eva,economy   load only those feature modules (debugging)
-node tests/test_physics.js && node tests/test_core.js          # 16 + 35 checks
+for t in physics core economy stations eva mobs wrecks combat; do node tests/test_$t.js | tail -1; done
 python3 tools/bundle.py                                         # -> dist/pocket-orbit.html (the Artifact)
-NODE_PATH=$(npm root -g) node tests/playtest.js shots           # headless browser playtest
+NODE_PATH=$(npm root -g) node tests/playtest.js /tmp/shots      # headless browser playtest of the whole loop
 ```
 
 Playable link: https://claude.ai/artifact/PR6CVN4PZ19YbQmKM9KFdp (republish dist/pocket-orbit.html to keep the URL).
 
+## The loop
+
+Start docked at Ceres Hub → F shop → W undock → fly (warp , . up to 64x) → land on a rock → E step out →
+walk / jump / jetpack → hold left mouse to laser ore and gems into the backpack → E board (pack → hold) →
+dock at a station and sell → buy engines, fuels, tanks, suit, guns, Orion units → salvage wrecks (F) →
+squish bugs on Kiwi / Big Potato → fight pirates near Big Potato, the outer ring and Glimmer. The JOBS panel guides it.
+
 ## Architecture (v3)
 
-Core = config, world, terrain, physics, game, render, main. Features plug in with `Game.register({id, ...hooks})`:
-economy+shop, stations, eva, mobs, wrecks, combat. The contract is [SPEC.md](SPEC.md).
+Core = config, world, terrain, physics, game, render, main. Features plug in with `Game.register({id, ...hooks})`;
+the contract is [SPEC.md](SPEC.md) (hooks, core API, cross-module APIs, keys, jobs).
+
+| module | file(s) | what |
+|---|---|---|
+| economy | economy.js, shop.js | prices, upgrade catalog with honest mass, engine × fuel × tank tradeoffs, Orion (N), DOM comic shop |
+| stations | stations.js | Ceres Hub (r 420, default spawn), Kiwi Outpost (95 m round Kiwi), Rust's at Potato's L5; dock with F |
+| eva | eva.js | alien astronaut: walk (step-up over 0.5 m grid ledges), jump, jetpack with orbit governor, mining laser, suit, scanner |
+| mobs | mobs.js | Munchers (Kiwi), Tater Tanks (Potato), Nacho Nibblers (Dorito); lazy wake within 200 m |
+| wrecks | wrecks.js | 5 orbital + 6 crashed derelicts, salvage by ship or on foot, crew-log codec, blueprints |
+| combat | combat.js | pirates (4 personalities), ballistic guns, turret, bounties, safe zones (Hub 700 m, Rust's 260 m) |
 
 - Terrain: per-body Uint8 grid, 0.5 m cells (space / dug / regolith / ice / iron / nickel / platinum) + buried gems.
-  Ship lands on the grid; digging under it drops it. Overlay baked per 12 m chunk, drawn over the vector toon body.
-- Gravity: all bodies pull, plus a rail-frame correction (the local Hill-sphere body rides a rail, so we add its rail
-  acceleration minus the pull it would really feel). Small-body orbits now see true tides only (Kiwi 85 m: ±5 m, was ±20).
-- Warp 1-64x with caps (thrusters, rocks < 40 m, impact < 20 s, ion burn, module caps). DOM warp bar bottom right.
-- Nav target (Tab / click): brackets, closest-approach ghosts on the path, target-relative pro/retro markers within 300 m.
+- Gravity: all bodies pull, plus a rail-frame correction (local Hill-sphere body rides a rail; add its rail acceleration
+  minus the pull it would really feel). Small-body orbits see true tides only.
+- Popups within 60 m of a moon ride along with it; popups at one spot stack; long toasts and hints wrap.
 
 ## v3 status
 
-✅ core refactor (tests green). 🟡 feature modules being built in parallel (see SPEC.md owners). Then integrate,
-playtest, adversarial review, publish, push to PR #4.
+✅ all modules built; suites: physics 16, core 35, economy 98, stations 74, eva 62, mobs 57, wrecks 132, combat 97;
+playtest 23/23. 🟡 adversarial review (lifecycle, physics/perf, new-player UX, integration) then fixes and publish.
 
 ## Gotchas
 
 - `World` etc. are global consts; Node tests load scripts with `vm.runInThisContext` (tests/harness.js), not require.
 - Playtests must use `?spawn=` (hash-only navigation does not reload). Google Fonts fails in the sandbox (ignore).
+- The bundle has no doctype (the artifact host adds one), so a file:// test page runs in quirks mode: tables do not
+  inherit colour. Set colours on tables explicitly (shop.js does).
 - Kiwi's Hill sphere is small (248 m): prograde orbits beyond ~0.4 of it go chaotic. Park at ~88 m.
+- Rust's L5 is not a true Trojan: Potato is 5.7% of the pair (past Routh's 3.85%) and Kiwi passes ~600 m from L5 every
+  ~1230 s; a free particle there drifts km in minutes even with a lighter Potato (checked). The station rides a rail and
+  its blurb says so. Dorito's L4 wreck has an autopilot for the same Kiwi reason.
+- The hub sits at r 420, just inside the 470–630 m belt; teleports radially out from the hub can land in a rock.
 - Keep `dist/pocket-orbit.html` as the publish path so the artifact URL stays the same.

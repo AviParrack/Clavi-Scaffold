@@ -1,7 +1,8 @@
 // ======================================================================
 //  PHYSICS  —  ship dynamics: gravity from all bodies, main engine,
-//  ion cruise drive, RCS rotation (torque -> spin) and RCS translation.
-//  Leapfrog integrator. S = derived ship stats (Game.recalc), not CONFIG.
+//  ion cruise drive, side pods (and the dash), RCS rotation (torque -> spin)
+//  and RCS translation. Leapfrog integrator. S = derived ship stats
+//  (Game.recalc), not CONFIG.
 // ======================================================================
 
 const Physics = (() => {
@@ -23,12 +24,15 @@ const Physics = (() => {
   const fullMass = (S) => S.dry + S.fuel + (S.ionTank || 0);
 
   // ---------------- one fixed step ----------------
-  //  ctrl = { main: 0..1, ion: 0|1, rot: -1|0|1, kill: bool, fwd: -1..1, left: -1..1 }
-  //  returns what actually fired: { main, ion, rot, trans }
+  //  ctrl = { main: 0..1, ion: 0|1, rot: -1|0|1, kill: bool, fwd: -1..1, left: -1..1, side: -1..1, dash: bool }
+  //  side > 0 pushes toward the ship's left (like left); pods burn main propellant at F / sideVe
+  //  returns what actually fired: { main, ion, rot, trans, side }
+
+  const sideVeOf = (S) => (S.sideVe > 0 ? S.sideVe : Math.min(0.85 * S.ve, 900));
 
   function step(sh, ctrl, t, dt, w, S) {
     const m = mass(sh, S), boost = fullMass(S) / m;               // lighter ship = snappier RCS
-    const out = { main: 0, ion: 0, rot: 0, trans: 0 };
+    const out = { main: 0, ion: 0, rot: 0, trans: 0, side: 0 };
 
     // -------- rotation: RCS torque --------
     let alpha = 0;
@@ -39,11 +43,14 @@ const Physics = (() => {
     sh.omega += alpha * dt;
     sh.ang += sh.omega * dt;
 
-    // -------- main engine (mass flow = T / ve) --------
+    // -------- main engine and side pods share the tank (mass flow = F / ve) --------
     let thr = sh.fuel > 0 ? (ctrl.main || 0) : 0;
-    if (thr * S.thrust / S.ve * dt > sh.fuel) thr = sh.fuel / (S.thrust / S.ve * dt);
-    const mdot = thr * S.thrust / S.ve;
-    out.main = thr;
+    let side = sh.fuel > 0 && (S.sideThrust ?? 0) > 0 ? (ctrl.side || 0) : 0;
+    let sideF = side * (S.sideThrust ?? 0) * (ctrl.dash ? (S.dashBoost ?? 0) : 1);
+    const burn = (thr * S.thrust / S.ve + Math.abs(sideF) / sideVeOf(S)) * dt;
+    if (burn > sh.fuel) { const k = sh.fuel / burn; thr *= k; side *= k; sideF *= k; }
+    const mdot = thr * S.thrust / S.ve + Math.abs(sideF) / sideVeOf(S);
+    out.main = thr; out.side = side;
 
     // -------- ion cruise drive (tiny thrust, huge ve) --------
     let ion = S.ionThrust > 0 && sh.xe > 0 ? (ctrl.ion || 0) : 0;
@@ -63,9 +70,9 @@ const Physics = (() => {
     }
 
     const c = Math.cos(sh.ang), s = Math.sin(sh.ang);
-    const aMain = (thr * S.thrust + (ion ? ion * S.ionThrust : 0)) / mMid, aT = S.transAccel * boost;
-    const fx = aMain * c + aT * (tf * c - tl * s);
-    const fy = aMain * s + aT * (tf * s + tl * c);
+    const aMain = (thr * S.thrust + (ion ? ion * S.ionThrust : 0)) / mMid, aT = S.transAccel * boost, aS = sideF / mMid;
+    const fx = aMain * c + aT * (tf * c - tl * s) - aS * s;
+    const fy = aMain * s + aT * (tf * s + tl * c) + aS * c;
 
     // -------- leapfrog: kick, drift, kick --------
     let [gx, gy] = Wd.gravity(w, sh.x, sh.y, t);
@@ -142,7 +149,7 @@ const Physics = (() => {
              vx, vy, x, y };
   }
 
-  return { newShip, mass, deltaV, ionDeltaV, fullMass, step, predict, segEntry, orbitRel };
+  return { newShip, mass, deltaV, ionDeltaV, fullMass, sideVeOf, step, predict, segEntry, orbitRel };
 })();
 
 if (typeof module !== 'undefined') module.exports = Physics;

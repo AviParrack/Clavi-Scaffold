@@ -345,6 +345,53 @@ function dropOn(bodyId, speed, th = 1.0) {
 }
 
 
+// ---------------- 12. v4 side pods and the dash (Mule numbers), astro i-frames and suit armor, g.opts ----------------
+{
+  const MULE = { dry: 4.02, fuel: 6.0, ionTank: 0, ve: 465, thrust: 36, sideThrust: 11.25, sideVe: 0, dashBoost: 4, dashT: 0.4, dashCd: 1.5 };
+  const mule = (patch = {}) => {
+    const g = fresh('orbit'), { x, y, vx, vy, ang } = g.sh;
+    Object.assign(g.S, MULE, patch);
+    Object.assign(g.sh, Physics.newShip(g.S), { x, y, vx, vy, ang });
+    g.everFlew = true; g.navId = null;
+    return g;
+  };
+  const tap = { pressed: ['ArrowLeft'] };                                     // a tap: pressed and released inside one frame
+  const g = mule(), c = mule(), f0 = g.sh.fuel;
+  H.run(g, 1, tap); H.run(g, 2, {}); H.run(g, 1, tap); H.run(g, 60, {});       // double-tap within DASH_TAP, then coast 1 s
+  H.run(c, 64, {});                                                            // the clone just coasts
+  const dvx = g.sh.vx - c.sh.vx, dvy = g.sh.vy - c.sh.vy, dv = Math.hypot(dvx, dvy), along = (-dvx * Math.sin(g.sh.ang) + dvy * Math.cos(g.sh.ang)) / dv;
+  const sv = Physics.sideVeOf(g.S), want = sv * Math.log(10.02 / (10.02 - 4 * 11.25 / sv * 0.4));
+  check('Mule dash: double-tap ← gives 1.80 m/s to the left', Math.abs(dv - 1.80) < 0.05 && Math.abs(dv - want) < 0.01 && along > 0.9999 && g.events.some((e) => /dash left/.test(e.msg)),
+        `${dv.toFixed(3)} m/s (rocket eq. ${want.toFixed(3)}), ${((f0 - g.sh.fuel) * 1000).toFixed(1)} kg of methalox`);
+  const until = g.dash.until;
+  H.run(g, 1, tap); H.run(g, 2, {}); H.run(g, 1, tap);
+  check('...a second dash inside dashCd is refused (DASH RECHARGING)', g.dash.until === until && g.toasts.some((t) => t.text === 'DASH RECHARGING'), `ready in ${(g.dash.readyAt - g.t).toFixed(2)} s`);
+  H.run(g, 60, {}); H.run(g, 1, { pressed: ['ArrowRight'] }); H.run(g, 1, { pressed: ['ArrowRight'] });
+  check('...after the cooldown, double-tap → dashes right', g.dash.until > until && g.dash.dir === -1, '');
+  const slow = mule(); H.run(slow, 1, tap); H.run(slow, 30, {}); H.run(slow, 1, tap);
+  check('...two taps further apart than 0.25 s do not dash', slow.dash.until < 0, '');
+
+  const p = mule(); Game.setWarp(p, 16); H.run(p, 1, { keys: ['ArrowLeft'] });
+  const pk = { ...p.fired }, pw = p.warp;
+  H.run(p, 1, { keys: ['ArrowLeft', 'ShiftLeft'] });
+  check('pods fitted: ← fires the pods (warp drops to 1x), Shift+← is the RCS nudge', pk.side === 1 && !pk.trans && pw === 1 && p.fired.trans === 1 && !p.fired.side,
+        `← side ${pk.side} trans ${pk.trans} at ${pw}x; Shift+← side ${p.fired.side} trans ${p.fired.trans}`);
+  const v3 = mule({ sideThrust: 0, dashBoost: 0 }); H.run(v3, 1, { keys: ['ArrowLeft'] }); const v3k = { ...v3.fired };
+  H.run(v3, 1, tap); H.run(v3, 1, tap);
+  check('no pods: ← is the v3 RCS nudge and double-taps do nothing', v3k.trans === 1 && !v3k.side && v3.dash.until < 0, '');
+
+  const a = fresh(), A = a.astro; A.on = true; A.hp = 100;
+  Game.hurtAstro(a, 40); const h1 = A.hp;
+  A.invUntil = a.t + 1; Game.hurtAstro(a, 40); const h2 = A.hp;
+  A.invUntil = 0; a.S.suitArmor = 0.25; Game.hurtAstro(a, 40);
+  check('astro: i-frames (invUntil) dodge a hit (MISS!), suit armor soaks 25%', h1 === 60 && h2 === 60 && A.hp === 30 && a.popups.some((q) => q.text === 'MISS!'), `hp 100 -> ${h1} -> ${h2} -> ${A.hp}`);
+
+  const o = { dev: true, fresh: true, build: 'deadbeef', inf: true }, go = Game.create(7, 'pad', o); o.build = 'changed';
+  check('g.opts keeps a shallow copy of the create options', go.opts !== o && go.opts.build === 'deadbeef' && go.opts.inf === true && JSON.stringify(Game.create(7, 'pad', { fresh: true }).opts) === '{"fresh":true}',
+        JSON.stringify(go.opts));
+}
+
+
 // ---------------- the starter trip: Mochi Hub -> Pretzel -> land -> Hub, stock ship, real game loop ----------------
 //  A tiny flight computer plays the careful pilot: it plans a coast that misses every rock and moon (waiting for
 //  a gap in Mochi's rings), burns it with the main engine, trims twice, hovers down onto Pretzel, then does the

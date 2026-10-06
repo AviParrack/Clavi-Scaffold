@@ -173,6 +173,32 @@ const helio = w.bodies.filter((b) => b.par === ember);
 }
 
 
+// ---------------- 2b. side pods: a lateral push off the main tank; the dash multiplies it ----------------
+{
+  const w0 = World.create(loneMochi({ g: 0 }), 7), ang = 0.7, lx = -Math.sin(ang), ly = Math.cos(ang);
+  const P = { ...S, sideThrust: 11.25, dashBoost: 4 }, sv = Physics.sideVeOf(P);
+  const run = (ctrl, T, SS = P) => {
+    const sh = Physics.newShip(SS); Object.assign(sh, { x: 1e6, ang });
+    const m0 = Physics.mass(sh, SS), f0 = sh.fuel; let fired = 0;
+    for (let t = 0; t < T - 1e-9; t += dt) fired = Physics.step(sh, { ...OFF, ...ctrl }, t, dt, w0, SS).side;
+    const dv = Math.hypot(sh.vx, sh.vy);
+    return { sh, dv, used: f0 - sh.fuel, rocket: sv * Math.log(m0 / Physics.mass(sh, SS)), along: dv ? (sh.vx * lx + sh.vy * ly) / dv : 0, fired, ang: sh.ang };
+  };
+  const a = run({ side: 1 }, 2), b = run({ side: -1 }, 2);
+  check('side pods: delta-v = sideVe ln(m0/m1), off the main tank', relErr(a.dv, a.rocket) < 1e-3 && relErr(a.used, 11.25 / sv * 2) < 1e-6,
+        `${a.dv.toFixed(4)} vs ${a.rocket.toFixed(4)} m/s, ${(a.used * 1000).toFixed(1)} kg at sideVe ${sv} m/s`);
+  check('...side +1 pushes to the ship\'s left, -1 to its right, no spin', a.along > 1 - 1e-9 && b.along < -1 + 1e-9 && a.ang === ang && a.fired === 1 && b.fired === -1,
+        `cos ${a.along.toFixed(6)} / ${b.along.toFixed(6)}`);
+  const d = run({ side: 1, dash: true }, 0.4), n = run({ side: 1 }, 0.4);
+  check('...the dash multiplies the pod force by dashBoost', relErr(d.used / n.used, 4) < 1e-9 && relErr(d.dv, d.rocket) < 1e-3 && relErr(n.dv, n.rocket) < 1e-3, `${d.dv.toFixed(3)} vs ${n.dv.toFixed(3)} m/s in 0.4 s`);
+  const off = run({ side: 1, dash: true }, 1, S);
+  check('...no pods fitted (stock): side does nothing', off.dv === 0 && off.used === 0 && off.fired === 0, `${off.dv} m/s`);
+  const dry = { ...P, fuel: 0.001 }, e = run({ side: 1, dash: true, main: 1 }, 2, dry);
+  check('...pods and main share the tank and stop dry together', e.sh.fuel === 0 && e.used === 0.001, `fuel ${e.sh.fuel}`);
+  check('...sideVe defaults to min(0.85 ve, 900); econ\'s sideVe wins', Physics.sideVeOf({ ve: 465 }) === 0.85 * 465 && Physics.sideVeOf({ ve: 3000 }) === 900 && Physics.sideVeOf({ ve: 465, sideVe: 300 }) === 300 && Physics.sideVeOf({ ve: 465, sideVe: 0 }) === 0.85 * 465, '');
+}
+
+
 // ---------------- 3. RCS rotation: spin up, then kill spin ----------------
 {
   const w0 = World.create(loneMochi({ g: 0 }), 7);

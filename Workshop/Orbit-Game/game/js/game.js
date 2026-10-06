@@ -10,7 +10,8 @@ const Game = (() => {
   const SIM = CONFIG.sim, ITEMS = CONFIG.items;
   const SAVE_KEY = 'pocket-orbit-v4';                  // v3 saves (the old Ceres map) are simply ignored
   const CHUNK_KG = 5;                                   // dug ore pops out in chunks of this many kg
-  const ZERO = { main: 0, ion: 0, rot: 0, kill: false, fwd: 0, left: 0 };
+  const ZERO = { main: 0, ion: 0, rot: 0, kill: false, fwd: 0, left: 0, side: 0, dash: false };
+  const DASH_TAP = 0.25;                                // double-tap ← / → within this many real seconds: a dash (side pods 2+)
   const FRAME_MAX = 1 / 20;                             // a slower frame lets sim time slip: one frame covers at most FRAME_MAX x warp
   const WARN_T = 0.95 * SIM.impactWarnT;                // big-warp frames stop this far short of a warning, so the next frame catches it
   const ROCK_LOOK = SIM.impactWarnT + FRAME_MAX * SIM.warps[SIM.warps.length - 1] + 5;   // rocks on a hit course are tracked this far ahead [s]
@@ -131,7 +132,8 @@ const Game = (() => {
       S: null, sh: null, status: 'flying', mode: 'ship',
       landedOn: null, land: null, attach: null, everFlew: false,
       warpIdx: 0, warp: 1, warpMax: SIM.warps[SIM.warps.length - 1], warpWhy: '', paused: false, ui: null,
-      fired: { main: 0, ion: 0, rot: 0, trans: 0 }, ionOn: false,
+      fired: { main: 0, ion: 0, rot: 0, trans: 0, side: 0 }, ionOn: false,
+      dash: { until: -1, readyAt: 0, dir: 0, tapDir: 0, tapAt: -9 },  // side-pod dash: boosted until, next one ready at (sim s)
       pred: null, ref: w.byId.mochi || w.root, frame: null, orb: null, nearDist: Infinity, navId: null, approach: null,
       money: 300, cargo: {}, pack: {},
       astro: { on: false, x: 0, y: 0, vx: 0, vy: 0, ang: Math.PI / 2, hp: 100, hpMax: 100, r: 0.6 },
@@ -139,6 +141,7 @@ const Game = (() => {
       done: {}, mod: {}, err: null, shake: 0, deadAt: 0, crashMsg: '', towAsk: -9,
       stepsLastFrame: 0, stepDt: SIM.dt, rockCand: null, starWarned: false, digBuf: {}, gain: null, lastSave: 0,
       noSave: !!opts.noSave,                                         // ?fresh=1 / ?mods= runs never overwrite the real save
+      opts: { ...opts },                                             // { dev, fresh, noSave, build, inf, xlate } (econ, npcs read it)
     };
     each(g, 'init');
     const saved = opts.fresh || g.dev ? null : readSave();
@@ -210,9 +213,9 @@ const Game = (() => {
     const ctrl = live ? readShipCtrl(g, inp) : { ...ZERO };
     if (g.ionOn && (g.status !== 'flying' || g.mode !== 'ship')) { g.ionOn = false; toast(g, 'ION DRIVE OFF', '#7cf5d6', 'ion'); }
     ctrl.ion = g.ionOn ? 1 : 0;
-    if (g.status === 'landed') { ctrl.rot = 0; ctrl.kill = false; }    // feet on the ground: no spinning in place
+    if (g.status === 'landed') { ctrl.rot = 0; ctrl.kill = false; ctrl.side = 0; ctrl.dash = false; }   // feet on the ground: no spinning or strafing in place
     each(g, 'shipCtrl', ctrl, inp);
-    if (g.status === 'docked' && (ctrl.main || ctrl.fwd || ctrl.left || ctrl.ion)) release(g);
+    if (g.status === 'docked' && (ctrl.main || ctrl.fwd || ctrl.left || ctrl.side || ctrl.ion)) release(g);
 
     // -------- warp: n steps of h seconds (h = SIM.dt unless a big warp far from everything allows longer) --------
     const paused = g.paused || !!g.ui;
@@ -229,12 +232,14 @@ const Game = (() => {
     each(g, 'frame', inp, frameDt, simDt);
 
     // -------- physics steps --------
-    const fired = { main: 0, ion: 0, rot: 0, trans: 0 }, stepMods = mods.filter((m) => m.step);
+    const fired = { main: 0, ion: 0, rot: 0, trans: 0, side: 0 }, stepMods = mods.filter((m) => m.step);
+    let after = null;                                                             // a dash ends on the step, not the frame
     for (let i = 0; i < n; i++) {
       if (g.status === 'docked') { g.t += h; holdAttach(g); }
       else if (g.status !== 'dead') {
-        const f = Physics.step(g.sh, ctrl, g.t, h, g.w, g.S);
-        for (const k in fired) fired[k] = Math.max(fired[k], f[k]);
+        const c = ctrl.dash && g.t >= g.dash.until - 1e-6 ? (after = after || { ...ctrl, side: ctrl.sideHeld || 0, dash: false }) : ctrl;
+        const f = Physics.step(g.sh, c, g.t, h, g.w, g.S);
+        for (const k in fired) fired[k] = k === 'side' ? f.side || fired.side : Math.max(fired[k], f[k]);
         g.t += h;
         if (g.status === 'landed') holdLanded(g, i); else contacts(g, cullValid(g, cull));
       } else g.t += h;
@@ -246,11 +251,15 @@ const Game = (() => {
     const rcsLvl = rcsF <= 0 ? 2 : rcsF < 0.2 ? 1 : 0;                            // warn once at 20 %, once more at empty
     if (rcsLvl > (g.rcsWarned || 0) && g.status !== 'dead') toast(g, rcsLvl === 2 ? 'RCS EMPTY: SLOW REACTION WHEEL ONLY' : 'RCS LOW', '#ff9f1c', 'rcs');
     if (rcsLvl > (g.rcsWarned || 0) || rcsF > 0.3) g.rcsWarned = rcsLvl;
+    if ((g.S.sideThrust ?? 0) > 0 && !g.podsTaught && g.mode === 'ship') {     // the first time pods are fitted: teach the keys
+      g.podsTaught = true;
+      toast(g, `SIDE PODS: ← / → STRAFE${(g.S.dashBoost ?? 0) > 0 ? ' · DOUBLE-TAP TO DASH' : ''} · SHIFT + ← / → = RCS NUDGE`, '#ffe066', 'pods');
+    }
 
     if (n) {
       if (fired.main) spawnExhaust(g, fired.main);
       if (fired.ion && Math.random() < 0.5) spawnIon(g);
-      if (fired.rot || fired.trans) spawnPuff(g, ctrl);
+      if (fired.rot || fired.trans || fired.side) spawnPuff(g, ctrl);
       if (g.status === 'flying' && (!g.trail.length || g.t - g.trail[g.trail.length - 1][2] > 0.3)) {
         g.trail.push([g.sh.x, g.sh.y, g.t]); if (g.trail.length > 800) g.trail.shift();
       }
@@ -267,10 +276,17 @@ const Game = (() => {
   // longest safe physics step [s]: SIM.dt while anything fires, walks or is dead; else a small fraction of every
   //  body's dynamical time sqrt(r^3 / mu) and of the time to close the gap to every surface and candidate rock
   function stepSize(g, ctrl, cull) {
-    if (g.mode !== 'ship' || g.status === 'dead' || ctrl.main || ctrl.ion || ctrl.rot || ctrl.kill || ctrl.fwd || ctrl.left) return SIM.dt;
+    if (g.mode !== 'ship' || g.status === 'dead' || ctrl.main || ctrl.ion || ctrl.rot || ctrl.kill || ctrl.fwd || ctrl.left || ctrl.side || ctrl.dash) return SIM.dt;
     const sh = g.sh, st = World.states(g.w, g.t), fly = g.status === 'flying';
     let h = SIM.dtMax;
     const gapT = (gap, dx, dy, d, vx, vy) => { const vc = -(vx * dx + vy * dy) / d; if (vc > 0) h = Math.min(h, SIM.gapFrac * Math.max(1, gap) / vc); };
+    const rockT = (rx, ry, rvx, rvy, r) => {
+      const dx = sh.x - rx, dy = sh.y - ry, d = Math.hypot(dx, dy) || 1e-9;
+      const ux = sh.vx - rvx, uy = sh.vy - rvy, u = Math.hypot(ux, uy) || 1e-9, gap = d - r - g.S.radius;
+      gapT(gap, dx, dy, d, ux, uy);
+      if (ux * dx + uy * dy < 0 && gap < u * cull.T + 0.5 * cull.aB * cull.T * cull.T)   // closing, and reachable this frame:
+        h = Math.min(h, (r * 0.9 + g.S.radius * 0.8) / u);                               //  no step may jump across its hit circle
+    };
     for (const b of g.w.bodies) {
       const s = st[b.idx], dx = sh.x - s[0], dy = sh.y - s[1], r = Math.hypot(dx, dy) || 1e-9;
       h = Math.min(h, SIM.dynFrac * Math.sqrt(r * r * r / b.mu));
@@ -278,14 +294,15 @@ const Game = (() => {
     }
     if (fly) for (const rk of cull.rocks) {
       if (rk.gone) continue;
-      const [rx, ry, rvx, rvy] = World.rockState(g.w, rk, g.t), dx = sh.x - rx, dy = sh.y - ry, d = Math.hypot(dx, dy) || 1e-9;
-      const ux = sh.vx - rvx, uy = sh.vy - rvy, u = Math.hypot(ux, uy) || 1e-9, gap = d - rk.r - g.S.radius;
-      gapT(gap, dx, dy, d, ux, uy);
-      if (ux * dx + uy * dy < 0 && gap < u * cull.T + 0.5 * cull.aB * cull.T * cull.T)   // closing, and reachable this frame:
-        h = Math.min(h, (rk.r * 0.9 + g.S.radius * 0.8) / u);                            //  no step may jump across its hit circle
+      const [rx, ry, rvx, rvy] = World.rockState(g.w, rk, g.t);
+      rockT(rx, ry, rvx, rvy, rk.r);
     }
+    if (fly) for (const rk of freeRocks(g)) rockT(rk.x, rk.y, rk.vx, rk.vy, rk.r);
     return Math.max(SIM.dt, h);
   }
+
+  // rocks taken off their rails (hauling): they fly on real gravity, simulated by haul
+  const freeRocks = (g) => (typeof Haul !== 'undefined' && Haul && Haul.free ? Haul.free(g) : []);
 
   // rocks the ship could touch this frame: a rock moves at most rk.vmax T, the ship at most D (checked every
   //  step by cullValid: if it ever goes further, or anything bounces it, the step falls back to every rock)
@@ -310,16 +327,46 @@ const Game = (() => {
     return c.rocks;
   }
 
+  // with side pods fitted (S.sideThrust > 0): ← / → fire them, Shift + ← / → is the old RCS nudge; without: exactly v3
   function readShipCtrl(g, inp) {
-    const k = (c) => inp.keys.has(c), t = inp.touch || {};
-    return {
-      main: k('KeyW') || t.thrust ? (k('ShiftLeft') || k('ShiftRight') ? g.S.fine : 1) : 0,
+    const k = (c) => inp.keys.has(c), t = inp.touch || {}, shift = k('ShiftLeft') || k('ShiftRight');
+    const arrows = (k('ArrowLeft') ? 1 : 0) - (k('ArrowRight') ? 1 : 0), pods = (g.S.sideThrust ?? 0) > 0 && !shift;
+    const ctrl = {
+      main: k('KeyW') || t.thrust ? (shift ? g.S.fine : 1) : 0,
       ion: 0,
       rot: (k('KeyA') || t.rotL ? 1 : 0) - (k('KeyD') || t.rotR ? 1 : 0),
       kill: k('KeyS') || !!t.kill,
       fwd: (k('ArrowUp') ? 1 : 0) - (k('ArrowDown') ? 1 : 0),
-      left: (k('ArrowLeft') ? 1 : 0) - (k('ArrowRight') ? 1 : 0),
+      left: pods ? 0 : arrows,
+      side: pods ? arrows : 0,
+      dash: false,
     };
+    if (pods) readDash(g, inp, ctrl);
+    return ctrl;
+  }
+
+  // ---------------- the dash: double-tap ← or →, S.dashBoost x the pods for S.dashT s, then S.dashCd s to recharge ----------------
+
+  function readDash(g, inp, ctrl) {
+    const D = g.dash, S = g.S;
+    for (const code of inp.pressed || []) {
+      const dir = code === 'ArrowLeft' ? 1 : code === 'ArrowRight' ? -1 : 0;
+      if (!dir) continue;
+      if (dir === D.tapDir && g.real - D.tapAt < DASH_TAP && (S.dashBoost ?? 0) > 0) {
+        if (g.t >= D.readyAt && g.status === 'flying') startDash(g, dir);
+        else if (g.status === 'flying') toast(g, 'DASH RECHARGING', '#ffd166', 'dash');
+        D.tapDir = 0;
+      } else { D.tapDir = dir; D.tapAt = g.real; }
+    }
+    if (g.t < D.until - 1e-6) { ctrl.sideHeld = ctrl.side; ctrl.side = D.dir; ctrl.dash = true; }
+  }
+  function startDash(g, dir) {
+    const D = g.dash, S = g.S, sh = g.sh, T = S.dashT ?? 0.4;
+    Object.assign(D, { dir, until: g.t + T, readyAt: g.t + T + (S.dashCd ?? 0) });
+    const ox = -Math.sin(sh.ang) * dir, oy = Math.cos(sh.ang) * dir;           // the push direction (left of the nose for dir +1)
+    burst(g, 'flash', sh.x - ox * S.radius, sh.y - oy * S.radius, 1, { vx: sh.vx, vy: sh.vy, speed: 0, size: 6, life: 0.3 });
+    popup(g, 'DASH!', '#ffe066', sh.x, sh.y, 20);
+    log(g, `dash ${dir > 0 ? 'left' : 'right'}: ${(S.dashBoost ?? 0).toFixed(0)}x pods for ${T} s`);
   }
 
   // -------- keys: modules first (return true to consume), then interaction prompts, then core --------
@@ -380,8 +427,10 @@ const Game = (() => {
   function setWarp(g, x) { const i = SIM.warps.indexOf(x); if (i >= 0) g.warpIdx = i; }
 
   function applyWarpCaps(g, ctrl, frameDt = 1 / 60) {
-    const caps = [], fly = g.status === 'flying';
-    if (ctrl.main || ctrl.rot || ctrl.kill || ctrl.fwd || ctrl.left) caps.push({ max: 1, why: 'thrusters firing', reset: true });
+    const caps = [], fly = g.status === 'flying', small = ctrl.rot || ctrl.kill || ctrl.fwd || ctrl.left || ctrl.side || ctrl.dash;
+    const bw = ctrl.main && !small ? burnWarp(g) : 1;                    // a long, gentle burn (a rock in tow) may warp
+    if (ctrl.main && bw > 1) caps.push({ max: Math.min(bw, g.S.warpBurnMax ?? 16), why: 'long burn' });
+    else if (ctrl.main || small) caps.push({ max: 1, why: 'thrusters firing', reset: true });
     if (ctrl.ion) caps.push({ max: g.S.warpBurnMax, why: 'ion drive burning' });
     if (fly && (g.nearDist < 8 || g.rockTTC < 20)) caps.push({ max: SIM.nearWarp, why: 'close to rocks' });
     if (g.rockTTC < 5) caps.push({ max: 1, why: 'rock ahead', reset: true, toast: 'ROCK AHEAD' });
@@ -400,6 +449,13 @@ const Game = (() => {
       }
     }
     g.warpMax = max; g.warpWhy = why;
+  }
+
+  // module hook burnWarp(g) -> number: the biggest warp any module allows a main-engine burn (1 = none)
+  function burnWarp(g) {
+    let best = 1;
+    for (const m of mods) { const r = call(g, m, 'burnWarp'); if (r > best) best = r; }
+    return best;
   }
 
   // a 1024x frame covers up to 51 s: never let one frame jump past the point where a warning should fire
@@ -524,8 +580,14 @@ const Game = (() => {
     log(g, `${word} -${dmg.toFixed(0)} hull`);
     if (g.sh.hull <= 0) die(g, 'hull gave out');
   }
+  // A.invUntil (sim s): dive-roll i-frames; S.suitArmor soaks a share of every hit
   function hurtAstro(g, dmg, word = 'OOF!') {
     const A = g.astro; if (!A.on || dmg <= 0) return;
+    if (g.t < (A.invUntil ?? 0)) {
+      if (g.real - (A.missAt ?? -9) > 0.4) { A.missAt = g.real; popup(g, 'MISS!', '#8ff0b0', A.x, A.y); }
+      return;
+    }
+    dmg *= 1 - (g.S.suitArmor ?? 0);
     A.hp -= dmg; g.shake = Math.min(1, g.shake + dmg / 60);
     popup(g, word, '#ff9fb2', A.x, A.y);
   }
@@ -797,6 +859,16 @@ const Game = (() => {
       }
       if (tHit < ttc) { ttc = tHit; ttcGap = gap; }
     }
+    for (const rk of freeRocks(g)) {                                            // free rocks share the ship's gravity: straight relative motion
+      if (rk.towed) continue;
+      const dx = sh.x - rk.x, dy = sh.y - rk.y, d = Math.hypot(dx, dy) || 1e-9, gap = d - rk.r - g.S.radius;
+      near = Math.min(near, gap);
+      const ux = sh.vx - rk.vx, uy = sh.vy - rk.vy, vr = (ux * dx + uy * dy) / d;
+      if (!(vr < -0.05 && gap / -vr < ttc)) continue;
+      const tc = -(dx * ux + dy * uy) / (ux * ux + uy * uy);
+      if (Math.hypot(dx + ux * tc, dy + uy * tc) > rk.r + g.S.radius + 3) continue;
+      ttc = Math.max(0, gap) / -vr; ttcGap = gap;
+    }
     g.nearDist = near; g.rockTTC = g.status === 'flying' && (ttcGap < 400 || ttc < ROCK_LOOK) ? ttc : Infinity;
 
     // -------- nav target: closest approach along the predicted path --------
@@ -1021,6 +1093,8 @@ const Game = (() => {
     if (ctrl.fwd < 0) emit(4, 0, 0);
     if (ctrl.left > 0) emit(0, -2, -Math.PI / 2);
     if (ctrl.left < 0) emit(0, 2, Math.PI / 2);
+    if (ctrl.side > 0) emit(0.5, -g.S.radius * 0.6, -Math.PI / 2);         // side pods: exhaust out the far side
+    if (ctrl.side < 0) emit(0.5, g.S.radius * 0.6, Math.PI / 2);
   }
 
   // a popup near a moving rock rides along with it, so words said on Kiwi stay on Kiwi
@@ -1076,7 +1150,7 @@ const Game = (() => {
         : `Path hits ${b.name} in ${dt.toFixed(0)} s. ${dt > 8 ? 'To land, point the nose at the ⊗ BRAKE marker and burn until under 2.5 m/s. To miss it, burn sideways.' : 'Brake now: nose on ⊗ BRAKE, hold W!'}` });
     }
     if (g.starR < SIM.starWarn && g.status === 'flying') cands.push({ pri: 85, text: `Too close to the star: ${g.starR.toFixed(1)} radii out, and paint blisters at ${SIM.starKill}. Burn away from it!` });
-    if (g.rockTTC < 8 && g.mode === 'ship') cands.push({ pri: 82, text: `Rock ahead: contact in ${g.rockTTC.toFixed(0)} s. Dodge with the arrow keys or a short sideways burn.` });
+    if (g.rockTTC < 8 && g.mode === 'ship') cands.push({ pri: 82, text: `Rock ahead: contact in ${g.rockTTC.toFixed(0)} s. Dodge with the arrow keys${(g.S.dashBoost ?? 0) > 0 ? ' (double-tap ← / → to dash)' : ''} or a short sideways burn.` });
     if (g.sh.rcs <= 0 && g.mode === 'ship' && g.status !== 'dead') cands.push({ pri: 75, text: 'RCS empty: only the slow reaction wheel turns you, and the arrow keys do nothing. Dock or use a pad depot to restock.' });
     if (Math.abs(g.sh.omega) > 1.2 && g.mode === 'ship' && g.status !== 'dead') cands.push({ pri: 70, text: 'You are spinning fast. Tap the opposite way, or hold S to stop it.' });
     for (const m of mods) {

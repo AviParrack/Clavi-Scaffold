@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap">
+<title>Pocket Orbit</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #171238; color-scheme: dark; overflow: hidden; touch-action: none; }
+  #game { display: block; width: 100%; height: 100%; }
+  #touch { display: none; position: fixed; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); left: 0; right: 0; justify-content: space-between; padding: 0 16px; pointer-events: none; }
+  #touch div { display: flex; gap: 10px; }
+  #touch button { pointer-events: auto; width: 64px; height: 64px; border-radius: 50%; border: 2px solid #8ea0c8;
+                  background: rgba(10,14,40,0.6); color: #e8f1ff; font: 600 16px Fredoka, sans-serif; user-select: none; }
+  @media (pointer: coarse) { #touch { display: flex; } }
+  #warpbar { position: fixed; right: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; gap: 6px;
+             background: #fff4dc; border: 3px solid #1b1433; border-radius: 12px; padding: 5px 8px; box-shadow: 4px 4px 0 #1b1433;
+             font: 700 15px Fredoka, sans-serif; color: #1b1433; user-select: none; z-index: 5; }
+  #warpbar button { font: 600 16px Fredoka, sans-serif; width: 36px; height: 32px; border: 2px solid #1b1433; border-radius: 8px;
+                    background: #ffe2b0; color: #1b1433; cursor: pointer; padding: 0; }
+  #warpbar button:hover { background: #ffd166; }
+  #warpbar button.on { background: #ff9f1c; }
+  #warpval { min-width: 64px; text-align: center; line-height: 1.05; }
+  #warpval small { display: block; font: 500 10.5px Fredoka, sans-serif; color: #8a4b12; }
+  #ui { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+  #ui > * { pointer-events: auto; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="touch">
+  <div><button data-touch="rotL">⟲</button><button data-touch="kill">■</button><button data-touch="rotR">⟳</button></div>
+  <div><button data-touch="map">MAP</button><button data-touch="spawn">F</button><button data-touch="use">E</button><button data-touch="thrust">🔥</button></div>
+</div>
+<div id="warpbar">
+  <button data-warp="pause" title="pause (P)">⏸</button>
+  <button data-warp="down" title="slower (,)">⏪</button>
+  <span id="warpval">1×</span>
+  <button data-warp="up" title="faster (.)">⏩</button>
+  <button data-warp="max" title="as fast as allowed">⏭</button>
+</div>
+<div id="ui"></div>
+<script src="js/config.js"></script>
+<script src="js/world.js"></script>
+<script src="js/terrain.js"></script>
+<script src="js/physics.js"></script>
+<script src="js/game.js"></script>
+<script src="js/economy.js"></script>
+<script src="js/shop.js"></script>
+<script src="js/stations.js"></script>
+<script src="js/eva.js"></script>
+<script src="js/mobs.js"></script>
+<script src="js/wrecks.js"></script>
+<script src="js/combat.js"></script>
+<script src="js/haul.js"></script>
+<script src="js/mochi.js"></script>
+<script src="js/npcs.js"></script>
+<script src="js/render.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

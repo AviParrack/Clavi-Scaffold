@@ -161,7 +161,7 @@ const closeShop = (g) => { if (Econ.closeShop) Econ.closeShop(g); g.ui = null; }
   check('clamps reel the ship in without jumps', maxJump < 0.4, `max ${maxJump.toFixed(3)} m per frame`);
   check('then the shop opens (Econ.openShop with the station)', g.ui === 'shop' && (!MOCK || (shopCalls.length === 1 && shopCalls[0].id === 'hub')), `ui ${g.ui}`);
   const st = MOCK ? shopCalls[0] : hub;
-  check('station info has the shop fields', ['id', 'name', 'kind', 'keeper', 'blurb', 'buy', 'tabs', 'fuelMult'].every((k) => st[k] !== undefined) && st.tabs.join() === 'services,sell,ship,suit',
+  check('station info has the shop fields', ['id', 'name', 'kind', 'keeper', 'blurb', 'buy', 'tabs', 'fuelMult'].every((k) => st[k] !== undefined) && st.tabs.join() === 'services,sell,ship,suit,haul',
         `${st.kind}, keeper ${st.keeper}, tabs ${st.tabs}`);
   closeShop(g);
   H.run(g, 90, {});
@@ -174,6 +174,26 @@ const closeShop = (g) => { if (Econ.closeShop) Econ.closeShop(g); g.ui = null; }
   H.run(g, 120, {});
   check('max warp while docked: still on the port, finite', g.warp === CONFIG.sim.warps[CONFIG.sim.warps.length - 1] && onPort(g, hub) < 1e-9 && Number.isFinite(g.sh.x + g.sh.vx), `warp ${g.warp}x, t ${g.t.toFixed(0)} s`);
   g.warpIdx = 0;
+}
+
+
+// ---------------- 4b. v4: the dock zone grows with the hull; every station has a haul tab; keeper lines carry a mood ----------------
+{
+  const g = fresh('orbit'), hub = Stations.byId(g, 'hub');
+  nearPort(g, hub, 19, 0.4); H.run(g, 1, {});
+  check('stock Prospector (r 4 m): no dock prompt at 19 m', !promptF(g) && Stations.dockR(g) === 14, `dockR ${Stations.dockR(g)}; ${promptF(g) ? promptF(g).text : 'none'}`);
+  const lev = (typeof Econ !== 'undefined' && Econ && Econ.FRAMES && Econ.FRAMES.leviathan) ? Econ.FRAMES.leviathan.radius : 11;
+  g.S.radius = lev;                                                   // the Leviathan's hull (econ's frame stat)
+  nearPort(g, hub, 19, 0.4); H.run(g, 1, {});
+  check('Leviathan (r 11 m): dock zone 21 m, prompt at 19 m', Stations.dockR(g) === 21 && promptF(g) && promptF(g).text === 'Dock at Mochi Hub', `dockR ${Stations.dockR(g)}; ${promptF(g) ? promptF(g).text : 'none'}`);
+  nearPort(g, hub, 23, 0.4); H.run(g, 1, {});
+  check('...and still none at 23 m', !promptF(g), promptF(g) ? promptF(g).text : 'none');
+  const tabs = ['hub', 'outpost', 'rusts'].map((id) => Stations.byId(g, id).tabs);
+  check('hub, outpost and rusts tabs include haul', tabs.every((t) => t.includes('haul')), tabs.map((t) => t.join('/')).join(' · '));
+  const MOODS = ['chat', 'hint', 'joke', 'gossip', 'lore', 'warn', 'grumpy', 'sad', 'want', 'happy'], bad = [];
+  for (const st of Stations.list(g)) for (const L of [st.hello, st.hi, ...st.lines].filter(Boolean))
+    if (!Array.isArray(L) || !MOODS.includes(L[0]) || typeof L[1] !== 'string' || L[1].length > 90) bad.push(`${st.id}: ${JSON.stringify(L)}`);
+  check('keeper lines are [mood, text] (<= 90 chars), each keeper names its npc', !bad.length && Stations.list(g).every((st) => st.npc && st.keeperAt), bad.join(' | ') || Stations.list(g).map((st) => st.npc).join(','));
 }
 
 
@@ -280,7 +300,7 @@ for (const id of ['outpost', 'rusts']) {
 {
   const g = fresh(), hub = Stations.byId(g, 'hub');
   H.run(g, 2, {});
-  check('docked at start: Dot says hello', toastHas(g, `Dot: "${hub.hello}"`) && g.mod.stations.met.hub, g.toasts.map((t) => t.text).join(' | '));
+  check('docked at start: Dot says hello', toastHas(g, `Dot: "${hub.hello[1]}"`) && g.mod.stations.met.hub, g.toasts.map((t) => t.text).join(' | '));
   const n0 = g.toasts.length;
   H.run(g, 30, {});
   check('...only once while you stay', g.toasts.length === n0);
@@ -288,12 +308,12 @@ for (const id of ['outpost', 'rusts']) {
   const far = () => { const [mx, my, mvx, mvy] = World.bodyState(g.w, g.w.byId.mochi, g.t); Object.assign(g.sh, { x: mx, y: my - 1400, vx: mvx, vy: mvy }); };
   far(); H.run(g, 1, {}); g.real += 61;
   nearPort(g, hub, 100, 0); H.run(g, 1, {});
-  check('come back later: a fresh line', toastHas(g, `Dot: "${hub.lines[0]}"`), g.toasts.map((t) => t.text).join(' | '));
+  check('come back later: a fresh line', toastHas(g, `Dot: "${hub.lines[0][1]}"`), g.toasts.map((t) => t.text).join(' | '));
   far(); H.run(g, 1, {}); nearPort(g, hub, 100, 0); H.run(g, 1, {});
-  check('...but not again within a minute', !toastHas(g, hub.lines[1]));
+  check('...but not again within a minute', !toastHas(g, hub.lines[1][1]));
   const g2 = fresh('orbit');
   nearPort(g2, hub, 120, 6); H.run(g2, 2, {});
-  check('zooming past, never docked: Dot says hi, not "Tap W to fly"', toastHas(g2, `Dot: "${hub.hi}"`) && !toastHas(g2, 'Tap W'), g2.toasts.map((t) => t.text).join(' | '));
+  check('zooming past, never docked: Dot says hi, not "Tap W to fly"', toastHas(g2, `Dot: "${hub.hi[1]}"`) && !toastHas(g2, 'Tap W'), g2.toasts.map((t) => t.text).join(' | '));
 }
 
 

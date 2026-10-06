@@ -51,27 +51,27 @@ const Wrecks = (() => {
   //  size: half-length [m] · kind + art: how it is drawn · loot: overrides of LOOT · who / log: the crew log
 
   const DEFS = [
-    { id: 'esa4', name: 'ESA Intern Project #4', kind: 'probe', host: 'ceres', a: 380, ph: 0.4, spin: 0.11, size: 3.2,
+    { id: 'esa4', name: 'ESA Intern Project #4', kind: 'probe', host: 'mochi', a: 380, ph: 0.4, spin: 0.11, size: 3.2,
       loot: { scrap: [1, 2], parts: [2, 3], core: 0, cash: 0.3 },
       who: 'INTERN (UNPAID)', log: 'If found, please tell my supervisor it worked for eleven glorious minutes.',
-      fact: (wr) => `${wr.name} is in low Ceres orbit, ${wr.a} m from the centre: one lap every ${lap(wr.period)}. ` +
-        `Lower orbits are faster, so it laps ${hasMod('stations') ? 'Ceres Hub' : 'anything higher up'}.` },
+      fact: (wr) => `${wr.name} is in low Mochi orbit, ${wr.a} m from the centre: one lap every ${lap(wr.period)}. ` +
+        `Lower orbits are faster, so it laps ${hasMod('stations') ? 'Mochi Hub' : 'anything higher up'}.` },
 
     //  Dorito's L4 is stable by Routh, but Kiwi kicks loose anything parked there within a lap or two
     //  (tests/test_wrecks.js checks both), so the Tuesday's autopilot keeps puffing it back: keeper = RCS puffs
-    { id: 'tuesday', name: 'The Plucky Tuesday', kind: 'hauler', host: 'ceres', needs: ['ceres', 'dorito'], spin: -0.035, size: 8, keeper: true,
+    { id: 'tuesday', name: 'The Plucky Tuesday', kind: 'hauler', host: 'mochi', needs: ['mochi', 'dorito'], spin: -0.035, size: 8, keeper: true,
       a: (w) => w.byId.dorito.a, ph: (w) => w.byId.dorito.phase + Math.PI / 3,
       art: { cols: ['#ff9f43', '#c25f1c', '#ffd8a6'], stripe: '#7cf5d6', box: ['#7cf5d6', '#3c9f8a', '#d4fff4'] },
       loot: { bp: 1, core: 0.35 },
       who: 'CAPT. MIRA OSEI', log: "Engine's dead. The autopilot keeps puffing us back to Dorito's L4, and Lagrange says we're safe here. Somebody always comes by on a Tuesday.",
-      fact: (wr, w) => `The Tuesday holds Dorito's L4, 60° ahead: stable by Routh (Dorito is ${(100 * w.byId.dorito.mu / (w.byId.dorito.mu + w.byId.ceres.mu)).toFixed(1)}% ` +
+      fact: (wr, w) => `The Tuesday holds Dorito's L4, 60° ahead: stable by Routh (Dorito is ${(100 * w.byId.dorito.mu / (w.byId.dorito.mu + w.byId.mochi.mu)).toFixed(1)}% ` +
         "of the pair's mass, limit 3.85%), but Kiwi kicks things loose, so its autopilot puffs it back." },
 
-    //  past the rubble (115-190 m) Ceres' tide breaks up prograde orbits within a few laps; retrograde ones last (tested)
+    //  retrograde, just past the rubble (115-190 m): everything else round Big Potato goes the other way (tested)
     { id: 'notpirates', name: 'Definitely Not Pirates', kind: 'pirate', host: 'potato', a: 220, ph: 1.0, dir: -1, spin: 0.05, size: 7,
       loot: { bp: 1, cash: 1, cashMin: 150, cashMax: 300, scrap: [3, 6] },
       who: 'DEFINITELY NOT A PIRATE', log: 'Painted over the skull. Painted over the other skull. Flew backwards so nobody could follow us. Nobody followed us.',
-      fact: (wr) => `${wr.name} circles Big Potato backwards at ${wr.a} m. Out there Ceres' tide wrecks forward orbits; backward ones last. ` +
+      fact: (wr) => `${wr.name} circles Big Potato backwards at ${wr.a} m, against the rubble and everyone else: nobody follows a ship that flies backwards. ` +
         `Matching it costs ~${(2 * wr.v).toFixed(0)} m/s.` },
 
     { id: 'lettuce', name: 'Lettuce Pray', kind: 'pod', host: 'kiwi', a: 74, ph: 3.5, spin: 0.06, size: 6,
@@ -84,10 +84,10 @@ const Wrecks = (() => {
       who: 'DR. ADA VOSS', log: "Opened the shutter for one last long exposure of the dark. Leave it open. It's almost developed.",
       fact: (wr) => `${wr.name} circles Glimmer at ${wr.a} m. Glimmer pulls only ${wr.hostBody.g} m/s², so it creeps along at ${wr.v.toFixed(1)} m/s.` },
 
-    { id: 'lithobraker', name: 'The Lithobraker', kind: 'hauler', host: 'ceres', th: -1.35, tilt: 0.22, bury: 0.42, from: 1, size: 8,
+    { id: 'lithobraker', name: 'The Lithobraker', kind: 'hauler', host: 'mochi', th: -1.35, tilt: 0.22, bury: 0.42, from: 1, size: 8,
       art: { cols: ['#c4c0d8', '#7f7aa0', '#eeecf8'], stripe: GOLD, box: ['#ff9f43', '#c25f1c', '#ffd8a6'] }, loot: { scrap: [3, 6] },
-      who: 'PILOT GUS', log: "Flight plan said 'aerobrake'. Ceres has no air. In my defence, it does now have a crater.",
-      fact: (wr) => `${wr.name} crashed on Ceres' far side, opposite the pad. ${getIn()}` },
+      who: 'PILOT GUS', log: "Flight plan said 'aerobrake'. Mochi has no air. In my defence, it does now have a crater.",
+      fact: (wr) => `${wr.name} crashed on Mochi's far side, opposite the pad. ${getIn()}` },
 
     { id: 'coolranch', name: 'Cool Ranch Express', kind: 'hauler', host: 'dorito', th: 2.15, tilt: -0.3, bury: 0.38, from: -1, size: 6.5,
       art: { cols: ['#4cc9f0', '#2a7fb0', '#c8f1ff'], stripe: '#ff9f1c', crates: true },
@@ -423,7 +423,7 @@ const Wrecks = (() => {
   function lootLine(L, bp, spilled, how) {
     const parts = Object.entries(L.items).map(([k, q]) => `${q}× ${ITEMS[k].name.toLowerCase()}`);
     if (L.cash) parts.push(`$${L.cash} (${L.purse})`);
-    if (bp) parts.push(bp.name ? `${bp.name} schematics${bp.engine ? ' (equip at Ceres Hub)' : ' (installed)'}` : `schematics sold for $${bp.cash}`);
+    if (bp) parts.push(bp.name ? `${bp.name} schematics${bp.engine ? ' (equip at Mochi Hub)' : ' (installed)'}` : `schematics sold for $${bp.cash}`);
     const tail = how === 'foot' ? '  ·  grab it before you go!'
                : count(spilled) ? `  ·  hold full, the rest is ${how === 'ship' ? 'tied to' : 'lying by'} the wreck: sell, then come back` : '';
     return `LOOT: ${parts.join(' · ') || 'dust and memories'}${tail}`;
@@ -606,10 +606,21 @@ const Wrecks = (() => {
     let best = null;
     for (const wr of list(g)) {
       if (!wr.orbital) continue;
-      const [gap, ttc] = closing(g, wr);
-      if (gap < 400 && ttc < 20 && (!best || ttc < best.ttc)) best = { wr, gap, ttc };
+      let [gap, ttc] = closing(g, wr);
+      if (!(gap < 400 && ttc < 20)) {                               // further out a big-warp frame could still reach it:
+        if (!(ttc < (Game.LOOK_T || 0))) continue;                  //  track it if the curved path (else a straight line) hits
+        const tp = Game.pathTouch ? Game.pathTouch(g, wr.state, wr.hitR + g.S.radius + 3, g.t + 1.5 * ttc + 5) : undefined;
+        if (tp === null || (tp === undefined && !onCourse(g, wr))) continue;
+        if (tp !== undefined) ttc = tp - g.t;
+      }
+      if (!best || ttc < best.ttc) best = { wr, gap, ttc };
     }
     return best;
+  }
+  function onCourse(g, wr) {                                        // straight-line closest approach passes within the hull (+10 m)
+    const [x, y, vx, vy] = wr.state(g.t), sh = g.sh, dx = sh.x - x, dy = sh.y - y, ux = sh.vx - vx, uy = sh.vy - vy;
+    const tc = -(dx * ux + dy * uy) / (ux * ux + uy * uy || 1e-9);
+    return Math.hypot(dx + ux * tc, dy + uy * tc) < wr.hitR + g.S.radius + 10;
   }
 
   function warpLimit(g) {
@@ -619,7 +630,8 @@ const Wrecks = (() => {
     if (g.status !== 'flying' || g.mode !== 'ship') return null;
     const on = oncoming(g);
     if (on && on.ttc < 5) return { max: 1, why: `${on.wr.name} ahead`, reset: true, toast: 'WRECK AHEAD' };
-    if (on) return { max: 4, why: `${on.wr.name} ahead` };
+    if (on && on.ttc < 20) return { max: 4, why: `${on.wr.name} ahead` };
+    if (on) return { within: on.ttc - 19, why: `${on.wr.name} ahead` };          // big warps: stop short of the 20 s mark
     for (const wr of list(g)) {
       if (!wr.orbital || m.salvaged[wr.id]) continue;
       if (info(g, wr).d < NEAR_WARP / 3) return { max: 4, why: `near ${wr.name}` };

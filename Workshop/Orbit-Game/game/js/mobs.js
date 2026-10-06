@@ -20,6 +20,7 @@ const Mobs = (() => {
   const REGEN = 240;                       // seconds for a nest to grow one bug
   const ROAM = 14;                         // wander this far (arc) from home [m]
   const SUB = 0.02, MAX_SUB = 120;         // physics substep [s] (a 64x frame is ~54 of them)
+  const CHUNK = 1.2;                       // at bigger warps a frame is split into chunks this long [s], each with its own think
   const SKIN = 0.12, VMAX = 16;            // ground contact skin [m], speed cap [m/s]
   const HINT_R = 20, ENGAGE_R = 25;        // hint / warp cap when bugs are this close [m]
   const CHEW_GAP = 5, BORED = 40;          // ship chewing: seconds between nibbles, sulk after a PTOOEY
@@ -75,7 +76,7 @@ const Mobs = (() => {
   }
 
   function makeHome(g, b, def) {
-    const rand = World.rng(g.w.seed * 7919 + b.idx * 104729 + 17), nests = [];
+    const rand = World.rng(g.w.seed * 7919 + (b.tidx ?? b.idx) * 104729 + 17), nests = [];
     for (let k = 0; k < def.nests; k++) {
       const th = (k + 0.15 + 0.7 * rand()) / def.nests * 2 * Math.PI, R = World.surfaceR(b, th), [ux, uy] = surfNormal(b, th);
       const lx = R * Math.cos(th), ly = R * Math.sin(th);
@@ -192,7 +193,8 @@ const Mobs = (() => {
     if (!simDt) return;
     M.engaged = false; M.nearAstro = 0; M.chewing = false; M.goldNear = false; M.nearAny = 0;
     const obs = observers(g);
-    for (const id in M.homes) tickHome(g, M, M.homes[id], obs, simDt);
+    const k = Math.min(64, Math.ceil(simDt / CHUNK - 1e-9));                // big warps: think again every CHUNK of sim time
+    for (const id in M.homes) for (let i = 0; i < k; i++) tickHome(g, M, M.homes[id], obs, simDt / k, Math.ceil(MAX_SUB / k));   // same substep budget per frame
     M.splats = M.splats.filter((s) => g.real - s.t0 < 25);
   }
 
@@ -203,7 +205,7 @@ const Mobs = (() => {
     return out;
   }
 
-  function tickHome(g, M, H, obs, dt) {
+  function tickHome(g, M, H, obs, dt, maxSub = MAX_SUB) {
     const s = World.bodyState(g.w, H.b, g.t);
     H.bx = s[0]; H.by = s[1]; H.bvx = s[2]; H.bvy = s[3];
     let alt = Infinity, near = null;
@@ -220,7 +222,7 @@ const Mobs = (() => {
     checkNests(g, M, H);
     const bugs = bugsOf(M, H), T = Terrain.of(H.b);
     for (const bug of bugs) think(g, M, H, bug, dt);
-    const n = Math.min(MAX_SUB, Math.max(1, Math.ceil(dt / SUB - 1e-9))), h = dt / n;
+    const n = Math.min(maxSub, Math.max(1, Math.ceil(dt / SUB - 1e-9))), h = dt / n;
     for (const bug of bugs) for (let i = 0; i < n; i++) stepBug(g, bug, T, h);
     separate(bugs);
     for (const bug of bugs) { touch(g, M, H, bug); sanity(g, M, H, bug, alt < LOW_ALT ? local : null); }

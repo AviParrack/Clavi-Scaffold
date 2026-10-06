@@ -1,19 +1,22 @@
 // ======================================================================
 //  RENDER  —  toon-shaded asteroids, terrain overlay, ship, path preview,
 //  nav target, comic HUD.  Camera follows the ship (fixed orientation),
-//  the ref body in map mode, or a module's camera hook (EVA: rotated so
-//  local up is screen up).  Modules draw through Render.kit.
+//  the ref body in the local map, the whole Crumb Belt in the belt map
+//  (M cycles off -> local -> belt), or a module's camera hook (EVA: rotated
+//  so local up is screen up).  Light comes from the star Ember.
+//  Modules draw through Render.kit.
 // ======================================================================
 
 const Render = (() => {
 
   let ctx, W, H, stars, nebula;
-  const cam = { x: 0, y: 0, zoom: 2, rot: 0, userZoom: 1, map: false, shx: 0, shy: 0 };
+  const cam = { x: 0, y: 0, zoom: 2, rot: 0, userZoom: 1, map: 0, shx: 0, shy: 0 };   // map: 0 off · 1 local · 2 belt
+  const MAP_NAMES = ['', 'MAP', 'BELT MAP'];
 
   const INK = '#1b1433', PAPER = '#fff4dc', PAPER2 = '#ffe2b0';
   const COL = { path: '#fff1a8', pathEsc: '#ff9ec7', impact: '#ff5d5d', good: '#33c27a', warn: '#ff9f1c', bad: '#e63946',
                 pro: '#ffd166', retro: '#ff8fab', tgt: '#7cf5d6', dim: '#6d5f8a', text: INK, money: '#2f9e5b' };
-  const LIGHT = norm(-0.55, 0.83);                                // the Sun, upper left
+  const LIGHT = norm(-0.55, 0.83);                                // unit vector toward Ember, updated in place every frame (and per body in the belt map)
   const FONT = '"Fredoka", "Baloo 2", "Trebuchet MS", sans-serif';
 
   function norm(x, y) { const n = Math.hypot(x, y); return [x / n, y / n]; }
@@ -42,9 +45,12 @@ const Render = (() => {
     const ov = cam.map ? null : Game.first(g, 'camera');
     let tx, ty, tz, tr = 0, snap = true;
     if (ov) { tx = ov.x; ty = ov.y; tz = (ov.zoom || 18) * cam.userZoom; tr = ov.rot || 0; snap = ov.snap !== false; }
-    else if (cam.map) {
-      const [bx, by] = World.bodyState(g.w, g.ref, g.t);
-      let ext = g.ref.R * 2.2;
+    else if (cam.map === 2) {                                       // the whole belt round Ember; zooming in slides toward the ship
+      const k = Math.max(0, Math.min(1, (cam.userZoom - 1) / 3)), ext = beltExtent(g);
+      tx = g.sh.x * k; ty = g.sh.y * k; tz = Math.min(W, H) * 0.47 / ext * cam.userZoom; snap = false;
+    } else if (cam.map) {
+      const fb = frameBody(g), [bx, by] = frameState(g, g.t);
+      let ext = fb ? fb.R * 2.2 : 50;
       if (g.pred) for (const p of relPath(g)) ext = Math.max(ext, Math.hypot(p[0] - bx, p[1] - by));
       ext = Math.max(ext, Math.hypot(g.sh.x - bx, g.sh.y - by));
       tx = bx; ty = by; tz = Math.min(W, H) * 0.45 / ext * cam.userZoom; snap = false;
@@ -74,21 +80,35 @@ const Render = (() => {
   }
   const onScreen = (sx, sy, m = 30) => sx > -m && sx < W + m && sy > -m && sy < H + m;
 
-  // predicted path, re-expressed relative to the reference body (so orbits around moving rocks close)
-  let relMemo = { pred: null, ref: null, t: NaN, path: [] };              // camera and draw both want it: build once per frame
+  // the frame paths are drawn in: the reference body (so orbits around moving rocks close); out in the belt the
+  //  nav target or the nearest asteroid (g.frame, set by the core); in the belt map plain Ember-centred space
+  const frameOf = (g) => (cam.map === 2 ? null : g.frame || { id: 'body:' + g.ref.id, body: g.ref, state: (t) => World.bodyState(g.w, g.ref, t) });
+  const frameBody = (g) => { const f = frameOf(g); return f ? f.body || null : null; };
+  const frameState = (g, t) => { const f = frameOf(g); return f ? f.state(t) : [0, 0, 0, 0]; };
+
+  // predicted path, re-expressed relative to the frame
+  let relMemo = { pred: null, fid: null, t: NaN, path: [] };              // camera and draw both want it: build once per frame
   function relPath(g) {
     if (!g.pred) return [];
-    const M = relMemo;
-    if (M.pred === g.pred && M.ref === g.ref && M.t === g.t) return M.path;
-    const [bx0, by0] = World.bodyState(g.w, g.ref, g.t);
-    const path = g.pred.pts.map(([x, y, t]) => { const [bx, by] = World.bodyState(g.w, g.ref, t); return [x - bx + bx0, y - by + by0, t]; });
-    relMemo = { pred: g.pred, ref: g.ref, t: g.t, path };
+    const M = relMemo, f = frameOf(g), fid = f ? f.id : 'belt';
+    if (M.pred === g.pred && M.fid === fid && M.t === g.t) return M.path;
+    const [bx0, by0] = frameState(g, g.t);
+    const path = g.pred.pts.map(([x, y, t]) => { const [bx, by] = frameState(g, t); return [x - bx + bx0, y - by + by0, t]; });
+    relMemo = { pred: g.pred, fid, t: g.t, path };
     return path;
   }
   function relPoint(g, x, y, t) {
-    const [bx0, by0] = World.bodyState(g.w, g.ref, g.t), [bx, by] = World.bodyState(g.w, g.ref, t);
+    const [bx0, by0] = frameState(g, g.t), [bx, by] = frameState(g, t);
     return [x - bx + bx0, y - by + by0];
   }
+
+  // light: a unit vector toward the nearest star from (x, y), written into LIGHT in place
+  function lightFrom(g, x, y) {
+    const sun = g.w.root, [sx, sy] = World.bodyState(g.w, sun, g.t), dx = sx - x, dy = sy - y, d = Math.hypot(dx, dy);
+    if (!sun.star || d < 1) return;
+    LIGHT[0] = dx / d; LIGHT[1] = dy / d;
+  }
+  const beltExtent = (g) => Math.max(...g.w.bodies.map((b) => (b.par === g.w.root ? b.a + (b.hill || 0) : 0)), 10000) * 1.04;
 
   // ---------------- frame ----------------
 
@@ -98,18 +118,22 @@ const Render = (() => {
     updateCamera(g, dt);
     g0 = g; edges = []; tagRects = [];
     Terrain.frameStart();
+    lightFrom(g, cam.x, cam.y);
     const path = relPath(g), view = viewRect(20);
     drawSpace(g);
     ctx.save(); worldTransform();
+    if (cam.map === 2) drawLanes(g);
     drawTrail(g);
     drawPath(g, path);
     for (const rk of g.w.rocks) drawRock(g, rk);
     for (const b of g.w.bodies) drawBody(g, b, view);
+    lightFrom(g, cam.x, cam.y);
     drawPickups(g, view);
     eachDraw(g, 'drawWorld');
     ctx.restore();
     drawParticles(g);
     drawBodyLabels(g);
+    if (cam.map === 2) drawBeltLabels(g);
     if (g.status !== 'dead') drawShip(g);
     ctx.save(); worldTransform(); eachDraw(g, 'drawWorldTop'); ctx.restore();
     drawPathTags(g, path);
@@ -132,25 +156,38 @@ const Render = (() => {
   }
 
   // ---------------- space backdrop (rotates with the camera) ----------------
+  //  the stars drift only with the camera's motion relative to the frame body (the ref body, the nav target out in
+  //  the belt, Ember in the belt map), so 29 m/s of belt orbit at 1024x does not stream them past like rain
+
+  let starOff = [0, 0], starRef = null;
+  function starShift(g) {
+    const f = frameOf(g), id = f ? f.id : 'belt', [fx, fy] = f ? f.state(g.t) : [0, 0], rx = cam.x - fx, ry = cam.y - fy;
+    if (starRef && starRef.id === id) { starOff[0] += rx - starRef.rx; starOff[1] += ry - starRef.ry; }
+    starRef = { id, rx, ry };
+    starOff = starOff.map((v) => v % 1e7);
+  }
 
   function drawSpace(g) {
     const gr = ctx.createLinearGradient(0, 0, 0, H);
     gr.addColorStop(0, '#171238'); gr.addColorStop(1, '#2b1752');
     ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
-    const sun = ctx.createRadialGradient(-W * 0.05, -H * 0.1, 0, -W * 0.05, -H * 0.1, Math.max(W, H) * 0.7);
+    const c = Math.cos(cam.rot), s = Math.sin(cam.rot), lx = LIGHT[0] * c + LIGHT[1] * s, ly = -LIGHT[0] * s + LIGHT[1] * c;   // Ember's way, on screen
+    const gx = W / 2 + lx * W * 0.55, gy = H / 2 - ly * H * 0.6;
+    const sun = ctx.createRadialGradient(gx, gy, 0, gx, gy, Math.max(W, H) * 0.7);
     sun.addColorStop(0, 'rgba(255,214,140,0.35)'); sun.addColorStop(1, 'rgba(255,214,140,0)');
     ctx.fillStyle = sun; ctx.fillRect(0, 0, W, H);
-    const D = Math.hypot(W, H) * 1.05, now = g.real;
+    starShift(g);
+    const D = Math.hypot(W, H) * 1.05, now = g.real, ox = starOff[0], oy = starOff[1];
     ctx.save(); ctx.translate(W / 2, H / 2); ctx.rotate(cam.rot);
     for (const n of nebula) {
-      const x = ((n.x * D - cam.x * 0.01) % D + D) % D - D / 2, y = ((n.y * D + cam.y * 0.01) % D + D) % D - D / 2;
+      const x = ((n.x * D - ox * 0.01) % D + D) % D - D / 2, y = ((n.y * D + oy * 0.01) % D + D) % D - D / 2;
       const ng = ctx.createRadialGradient(x, y, 0, x, y, n.r * D);
       ng.addColorStop(0, `rgba(${n.hue},0.10)`); ng.addColorStop(1, `rgba(${n.hue},0)`);
       ctx.fillStyle = ng; ctx.fillRect(-D / 2, -D / 2, D, D);
     }
     ctx.fillStyle = '#fff6e0';
     for (const st of stars) {
-      const x = ((st.x * D - cam.x * 0.03) % D + D) % D - D / 2, y = ((st.y * D + cam.y * 0.03) % D + D) % D - D / 2;
+      const x = ((st.x * D - ox * 0.03) % D + D) % D - D / 2, y = ((st.y * D + oy * 0.03) % D + D) % D - D / 2;
       ctx.globalAlpha = st.b * (0.75 + 0.25 * Math.sin(now * 1.7 + st.tw));
       if (st.s > 2) { ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 4); ctx.fillRect(-1, -3, 2, 6); ctx.fillRect(-3, -1, 6, 2); ctx.restore(); }
       else ctx.fillRect(x, y, st.s, st.s);
@@ -184,8 +221,16 @@ const Render = (() => {
   }
 
   function drawBody(g, b, view) {
-    const [x, y] = World.bodyState(g.w, b, g.t), Rb = b.R * (1 + b.shape);
+    const [x, y] = World.bodyState(g.w, b, g.t), Rb = b.R * (1 + b.shape) * (b.star ? 3 : 1);
     if (x + Rb < view[0] || x - Rb > view[2] || y + Rb < view[1] || y - Rb > view[3]) return;
+    if (b.star) { drawStar(g, b, x, y); return; }
+    if (cam.map === 2) lightFrom(g, x, y);
+    if (b.R * cam.zoom < 3) {                                      // far away: a toon dot, never smaller than a few pixels
+      const r = (b.par && b.par.par ? 2.5 : 4) * px();
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fillStyle = b.color[0]; ctx.fill();
+      ctx.strokeStyle = INK; ctx.lineWidth = 1.5 * px(); ctx.stroke();
+      return;
+    }
     toonBlob(b.out, x, y, b.R, 0, b.color, 3.5 * px(), true);
     if (b.R * cam.zoom < 6) return;
 
@@ -200,7 +245,7 @@ const Render = (() => {
       ctx.beginPath(); ctx.arc(cx, cy, cr * 0.93, la + Math.PI - 1.05, la + Math.PI + 1.05); ctx.strokeStyle = b.color[2]; ctx.lineWidth = Math.max(1.5 * px(), cr * 0.035); ctx.stroke();
     }
     ctx.globalAlpha = 1;
-    if (b.id === 'ceres') {                                        // Occator's bright spots
+    if (b.id === 'mochi') {                                        // a dusting of potato starch: every mochi has one
       const ox = x + b.R * 0.35, oy = y - b.R * 0.2;
       const glow = ctx.createRadialGradient(ox, oy, 0, ox, oy, b.R * 0.12);
       glow.addColorStop(0, 'rgba(230,255,255,0.95)'); glow.addColorStop(1, 'rgba(230,255,255,0)');
@@ -210,9 +255,9 @@ const Render = (() => {
     ctx.restore();
 
     if (cam.zoom >= 0.9) Terrain.of(b);                           // build the grid once it is worth seeing
-    if (b.id === 'ceres') drawPad(x, y, b);                       // under the terrain overlay, so holes dug beneath it show
+    if (b.id === 'mochi') drawPad(x, y, b);                       // under the terrain overlay, so holes dug beneath it show
     Terrain.draw(ctx, b, x, y, cam.zoom, view, g.real);
-    if (b.id === 'ceres' && cam.zoom < 0.35) drawFace(g, x, y, b);
+    if (b.id === 'mochi' && cam.zoom < 0.35) drawFace(g, x, y, b);
   }
 
   function drawPad(x, y, b) {
@@ -232,7 +277,7 @@ const Render = (() => {
     ctx.restore();
   }
 
-  // Ceres naps; it opens its eyes when you leave its neighbourhood
+  // Mochi naps; it opens its eyes when you leave its neighbourhood
   function drawFace(g, x, y, b) {
     const k = b.R * 0.2, [cx, cy] = World.bodyState(g.w, b, g.t), awake = Math.hypot(g.sh.x - cx, g.sh.y - cy) > 650 || g.status === 'dead';
     ctx.save(); ctx.globalAlpha = Math.min(1, (0.35 - cam.zoom) / 0.12); ctx.translate(x, y);
@@ -250,9 +295,109 @@ const Render = (() => {
     ctx.stroke(); ctx.restore();
   }
 
+  // ---------------- Ember: a glowing toon sun (no ground: fly within 3 radii and SIZZLE) ----------------
+
+  function drawStar(g, b, x, y) {
+    const R = b.R, t = g.real;
+    for (const [k, a] of [[3.2, 0.10], [2.2, 0.16], [1.55, 0.28]]) {
+      const gl = ctx.createRadialGradient(x, y, R * 0.8, x, y, R * k);
+      gl.addColorStop(0, `rgba(255,190,90,${a})`); gl.addColorStop(1, 'rgba(255,150,60,0)');
+      ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(x, y, R * k, 0, 2 * Math.PI); ctx.fill();
+    }
+    ctx.beginPath();                                               // wobbly flame rays
+    for (let i = 0; i <= 64; i++) {
+      const a = i / 64 * 2 * Math.PI, r = R * (1.16 + 0.07 * Math.sin(9 * a + t * 1.3) + 0.05 * Math.sin(5 * a - t * 0.9));
+      i ? ctx.lineTo(x + r * Math.cos(a), y + r * Math.sin(a)) : ctx.moveTo(x + r * Math.cos(a), y + r * Math.sin(a));
+    }
+    ctx.closePath(); ctx.fillStyle = '#ffb347'; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 3 * px(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, R, 0, 2 * Math.PI); ctx.fillStyle = b.color[0]; ctx.fill();
+    ctx.beginPath(); ctx.arc(x - R * 0.28, y + R * 0.3, R * 0.5, 0, 2 * Math.PI); ctx.fillStyle = b.color[2]; ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, R, 0, 2 * Math.PI); ctx.strokeStyle = INK; ctx.lineWidth = 3.5 * px(); ctx.stroke();
+    const k = R * 0.16, hot = g.starR < CONFIG.sim.starWarn && g.status !== 'dead';   // sleepy face; wide awake when you come too close
+    ctx.save(); ctx.translate(x, y); ctx.strokeStyle = INK; ctx.fillStyle = INK; ctx.lineWidth = 0.18 * k; ctx.lineCap = 'round';
+    ctx.fillStyle = 'rgba(255,110,90,0.5)';
+    for (const sx of [-2.2, 2.2]) { ctx.beginPath(); ctx.arc(sx * k, -0.6 * k, 0.55 * k, 0, 2 * Math.PI); ctx.fill(); }
+    ctx.fillStyle = INK;
+    for (const sx of [-1.2, 1.2]) {
+      ctx.beginPath();
+      if (hot) { ctx.arc(sx * k, 0.4 * k, 0.32 * k, 0, 2 * Math.PI); ctx.fill(); }
+      else { ctx.arc(sx * k, 0.6 * k, 0.4 * k, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); }
+    }
+    ctx.beginPath();
+    if (hot) ctx.arc(0, -0.8 * k, 0.35 * k, 0, 2 * Math.PI); else ctx.arc(0, -0.4 * k, 0.4 * k, 1.15 * Math.PI, 1.85 * Math.PI);
+    ctx.stroke();
+    ctx.restore();
+    if (cam.map) {                                                 // the SIZZLE zone
+      ctx.setLineDash([12 * px(), 10 * px()]); ctx.strokeStyle = 'rgba(255,93,93,0.7)'; ctx.lineWidth = 2 * px();
+      ctx.beginPath(); ctx.arc(x, y, b.killR, 0, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+
+  // ---------------- belt map: lanes, streams, names ----------------
+
+  function drawLanes(g) {
+    const sun = g.w.root, [sx, sy] = World.bodyState(g.w, sun, g.t), lanes = new Map();
+    for (const b of g.w.bodies) if (b.par === sun) lanes.set(b.a, b.id === 'mochi' || lanes.get(b.a) || false);
+    ctx.lineWidth = 1.5 * px();
+    for (const [a, home] of lanes) {
+      ctx.setLineDash([6 * px(), 8 * px()]); ctx.strokeStyle = home ? 'rgba(233,207,224,0.45)' : 'rgba(217,207,245,0.25)';
+      ctx.beginPath(); ctx.arc(sx, sy, a, 0, 2 * Math.PI); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    const streams = {}, home = g.w.byId.mochi ? g.w.byId.mochi.a : 0;   // the rubble streams (inside / outside Mochi's lane) as soft bands
+    for (const rk of g.w.rocks) if (rk.host === sun && !rk.gone) {
+      const k = rk.a < home ? 'in' : 'out', s = streams[k] || (streams[k] = [Infinity, 0]);
+      s[0] = Math.min(s[0], rk.a - rk.ae); s[1] = Math.max(s[1], rk.a + rk.ae);
+    }
+    for (const [lo, hi] of Object.values(streams)) {
+      ctx.beginPath(); ctx.arc(sx, sy, (lo + hi) / 2, 0, 2 * Math.PI);
+      ctx.strokeStyle = 'rgba(169,155,200,0.10)'; ctx.lineWidth = hi - lo; ctx.stroke();
+    }
+  }
+
+  function drawBeltLabels(g) {
+    const st = World.states(g.w, g.t), obs = hudRects();             // last frame's HUD panels, title and prompts
+    const [x, y] = toScreen(g.sh.x, g.sh.y);
+    ctx.fillStyle = COL.pro; ctx.strokeStyle = INK; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(x, y - 9); ctx.lineTo(x + 7, y + 6); ctx.lineTo(x - 7, y + 6); ctx.closePath(); ctx.fill(); ctx.stroke();
+    tagRects.push([x - 8, y - 10, x + 8, y + 7]);
+    if (!freeTag(x, y, 22, 22, 'YOU', COL.pro, obs)) tag(x, y + 22, 'YOU', COL.pro);
+    const bodies = [...g.w.bodies].sort((a, b) => (b.star ? 2 : b.id === 'mochi' ? 1 : 0) - (a.star ? 2 : a.id === 'mochi' ? 1 : 0));
+    for (const b of bodies) {
+      const [bx, by] = toScreen(st[b.idx][0], st[b.idx][1]);
+      if (!onScreen(bx, by, 0)) continue;
+      if (b.par && b.par.par) {                                    // moons: named only once they have room
+        const [px2, py2] = toScreen(st[b.par.idx][0], st[b.par.idx][1]);
+        if (Math.hypot(bx - px2, by - py2) < 40) continue;
+      }
+      if (b.R * cam.zoom > 4 && !b.star) continue;                // big enough: drawBodyLabels names it
+      const r = Math.max(12, b.R * cam.zoom + 10);
+      freeTag(bx, by, r, r + 12, b.name, b.star ? '#ffd36b' : b.color[2], obs);
+    }
+    for (const sw of g.w.swarms) {
+      const [sx, sy] = toScreen(...World.swarmState(g.w, sw, g.t));
+      if (onScreen(sx, sy, 0)) freeTag(sx, sy, 18, 18, sw.name, '#c9b8e8', obs);
+    }
+  }
+
+  // a belt-map name above, below, right or left of its dot, at the first spot clear of other names and the HUD; else skipped
+  function freeTag(x, y, up, down, text, col, obs) {
+    ctx.font = `600 13px ${FONT}`;
+    const w = ctx.measureText(text).width / 2;
+    for (const [dx, dy] of [[0, -up], [0, down], [w + 14, 4], [-w - 14, 4]]) {
+      const r = [x + dx - w, y + dy - 11, x + dx + w, y + dy + 3];
+      if (r[0] < 4 || r[2] > W - 4 || r[1] < 4 || r[3] > H - 4) continue;
+      if (tagRects.some((p) => overlap(p, r, 3)) || obs.some((o) => overlap(o, r))) continue;
+      tag(x + dx, y + dy, text, col);
+      return true;
+    }
+    return false;
+  }
+
   const ROCK_COLS = [['#b8a99a', '#76665f', '#e2d6c8'], ['#a69bb8', '#675c7c', '#d6cde6'], ['#c4a37f', '#7e6248', '#ecd2b0']];
 
   function drawRock(g, rk) {
+    if (rk.gone) return;
     const [x, y] = World.rockState(g.w, rk, g.t), [sx, sy] = toScreen(x, y);
     if (!onScreen(sx, sy, rk.r * cam.zoom + 10)) return;
     if (rk.r * cam.zoom < 1.2) { ctx.fillStyle = '#8f84a8'; ctx.fillRect(x - px(), y - px(), 2 * px(), 2 * px()); return; }
@@ -295,13 +440,13 @@ const Render = (() => {
     ctx.setLineDash([]); ctx.globalAlpha = 1;
   }
 
-  function drawTrail(g) {                                          // drawn in the ref body's frame, like the preview
+  function drawTrail(g) {                                          // drawn in the frame body's frame, like the preview
     if (g.trail.length < 2 || g.status !== 'flying') return;
-    const [bx0, by0] = World.bodyState(g.w, g.ref, g.t);
+    const [bx0, by0] = frameState(g, g.t);
     ctx.strokeStyle = 'rgba(255,244,220,0.22)'; ctx.lineWidth = 1.5 * px();
     ctx.beginPath();
     g.trail.forEach(([x, y, t], i) => {
-      const [bx, by] = World.bodyState(g.w, g.ref, t), X = x - bx + bx0, Y = y - by + by0;
+      const [bx, by] = frameState(g, t), X = x - bx + bx0, Y = y - by + by0;
       i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
     });
     ctx.lineTo(g.sh.x, g.sh.y); ctx.stroke();
@@ -317,7 +462,7 @@ const Render = (() => {
       ctx.beginPath(); ctx.moveTo(x - 7, y - 7); ctx.lineTo(x + 7, y + 7); ctx.moveTo(x + 7, y - 7); ctx.lineTo(x - 7, y + 7); ctx.stroke();
       tag(Math.max(40, Math.min(W - 40, x)), y + 22 > H - 8 ? y - 14 : y + 22, `IMPACT ${(g.pred.impact.t - g.t).toFixed(0)}s`, COL.impact);
     }
-    if (g.orb.E >= 0) return;
+    if (g.orb.E >= 0 || !g.ref.par || frameBody(g) !== g.ref) return;   // Ap / Pe only round the body the path is drawn about
     let iMin = 0, iMax = 0, dMin = Infinity, dMax = 0;
     path.forEach((p, i) => { const d = Math.hypot(p[0] - bx, p[1] - by); if (d < dMin) { dMin = d; iMin = i; } if (d > dMax) { dMax = d; iMax = i; } });
     const show = (i, label, col) => {
@@ -343,7 +488,7 @@ const Render = (() => {
     if (onScreen(sx, sy, 0)) tag(sx, sy + rr + 16, tg.name, COL.tgt);
     const on = onScreen(sx, sy, (tg.r || 0) * cam.zoom - 4);          // off-screen (or under a panel): an edge arrow, laid out with the rest
     queueEdge({ key: tg.id, sx, sy, text: `${tg.name} ${fmtDist(Math.max(0, ap.dNow))}`, col: COL.tgt, fill: tg.col || COL.tgt, d: -1, on, tgt: true });
-    if (ap.i < 0 || !path[ap.i] || tg.id === 'body:' + g.ref.id) return;
+    if (ap.i < 0 || !path[ap.i] || (tg.id === 'body:' + g.ref.id && g.ref.par)) return;
     const [px1, py1] = toScreen(path[ap.i][0], path[ap.i][1]);
     const [gx, gy] = relPoint(g, ap.tx, ap.ty, ap.t), [px2, py2] = toScreen(gx, gy);
     ctx.setLineDash([4, 5]); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(px1, py1); ctx.lineTo(px2, py2); ctx.stroke(); ctx.setLineDash([]);
@@ -375,12 +520,15 @@ const Render = (() => {
       ctx.beginPath(); ctx.arc(ret[0], ret[1], rr, 0, 2 * Math.PI);
       ctx.moveTo(ret[0] - k, ret[1] - k); ctx.lineTo(ret[0] + k, ret[1] + k); ctx.moveTo(ret[0] + k, ret[1] - k); ctx.lineTo(ret[0] - k, ret[1] + k);
     }, rc, 3);
-    if (near || (g.pred && g.pred.impact && g.status === 'flying')) {   // the label sits on the far side of the ⊗, away from the ship
+    const impact = !near && g.status === 'flying' && g.pred && g.pred.impact;
+    const label = (word, at, sign, col, r) => {                    // the label sits on the far side of the marker, away from the ship
       ctx.font = `700 12.5px ${FONT}`; ctx.textAlign = 'center';
-      const off = rr + 9 + Math.abs(c) * ctx.measureText('BRAKE').width / 2 + Math.abs(s) * 4;
-      const lx = ret[0] - c * off, ly = ret[1] - s * off + 4.5, lw = ctx.measureText('BRAKE').width;
-      outlinedText('BRAKE', lx, ly, rc, 4); ctx.textAlign = 'left'; tagRects.push([lx - lw / 2, ly - 11, lx + lw / 2, ly + 3], [ret[0] - 12, ret[1] - 12, ret[0] + 12, ret[1] + 12]);
-    }
+      const lw = ctx.measureText(word).width, off = r + 9 + Math.abs(c) * lw / 2 + Math.abs(s) * 4;
+      const lx = at[0] + sign * c * off, ly = at[1] + sign * s * off + 4.5;
+      outlinedText(word, lx, ly, col, 4); ctx.textAlign = 'left'; tagRects.push([lx - lw / 2, ly - 11, lx + lw / 2, ly + 3], [at[0] - 12, at[1] - 12, at[0] + 12, at[1] + 12]);
+    };
+    if (impact && impact.body.star) label('BURN', pro, 1, COL.pro, pr + 6);   // diving into a star: braking makes it worse, prograde saves you
+    else if (near || impact) label('BRAKE', ret, -1, rc, rr);
   }
 
   function drawShip(g) {
@@ -461,15 +609,20 @@ const Render = (() => {
 
   // ---------------- labels: on-screen names & off-screen arrows ----------------
 
+  // off-screen arrows only for the neighbourhood (within NEAR_ARROW, the ref body, the frame body and home):
+  //  twenty arrows round the screen edge would be noise, the belt map (M M) shows the rest
+  const NEAR_ARROW = 9000;
   function drawBodyLabels(g) {
+    const fb = frameBody(g), home = g.w.byId.mochi;
     for (const b of g.w.bodies) {
       const [bx, by] = World.bodyState(g.w, b, g.t), [x, y] = toScreen(bx, by), Rs = b.R * cam.zoom;
       const dist = Math.hypot(g.sh.x - bx, g.sh.y - by) - b.R;
       if (x > -Rs && x < W + Rs && y > -Rs && y < H + Rs) {
-        if (Rs > 4 && Rs < 220 && y - Rs - 14 > 0 && g.mode === 'ship') tag(x, Math.max(28, y - Rs - 14), b.name, b.color[2]);
+        if (Rs > 4 && Rs < 220 && y - Rs - 14 > 0 && g.mode === 'ship' && !b.star) tag(x, Math.max(28, y - Rs - 14), b.name, b.color[2]);
         continue;
       }
       if (g.mode !== 'ship' && b !== g.ref) continue;
+      if (cam.map === 2 || (b.star ? g.starR > 2 * CONFIG.sim.starWarn : dist > NEAR_ARROW && b !== g.ref && b !== fb && b !== home)) continue;
       queueEdge({ key: 'body:' + b.id, sx: x, sy: y, text: `${b.name} ${fmtDist(dist)}`, col: b.color[2], fill: b.color[0], d: dist });
     }
   }
@@ -600,7 +753,18 @@ const Render = (() => {
     for (const r of extra) { row(r.label, r.val, 24, y, r.col || INK); y += 20; }
 
     // ---- orbit panel ----
-    if (g.mode === 'ship') {
+    if (g.mode === 'ship' && !ref.par) {                            // out in the belt: Ember is the reference, the frame body is the neighbour
+      const f = g.frame, fs = f ? f.state(g.t) : null, fb = f && f.body;
+      y = stackLeft(150, 'IN THE CRUMB BELT');
+      row(`FROM ${ref.name.toUpperCase()}`, fmtDist(o.r), 24, y); y += 20;
+      row('ORBIT SPEED', `${o.speed.toFixed(1)} m/s`, 24, y); y += 20;
+      if (fs) { row(`TO ${f.name.toUpperCase()}`.slice(0, 18), fmtDist(Math.max(0, Math.hypot(sh.x - fs[0], sh.y - fs[1]) - (fb ? fb.R : 0))), 24, y); y += 20;
+                row('REL SPEED', `${Math.hypot(sh.vx - fs[2], sh.vy - fs[3]).toFixed(1)} m/s`, 24, y); y += 20; }
+      const st = g.status === 'dead' ? 'wrecked' : g.pred && g.pred.impact ? `impact: ${g.pred.impact.body.name}` : o.E < 0 ? `lap of ${ref.name} ${fmtT(o.T)}` : 'escaping!';
+      row('STATUS', st, 24, y, g.status === 'dead' || (g.pred && g.pred.impact) ? COL.bad : COL.good); y += 20;
+      if (!fs) y += 40;
+      row('CLEARANCE', g.nearDist <= 0.5 ? 'touching' : fmtDist(g.nearDist), 24, y, g.nearDist < 20 && g.status === 'flying' ? COL.bad : INK);
+    } else if (g.mode === 'ship') {
       y = stackLeft(130, `NEAR ${ref.name.toUpperCase()}`);
       row('ALTITUDE', fmtDist(Math.max(0, o.alt - S.radius)), 24, y); y += 20;
       row('SPEED', `${o.speed.toFixed(1)} m/s`, 24, y); y += 20;
@@ -638,7 +802,7 @@ const Render = (() => {
     // ---- top & bottom lines ----
     ctx.textAlign = 'center'; ctx.font = `600 15px ${FONT}`;
     const capped = SIM().warps[g.warpIdx] > g.warp;
-    const top = `WARP ${g.warp}x${capped ? `  (max ${g.warpMax}x: ${g.warpWhy})` : ''}${cam.map ? '   ·   MAP' : ''}`;
+    const top = `WARP ${g.warp}x${capped ? `  (max ${g.warpMax}x: ${g.warpWhy})` : ''}${cam.map ? `   ·   ${MAP_NAMES[cam.map]}` : ''}`;
     outlinedText(top, W / 2, 26, g.warp > 1 ? COL.pro : capped ? COL.warn : '#d9cff5');
     const tw = ctx.measureText(top).width; frameRects.push([W / 2 - tw / 2 - 6, 8, W / 2 + tw / 2 + 6, 34]);
 
@@ -754,7 +918,7 @@ const Render = (() => {
   function drawDebug(g) {
     const sh = g.sh, o = g.orb;
     const lines = [
-      `DEBUG seed ${g.w.seed}  spawn ${g.spawn}  t ${g.t.toFixed(2)}s  steps/frame ${g.stepsLastFrame}  status ${g.status}  mode ${g.mode}  ref ${g.ref.name}`,
+      `DEBUG seed ${g.w.seed}  spawn ${g.spawn}  t ${g.t.toFixed(2)}s  steps/frame ${g.stepsLastFrame} x ${(g.stepDt * 1000).toFixed(1)} ms  rocks ${g.rockCand ? g.rockCand.length : '-'}/${g.w.rocks.length}  status ${g.status}  mode ${g.mode}  ref ${g.ref.name}  frame ${g.frame ? g.frame.name : '-'}`,
       `x ${sh.x.toFixed(1)}  y ${sh.y.toFixed(1)}  vx ${sh.vx.toFixed(2)}  vy ${sh.vy.toFixed(2)}  ang ${(sh.ang * 180 / Math.PI % 360).toFixed(1)}°  ω ${sh.omega.toFixed(3)}  m ${Physics.mass(sh, g.S).toFixed(3)} t`,
       `rel: r ${o.r.toFixed(1)}  v ${o.speed.toFixed(2)}  E ${o.E.toFixed(3)}  e ${o.e.toFixed(3)}  pe ${o.pe.toFixed(1)}  ap ${o.ap.toFixed(1)}`,
       `pred ${g.pred ? g.pred.pts.length + ' pts, ' + (g.pred.pts[g.pred.pts.length - 1][2] - g.t).toFixed(0) + ' s' : '-'}  impact ${g.pred && g.pred.impact ? g.pred.impact.body.name : 'none'}  near ${g.nearDist.toFixed(1)}  pickups ${g.pickups.length}  particles ${g.particles.length}`,
@@ -802,7 +966,8 @@ const Render = (() => {
     ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
   }
   const fmtDist = (m) => !isFinite(m) ? '∞' : Math.abs(m) >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(0)} m`;
-  const fmtT = (t) => !isFinite(t) ? '—' : t >= 60 ? `${Math.floor(t / 60)}m${String(Math.floor(t % 60)).padStart(2, '0')}s` : `${t.toFixed(0)}s`;
+  const fmtT = (t) => !isFinite(t) ? '—' : t >= 3600 ? `${Math.floor(t / 3600)}h${String(Math.floor(t % 3600 / 60)).padStart(2, '0')}m`
+    : t >= 60 ? `${Math.floor(t / 60)}m${String(Math.floor(t % 60)).padStart(2, '0')}s` : `${t.toFixed(0)}s`;
   const money = (n) => `$${Math.floor(n).toLocaleString('en-US')}`;
 
   function drawErrorBar(msg) {
@@ -827,5 +992,8 @@ const Render = (() => {
     fmtDist, fmtT, money, INK, PAPER, PAPER2, COL, LIGHT, FONT,
   };
 
-  return { init, resize, draw, drawError, cam, kit, toScreen, screenToWorld };
+  // M: off -> local map -> belt map -> off
+  function cycleMap() { cam.map = (cam.map + 1) % 3; cam.userZoom = 1; return cam.map; }
+
+  return { init, resize, draw, drawError, cam, kit, toScreen, screenToWorld, cycleMap };
 })();

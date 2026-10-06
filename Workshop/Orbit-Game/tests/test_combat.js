@@ -4,7 +4,7 @@
 //  spawning, warp caps, docked / Hub safety, death loot + bounty + job,
 //  64x warp, save / load, respawn cleanup, loot, sanctuaries.
 //  Then re-runs itself with --full: the real stations / eva / mobs modules
-//  (Rust's bubble, Ceres Hub, the EVA laser, bullets vs bugs).
+//  (Rust's bubble, Mochi Hub, the EVA laser, bullets vs bugs).
 //                                                node tests/test_combat.js
 // ======================================================================
 
@@ -34,9 +34,11 @@ const distTo = (g, p) => Math.hypot(p.x - g.sh.x, p.y - g.sh.y);
 const altOf = (g, x, y) => Game.nearestBody(g, x, y).alt;
 const finite = (...v) => v.every((x) => Number.isFinite(x));
 
-// the ship coasting far from every body (1300 m above Ceres, falling slowly)
+// the ship coasting far from every body (1300 m above Mochi, falling slowly)
+const mochiAt = (g) => World.bodyState(g.w, g.w.byId.mochi, g.t);   // Mochi rides the belt: everything here is relative to it
 function deepSpace(g) {
-  Object.assign(g.sh, { x: 0, y: 1300, vx: 0, vy: 0, ang: Math.PI / 2, omega: 0 });
+  const [mx, my, mvx, mvy] = mochiAt(g);
+  Object.assign(g.sh, { x: mx, y: my + 1300, vx: mvx, vy: mvy, ang: Math.PI / 2, omega: 0 });
   g.status = 'flying'; g.landedOn = null; g.land = null; g.attach = null; g.everFlew = true;
 }
 // park the ship in a circular orbit around a body
@@ -52,11 +54,15 @@ if (!FULL) {
   const g = fresh();
   const job = Game.GOALS.find((gl) => gl.id === 'pirate');
   check('pirate job registered (order 85, $300)', job && job.order === 85 && job.reward === 300, job ? job.text : 'missing');
-  const pot = g.w.byId.potato, [px, py] = World.bodyState(g.w, pot, g.t), c = g.w.byId.ceres;
-  const z1 = Combat.zoneAt(g, px + 300, py), z2 = Combat.zoneAt(g, 2050, 0), z3 = Combat.zoneAt(g, 1000, 0);
-  check('zones: Potato Hill sphere, outer ring, not the inner belt', z1 && z1.id === 'potato' && z2 && z2.id === 'ring' && !z3,
-        `${z1 && z1.id} / ${z2 && z2.id} / ${z3}`);
-  check('no pirates on a fresh Ceres start', Combat.list(g).length === 0 && c);
+  const pot = g.w.byId.potato, [px, py] = World.bodyState(g.w, pot, g.t), c = g.w.byId.mochi;
+  const z1 = Combat.zoneAt(g, px + 300, py), [mx, my] = mochiAt(g), [bx, by] = World.bodyState(g.w, g.w.byId.biscotti, g.t);
+  const z2 = Combat.zoneAt(g, bx + 300, by), z3 = Combat.zoneAt(g, mx + 1000, my), z4 = Combat.zoneAt(g, mx + 2050, my);
+  let route = 0;                                                    // the starter hop: Mochi -> Pretzel, in a straight line
+  const [qx, qy] = World.bodyState(g.w, g.w.byId.pretzel, g.t);
+  for (let k = 0; k <= 200; k++) if (Combat.zoneAt(g, mx + (qx - mx) * k / 200, my + (qy - my) * k / 200)) route++;
+  check('zones: Big Potato and Biscotti; Mochi\'s rings and the hop to Pretzel are pirate-free', z1 && z1.id === 'potato' && z2 && z2.id === 'biscotti' && !z3 && !z4 && route === 0,
+        `${z1 && z1.id} / ${z2 && z2.id} / ${z3} / ${z4}, ${route} pirate samples on the way to Pretzel`);
+  check('no pirates on a fresh Mochi start', Combat.list(g).length === 0 && c);
   check('no guns on the stock ship', !Combat.armed(g));
 }
 
@@ -74,7 +80,7 @@ if (!FULL) {
   H.run(g, 60, { keys: ['Space'] });
   const n = M(g).bullets.length, b = M(g).bullets[0];
   check('Space fires at gunRate (4/s for 1 s)', n >= 3 && n <= 5, `${n} bullets in flight`);
-  check('bullets leave the nose at muzzle speed + ship speed', b && Math.abs(Math.hypot(b.vx - g.sh.vx, b.vy - g.sh.vy) - 60) < 2 && b.vy > 50,
+  check('bullets leave the nose at muzzle speed + ship speed', b && Math.abs(Math.hypot(b.vx - g.sh.vx, b.vy - g.sh.vy) - 60) < 2 && b.vy - g.sh.vy > 50,
         b ? `rel speed ${Math.hypot(b.vx - g.sh.vx, b.vy - g.sh.vy).toFixed(1)} m/s` : 'none');
   const twin = fresh('orbit'); quiet(twin); arm(twin, PEA); deepSpace(twin); H.run(twin, 60, {});
   const recoil = twin.sh.vy - g.sh.vy, expect = 4 * 0.02 * 60 / (Physics.mass(g.sh, g.S) * 1000);
@@ -83,12 +89,13 @@ if (!FULL) {
   check('firing caps warp at 1x', g.warp === 1 && g.warpWhy === 'guns firing', `${g.warp}x ${g.warpWhy}`);
 }
 {
-  // a bullet shot sideways in Ceres' gravity falls like a cannonball: compare with the analytic drop
+  // a bullet shot sideways in Mochi's gravity falls like a cannonball: compare with the analytic drop
   const g = fresh('orbit'); quiet(g);
-  const c = g.w.byId.ceres, R = 700, gC = c.mu / (R * R);
-  const b = Combat.fire(g, { x: 0, y: R, vx: 50, vy: 0, team: 'player', dmg: 1 });
+  const c = g.w.byId.mochi, R = 700, gC = c.mu / (R * R);
+  const [mx, my, mvx, mvy] = mochiAt(g);
+  const b = Combat.fire(g, { x: mx, y: my + R, vx: mvx + 50, vy: mvy, team: 'player', dmg: 1 });
   H.run(g, 60, {});
-  const drop = R - b.y, expect = 0.5 * gC * 1 * 1;
+  const drop = R - (b.y - mochiAt(g)[1]), expect = 0.5 * gC * 1 * 1;
   check('bullets fall under gravity (1 s: y drop = g t^2 / 2)', Math.abs(drop - expect) < 0.05 * expect + 0.02, `drop ${drop.toFixed(3)} m vs ${expect.toFixed(3)} m`);
   H.run(g, 60 * 4, {});
   check('bullets expire after 4 s', !M(g).bullets.includes(b) && M(g).bullets.length === 0, `${M(g).bullets.length} left`);
@@ -96,9 +103,10 @@ if (!FULL) {
 {
   // terrain hit digs a tiny crater
   const g = fresh('pad'); quiet(g);
-  const c = g.w.byId.ceres, T = Terrain.of(c), R = World.surfaceR(c, 0.3);
+  const c = g.w.byId.mochi, T = Terrain.of(c), R = World.surfaceR(c, 0.3);
   const x = (R - 0.2) * Math.cos(0.3), y = (R - 0.2) * Math.sin(0.3), before = T.grid.reduce((s, v) => s + (v >= Terrain.REG ? 1 : 0), 0);
-  for (let k = 0; k < 12; k++) Combat.fire(g, { x: (R + 6) * Math.cos(0.3), y: (R + 6) * Math.sin(0.3), vx: -40 * Math.cos(0.3), vy: -40 * Math.sin(0.3), team: 'player', dmg: 1 });
+  const [mx, my, mvx, mvy] = mochiAt(g);
+  for (let k = 0; k < 12; k++) Combat.fire(g, { x: mx + (R + 6) * Math.cos(0.3), y: my + (R + 6) * Math.sin(0.3), vx: mvx - 40 * Math.cos(0.3), vy: mvy - 40 * Math.sin(0.3), team: 'player', dmg: 1 });
   H.run(g, 30, {});
   const after = T.grid.reduce((s, v) => s + (v >= Terrain.REG ? 1 : 0), 0);
   check('bullets dig a tiny crater where they hit the ground', after < before && before - after < 12, `${before - after} cells dug by 12 bullets`);
@@ -109,7 +117,7 @@ if (!FULL) {
 // ---------------- 3. hitting a stationary pirate ----------------
 {
   const g = fresh('orbit'); quiet(g); arm(g, PEA); deepSpace(g);
-  const p = Combat.spawn(g, 'ring', { quiet: true, x: g.sh.x, y: g.sh.y + 30, vx: g.sh.vx, vy: g.sh.vy });
+  const p = Combat.spawn(g, 'biscotti', { quiet: true, x: g.sh.x, y: g.sh.y + 30, vx: g.sh.vx, vy: g.sh.vy });
   lobotomize(p);
   const hp0 = p.hp;
   H.run(g, 40, { keys: ['Space'] });
@@ -176,18 +184,22 @@ if (!FULL) {
 }
 {
   // rubble caution must not stop the hunt: every personality still works its way in to a ship in low Potato orbit and lands hits
-  const bands = M(fresh('orbit')).bands.filter((b) => b.host.id === 'ceres');
-  check("Ceres's two rubble rings are two bands (the gap between them is open space)", bands.length === 2 && bands.every((b) => b.hi - b.lo < 400),
+  const bands = M(fresh('orbit')).bands.filter((b) => b.host.id === 'mochi');
+  check("Mochi's two rubble rings are two bands (the gap between them is open space)", bands.length === 2 && bands.every((b) => b.hi - b.lo < 400),
         bands.map((b) => `${b.lo.toFixed(0)}-${b.hi.toFixed(0)}`).join(', '));
-  const out = [];
-  for (const pers of Object.keys(Combat.PERS)) {
-    const g = fresh('potato'); quiet(g); g.sh.hull = g.S.hull = 1e6;
-    const p = Combat.spawn(g, 'potato', { crew: Combat.CREW.find((c) => c.pers === pers), near: true }); p.warned = true;
-    H.run(g, 60 * 45, {});
-    out.push([pers, 1e6 - g.sh.hull, distTo(g, p)]);
+  for (const seed of [7, 2]) {                                        // two worlds, so one lucky rubble layout cannot hide a timid dodge
+    const out = [];
+    for (const pers of Object.keys(Combat.PERS)) {
+      const g = Game.create(seed, 'potato', { fresh: true }); quiet(g); g.sh.hull = g.S.hull = 1e6;
+      const p = Combat.spawn(g, 'potato', { crew: Combat.CREW.find((c) => c.pers === pers), near: true }); p.warned = true;
+      let dMin = Infinity;
+      for (let f = 0; f < 60 * 45; f++) { H.run(g, 1, {}); if (!p.gone) dMin = Math.min(dMin, distTo(g, p)); }
+      out.push([pers, 1e6 - g.sh.hull, distTo(g, p), dMin]);
+    }
+    //  (closest approach, not the last frame: a sniper that has landed its hits may be swinging round for another pass)
+    check(`seed ${seed}: every personality closes in through the rubble and hits a ship in low Potato orbit (45 s)`, out.every(([, dmg, , dMin]) => dmg >= 10 && dMin < 100),
+          out.map(([k, dmg, d, dMin]) => `${k} ${dmg.toFixed(0)} dmg, closest ${dMin.toFixed(0)} m (${d.toFixed(0)} m at the end)`).join(', '));
   }
-  check('every personality closes in through the rubble and hits a ship in low Potato orbit (45 s)', out.every(([, dmg, d]) => dmg >= 10 && d < 150),
-        out.map(([k, dmg, d]) => `${k} ${dmg.toFixed(0)} dmg @${d.toFixed(0)} m`).join(', '));
 }
 
 
@@ -196,17 +208,19 @@ if (!FULL) {
   const g = fresh('orbit'); quiet(g); deepSpace(g);
   g.warpIdx = CONFIG.sim.warps.length - 1;
   H.run(g, 2, {});
-  check('far from pirates: full 64x', g.warp === 64, `${g.warp}x`);
-  const p = Combat.spawn(g, 'ring', { quiet: true, x: g.sh.x + 300, y: g.sh.y, vx: g.sh.vx, vy: g.sh.vy });
+  const WMAX = CONFIG.sim.warps[CONFIG.sim.warps.length - 1];
+  check(`far from pirates: full ${WMAX}x`, g.warp === WMAX, `${g.warp}x`);
+  const p = Combat.spawn(g, 'biscotti', { quiet: true, x: g.sh.x + 300, y: g.sh.y, vx: g.sh.vx, vy: g.sh.vy });
   lobotomize(p);
   H.run(g, 2, {});
   check('pirate within 400 m: warp 1x, pick reset, PIRATES! toast', g.warp === 1 && g.warpIdx === 0 && g.toasts.some((t) => t.text === 'PIRATES!'),
         `${g.warp}x (${g.warpWhy})`);
-  Object.assign(p, { x: g.sh.x + 700 });
+  deepSpace(g); Game.refresh(g);                                    // back to the top of the fall: no ring rock within a 1024x frame
+  Object.assign(p, { x: g.sh.x + 700, y: g.sh.y, vx: g.sh.vx, vy: g.sh.vy });
   H.run(g, 1, {});
   g.warpIdx = CONFIG.sim.warps.length - 1;
   H.run(g, 2, {});
-  check('pirate at 700 m: warp free again', g.warp === 64, `${g.warp}x`);
+  check('pirate at 700 m: warp free again', g.warp === WMAX, `${g.warp}x ${g.warpWhy}`);
 }
 
 
@@ -269,13 +283,13 @@ if (!FULL) {
 }
 
 
-// ---------------- 9. Ceres Hub is safe ----------------
+// ---------------- 9. Mochi Hub is safe ----------------
 {
-  const g = fresh('orbit');                                         // r 360 from Ceres, 64x for ~5 min
+  const g = fresh('orbit');                                         // r 360 from Mochi, 64x for ~5 min
   for (let f = 0; f < 300; f++) { g.warpIdx = 6; H.run(g, 1, {}); }
-  check('no pirate spawns in low Ceres orbit (5 min at 64x)', Combat.list(g).length === 0 && g.t > 250, `t ${g.t.toFixed(0)} s`);
+  check('no pirate spawns in low Mochi orbit (5 min at 64x)', Combat.list(g).length === 0 && g.t > 250, `t ${g.t.toFixed(0)} s`);
   // hover at r 690 m (pinned: a real orbit there gets flung by Dorito) right next to the ring zone rules
-  const g2 = fresh('orbit'), c = g2.w.byId.ceres;
+  const g2 = fresh('orbit'), c = g2.w.byId.mochi;
   let spawned = 0;
   for (let f = 0; f < 300; f++) {
     g2.warpIdx = 6; Game.circularAround(g2, c, 690, 0.3); g2.status = 'flying';
@@ -283,19 +297,21 @@ if (!FULL) {
   }
   check('...nor at r 690 m (just inside the patrol radius)', spawned === 0 && Combat.hostileTo(g2) === 'hub', `t ${g2.t.toFixed(0)} s, ${Combat.hostileTo(g2)}`);
   // chase a pirate into the Hub's patrol radius: it breaks off and never crosses r = 700 m
-  const g3 = fresh('orbit'); quiet(g3); orbitAt(g3, 'ceres', 760, 0.3);
-  const p = Combat.spawn(g3, 'ring', { quiet: true, crew: Combat.CREW[0], state: 'attack',
-                                        x: g3.sh.x * 1.15, y: g3.sh.y * 1.15, vx: g3.sh.vx, vy: g3.sh.vy });
+  const g3 = fresh('orbit'); quiet(g3); orbitAt(g3, 'mochi', 760, 0.3);
+  const [m3x, m3y] = mochiAt(g3);
+  const p = Combat.spawn(g3, 'biscotti', { quiet: true, crew: Combat.CREW[0], state: 'attack',
+                                        x: m3x + (g3.sh.x - m3x) * 1.15, y: m3y + (g3.sh.y - m3y) * 1.15, vx: g3.sh.vx, vy: g3.sh.vy });
   p.zone = 'nowhere';                                               // no home patch = no leash: only the Hub rule can stop it
+  { const c3 = g3.w.byId.mochi, r = 2200; p.haunt = { b: c3, r, th0: Math.atan2(g3.sh.y - m3y, g3.sh.x - m3x), n: Math.sqrt(c3.mu / r ** 3), t0: g3.t }; }   // and a lurking orbit just outside Mochi's rings
   let rMin = Infinity, shotsIn = 0, attacked = false;
   for (let f = 0; f < 60 * 50; f++) {
-    if (f === 60 * 8) orbitAt(g3, 'ceres', 420, Math.atan2(g3.sh.y, g3.sh.x));   // duck under the Hub's umbrella
+    if (f === 60 * 8) { const [mx, my] = mochiAt(g3); orbitAt(g3, 'mochi', 420, Math.atan2(g3.sh.y - my, g3.sh.x - mx)); }   // duck under the Hub's umbrella
     H.run(g3, 1, {});
     if (f < 60 * 8) attacked = attacked || p.state === 'attack';
-    if (!p.gone) rMin = Math.min(rMin, Math.hypot(p.x, p.y));
+    if (!p.gone) { const [mx, my] = mochiAt(g3); rMin = Math.min(rMin, Math.hypot(p.x - mx, p.y - my)); }
     if (f > 60 * 9) shotsIn += M(g3).bullets.filter((b) => b.team === 'pirate' && b.age < 1 / 60 + 1e-9).length;
   }
-  check('pirates chase you to the edge of the Hub patrol radius...', attacked && rMin > Combat.SAFE_CERES, `closest r ${rMin.toFixed(0)} m`);
+  check('pirates chase you to the edge of the Hub patrol radius...', attacked && rMin > Combat.SAFE_MOCHI, `closest r ${rMin.toFixed(0)} m`);
   check('...then break off and hold fire', p.state !== 'attack' && shotsIn === 0, `${p.state}, ${shotsIn} shots`);
   check('...with a grumpy radio line', g3.events.some((e) => /radio .*(HUB PATROL|NOT NEAR THE HUB)/.test(e.msg)));
 }
@@ -312,7 +328,7 @@ if (!FULL) {
   H.run(g, 60 * 30, {});
   check('...cooldown: no second pirate within 90 s', Combat.list(g).filter((p) => !p.gone).length <= 1);
   // max alive
-  const g2 = fresh('orbit'); orbitAt(g2, 'ceres', 2200, 1.0); g2.sh.hull = g2.S.hull = 1e6;
+  const g2 = fresh('orbit'); orbitAt(g2, 'biscotti', 300, 1.0); g2.sh.hull = g2.S.hull = 1e6;     // Biscotti's gang: up to 3
   let most = 0;
   for (let f = 0; f < 60 * 40; f++) { if (f % 60 === 0) M(g2).lastSpawn = -1e9; H.run(g2, 1, {}); most = Math.max(most, Combat.list(g2).length); }
   check('zone spawning (cooldown off) never exceeds 3 alive', most >= 2 && most <= 3, `${most} at most`);
@@ -377,7 +393,7 @@ if (!FULL) {
 {
   const g = fresh('potato'); quiet(g);
   const p = Combat.spawn(g, 'potato', { quiet: true, state: 'attack' });
-  Combat.fire(g, { x: g.sh.x + 50, y: g.sh.y, vx: 0, vy: 0, team: 'pirate', dmg: 5 });
+  Combat.fire(g, { x: g.sh.x + 50, y: g.sh.y, vx: g.sh.vx, vy: g.sh.vy, team: 'pirate', dmg: 5 });
   Game.die(g, 'test');
   H.run(g, 3, {});
   check('your ship blows up: pirates gloat and stop attacking', p.state === 'lurk' && g.events.some((e) => /radio .*(TOW TRUCK|EASY PICKINGS|WRAP)/.test(e.msg)));
@@ -394,7 +410,7 @@ if (!FULL) {
   check('save / load round-trips kills, bounty, the grudge list', M(g2).kills === 4 && M(g2).bounty === 777 && M(g2).fled.length === 1 && M(g2).fled[0].short === 'GARY',
         JSON.stringify(Game.call(g2, Game.mods.find((m) => m.id === 'combat'), 'save')));
   check('...pirates and bullets are not saved (fresh skies)', Combat.list(g2).length === 0 && M(g2).bullets.length === 0);
-  store['pocket-orbit-v3'] = JSON.stringify({ v: 3, money: 5, mods: { combat: { kills: 'NaN', fled: [{ name: 3 }, null, { name: 'X', pers: 'evil', hpMax: 1 }] } } });
+  store['pocket-orbit-v4'] = JSON.stringify({ v: 4, money: 5, mods: { combat: { kills: 'NaN', fled: [{ name: 3 }, null, { name: 'X', pers: 'evil', hpMax: 1 }] } } });
   const g3 = Game.create(7, 'orbit');
   check('...junk save data is ignored safely', M(g3).kills === 0 && M(g3).fled.length === 0);
   Game.wipeSave(); delete global.localStorage;
@@ -419,7 +435,7 @@ if (!FULL) {
 
 // ---------------- 15. loot you can scoop, instant bounty feedback, sanctuaries, controls ----------------
 {
-  const g = fresh('orbit'); quiet(g); arm(g, RIVET); orbitAt(g, 'ceres', 1300, 1.0);
+  const g = fresh('orbit'); quiet(g); arm(g, RIVET); orbitAt(g, 'mochi', 1300, 1.0);
   const fx = Math.cos(g.sh.ang), fy = Math.sin(g.sh.ang);
   const p = Combat.spawn(g, 'glimmer', { quiet: true, x: g.sh.x + fx * 25, y: g.sh.y + fy * 25, vx: g.sh.vx, vy: g.sh.vy, hp: 40 });
   lobotomize(p);
@@ -441,12 +457,12 @@ if (!FULL) {
 }
 {
   // pirate rounds fizzle inside the Hub patrol radius; sniping from it sends pirates packing
-  const g = fresh('orbit'); quiet(g); orbitAt(g, 'ceres', 690, 0.3);
-  const ux = g.sh.x / 690, uy = g.sh.y / 690, h0 = g.sh.hull;
+  const g = fresh('orbit'); quiet(g); orbitAt(g, 'mochi', 690, 0.3);
+  const [mx, my] = mochiAt(g), ux = (g.sh.x - mx) / 690, uy = (g.sh.y - my) / 690, h0 = g.sh.hull;
   const b = Combat.fire(g, { x: g.sh.x + ux * 70, y: g.sh.y + uy * 70, vx: g.sh.vx - ux * 80, vy: g.sh.vy - uy * 80, team: 'pirate', dmg: 8 });
   H.run(g, 60, {});
   check('pirate bullets fizzle inside the Hub patrol radius', g.sh.hull === h0 && !M(g).bullets.includes(b), `hull ${g.sh.hull}`);
-  const p = Combat.spawn(g, 'ring', { quiet: true, x: g.sh.x + ux * 80, y: g.sh.y + uy * 80, vx: g.sh.vx, vy: g.sh.vy });
+  const p = Combat.spawn(g, 'biscotti', { quiet: true, x: g.sh.x + ux * 80, y: g.sh.y + uy * 80, vx: g.sh.vx, vy: g.sh.vy });
   lobotomize(p);
   Combat.fire(g, { x: p.x - ux * 10, y: p.y - uy * 10, vx: p.vx + ux * 60, vy: p.vy + uy * 60, team: 'player', dmg: 8 });
   H.run(g, 20, {});
@@ -474,20 +490,20 @@ if (FULL) {
 const pinTo = (g, x, y, vx, vy) => { Object.assign(g.sh, { x, y, vx, vy }); g.status = 'flying'; g.attach = null; g.landedOn = null; g.land = null; g.everFlew = true; };
 const pirateShots = (g, seen) => { let n = 0; for (const b of M(g).bullets) if (b.team === 'pirate' && !seen.has(b)) { seen.add(b); n++; } return n; };
 
-// ---------------- F1. Ceres Hub ----------------
+// ---------------- F1. Mochi Hub ----------------
 {
   const g = Game.create(7, null, { fresh: true });
-  const hub = Stations.byId(g, 'hub'), [hx, hy] = hub.state(g.t);
-  check('[full] new game: docked at Ceres Hub, pirates stand down', g.spawn === 'hub' && g.status === 'docked' && Combat.hostileTo(g) === 'docked', `${g.spawn} ${g.status}`);
-  check('[full] the Hub orbits well inside the pirate-free radius', Math.hypot(hx, hy) + 150 < Combat.SAFE_CERES, `Hub at r ${Math.hypot(hx, hy).toFixed(0)} m, safe to ${Combat.SAFE_CERES} m`);
+  const hub = Stations.byId(g, 'hub'), [hx, hy] = hub.state(g.t).map((v, i) => v - mochiAt(g)[i]);   // relative to Mochi
+  check('[full] new game: docked at Mochi Hub, pirates stand down', g.spawn === 'hub' && g.status === 'docked' && Combat.hostileTo(g) === 'docked', `${g.spawn} ${g.status}`);
+  check('[full] the Hub orbits well inside the pirate-free radius', Math.hypot(hx, hy) + 150 < Combat.SAFE_MOCHI, `Hub at r ${Math.hypot(hx, hy).toFixed(0)} m, safe to ${Combat.SAFE_MOCHI} m`);
   // a pirate dragged right up to the Hub with you hanging about outside the dock: it will not fight
   const [x, y, vx, vy] = hub.state(g.t);
   pinTo(g, x + 30, y, vx, vy);
-  const p = Combat.spawn(g, 'ring', { quiet: true, state: 'attack', x: x + 90, y, vx, vy });
+  const p = Combat.spawn(g, 'biscotti', { quiet: true, state: 'attack', x: x + 90, y, vx, vy });
   const seen = new Set(); let shots = 0, attackT = 0;
   for (let f = 0; f < 60 * 15; f++) { const [x2, y2, vx2, vy2] = hub.state(g.t); pinTo(g, x2 + 30, y2, vx2, vy2); H.run(g, 1, {}); shots += pirateShots(g, seen); if (p.state === 'attack') attackT++; }
   check('[full] a pirate next to the Hub holds fire and backs off', shots === 0 && attackT < 5 && Combat.hostileTo(g) === 'hub', `${shots} shots, ${p.state}`);
-  const g2 = Game.create(7, 'orbit', { fresh: true });                 // low Ceres orbit, under the Hub
+  const g2 = Game.create(7, 'orbit', { fresh: true });                 // low Mochi orbit, under the Hub
   for (let f = 0; f < 300; f++) { g2.warpIdx = 6; H.run(g2, 1, {}); }
   check('[full] 3+ min under the Hub at 64x: no pirates ever show up', Combat.list(g2).length === 0 && g2.t > 150, `t ${g2.t.toFixed(0)} s, ${g2.status}`);
 }
@@ -575,8 +591,8 @@ const pirateShots = (g, seen) => { let n = 0; for (const b of M(g).bullets) if (
   }
   check('[full] warp requested at Big Potato with every module: no NaN', bad === 0 && !g.err, `${bad} bad, t ${g.t.toFixed(0)} s (capped near pirates), ${g.err || 'no errors'}`);
   // real 64x: you cruise outside the zones while pirates lurk on their haunts far away
-  const g3 = Game.create(7, 'orbit', { fresh: true }); quiet(g3); orbitAt(g3, 'ceres', 1300, 1.0);
-  const lurkers = [Combat.spawn(g3, 'ring', { quiet: true }), Combat.spawn(g3, 'glimmer', { quiet: true }), Combat.spawn(g3, 'potato', { quiet: true })];
+  const g3 = Game.create(7, 'orbit', { fresh: true }); quiet(g3); orbitAt(g3, 'mochi', 1300, 1.0);
+  const lurkers = [Combat.spawn(g3, 'biscotti', { quiet: true }), Combat.spawn(g3, 'glimmer', { quiet: true }), Combat.spawn(g3, 'potato', { quiet: true })];
   let bad3 = 0, w64 = 0, minAlt = Infinity;
   for (let f = 0; f < 300; f++) {
     for (const p of lurkers) if (p) p.farT = 0;                       // keep them from going home

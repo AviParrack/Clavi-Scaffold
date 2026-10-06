@@ -50,7 +50,7 @@ const nearestBug = (g, id, lx, ly) => bugsOn(g, id).sort((a, b) => Math.hypot(a.
   check('nests sit on the surface outline', onSurface);
   const job = Game.GOALS.find((gl) => gl.id === 'bug');
   check('bug job registered (order 70, $100)', job && job.order === 70 && job.reward === 100, job ? job.text : 'missing');
-  check('no bugs and no sleepers on a Ceres start', Mobs.list(g).length === 0 && homes.every((h) => !h.awake));
+  check('no bugs and no sleepers on a Mochi start', Mobs.list(g).length === 0 && homes.every((h) => !h.awake));
 }
 
 
@@ -58,7 +58,7 @@ const nearestBug = (g, id, lx, ly) => bugsOn(g, id).sort((a, b) => Math.hypot(a.
 {
   const g = fresh('pad');
   H.run(g, 30, {});
-  check('bugs stay asleep while you are on Ceres', Mobs.list(g).length === 0);
+  check('bugs stay asleep while you are on Mochi', Mobs.list(g).length === 0);
   hover(g, 'kiwi', 150); H.run(g, 3, {});
   const kiwi = Mobs.home(g, 'kiwi');
   check('150 m above Kiwi: Kiwi bugs wake (cap 8)', kiwi.awake && bugsOn(g, 'kiwi').length === 8, `${bugsOn(g, 'kiwi').length} awake`);
@@ -231,7 +231,7 @@ function laserUntilDead(g, bug, dps = 18) {
 }
 
 
-// ---------------- 9. 64x warp: landed on Kiwi, bugs awake, no NaN ----------------
+// ---------------- 9. max warp: landed on Kiwi, bugs awake, no NaN ----------------
 {
   const g = fresh('kiwi'), kb = bodyOf(g, 'kiwi'), home = Mobs.home(g, 'kiwi');
   const n0 = home.nests[0].th, n1 = home.nests[1].th;
@@ -242,10 +242,11 @@ function laserUntilDead(g, bug, dps = 18) {
   let maxWarp = 0;
   for (let f = 0; f < 600; f++) { Game.update(g, H.input(), 1 / 60); maxWarp = Math.max(maxWarp, g.warp); }
   const ms = (Date.now() - t0) / 600, bugs = bugsOn(g, 'kiwi');
-  check('64x warp for 10 s real (~10 min sim) on Kiwi', maxWarp === 64 && g.t - tSim0 > 500, `max warp ${maxWarp}x, ${(g.t - tSim0).toFixed(0)} s sim`);
+  const WMAX = CONFIG.sim.warps[CONFIG.sim.warps.length - 1];
+  check(`${WMAX}x warp for 10 s real on Kiwi (hours of sim)`, maxWarp === WMAX && g.t - tSim0 > 500, `max warp ${maxWarp}x, ${(g.t - tSim0).toFixed(0)} s sim, ${ms.toFixed(1)} ms/frame`);
   check('...no NaN, bugs still on the ground', bugs.length === 8 && bugs.every(finite) && bugs.every((x) => Math.abs(altOf(kb, x.lx, x.ly)) < 2.5),
         bugs.map((x) => altOf(kb, x.lx, x.ly).toFixed(1)).join(' '));
-  check('...CPU stays cool', ms < 6, `${ms.toFixed(2)} ms per 64x frame (game + bugs)`);
+  check('...CPU stays cool', ms < 6, `${ms.toFixed(2)} ms per ${WMAX}x frame (game + bugs)`);
   const M = g.mod.mobs, before = bugs.map((x) => [x.lx, x.ly]);
   Mobs.list(g).forEach((x) => { x.vx = 3; x.vy = -2; });
   for (const m of Game.mods) if (m.id === 'mobs') m.after(g, H.input(), 1 / 20, 3.2);

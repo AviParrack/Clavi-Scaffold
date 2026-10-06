@@ -2,9 +2,9 @@
 //  COMBAT  —  pirates, bullets and ship guns.
 //  Pirates fly like you do: gravity plus one main engine (<= 3 m/s^2)
 //  they have to point, and a little RCS. They haunt Big Potato's Hill
-//  sphere, the outer rubble ring and Glimmer; chase you to ~45 m, match
+//  sphere, Biscotti and Glimmer; chase you to ~45 m, match
 //  your velocity, strafe, lead their shots, flee when hurt, and leave
-//  docked ships, Ceres Hub's neighbourhood (r < 700 m) and Rust's alone.
+//  docked ships, Mochi Hub's neighbourhood (r < 700 m) and Rust's alone.
 //  Bullets are real projectiles: they fall, they hit, they dig.
 //  API: Combat.list(g), spawn(g, zoneId, opt), fire(g, b), zoneAt(g, x, y),
 //       hostileTo(g), armed(g), ZONES, CREW, PERS
@@ -23,7 +23,7 @@ const Combat = (() => {
   const P_LEN = 9, P_R = 3.4, P_T = 1.8, CRASH_V = 9;                  // pirate length, hit radius [m], mass [t], crash speed [m/s]
   const SEE_R = 650, FIRE_R = 150, LEASH = 380, HOVER_ALT = 26;       // notice / shoot / give-up ranges, standoff height [m]
   const WARP_R = 400, ARROW_R = 800, NAV_R = 1500, HINT_R = 600, GONE_R = 700, FAR_R = 1300;
-  const SAFE_CERES = 700;                                              // Ceres Hub patrol radius, from Ceres' centre [m]
+  const SAFE_MOCHI = 700;                                              // Mochi Hub patrol radius, from Mochi's centre [m]
   const SPAWN_GAP = 90, ENTER_T = 4, MAX_ALIVE = 3, FAR_T = 45;        // sim seconds
   const RADIO_GAP = 6, BANTER_GAP = 30;                                // real seconds between radio lines
   const BULLET_KG = [0, 0.02, 0.04, 0.15];                            // per gun level [kg]: honest (tiny) recoil
@@ -89,12 +89,15 @@ const Combat = (() => {
 
   // ---------------- pirate zones ----------------
   //  r: zone annulus around the host [m] · haunt: lurking orbit radii [m] · max alive here · hp range · core drop chance
-  //  Potato's zone is its Hill sphere (475 m); the ring haunt sits just outside the rubble (1950-2150 m).
+  //  Potato's zone is the inner quarter of its 1.9 km Hill sphere (Rust's circles at 600 m, just outside it);
+  //  Biscotti's gang works the far side of the outer lane.
 
   const ZONES = [
     { id: 'glimmer', name: 'Glimmer',        host: 'glimmer', r: [0, 330],     haunt: [70, 140],    max: 2, hp: [60, 90], core: 0.4 },
     { id: 'potato',  name: 'Big Potato',     host: 'potato',  r: [0, 450],     haunt: [215, 320],   max: 2, hp: [40, 70], core: 0.2 },
-    { id: 'ring',    name: 'the outer ring', host: 'ceres',   r: [1900, 2250], haunt: [2170, 2235], max: 3, hp: [50, 80], core: 0.25, pair: 0.35 },
+    { id: 'biscotti', name: 'Biscotti',      host: 'biscotti', r: [0, 520],    haunt: [240, 380],   max: 3, hp: [50, 80], core: 0.25, pair: 0.35 },
+    //  (v3's third gang lived in Ceres' outer ring; in the belt every trip out of Mochi crosses that ring, so the
+    //   gang moved out to Biscotti, far round the outer lane: the starter hop to Pretzel stays pirate-free)
   ];
   const zoneById = (id) => ZONES.find((z) => z.id === id) || null;
 
@@ -111,8 +114,8 @@ const Combat = (() => {
 
   // 'hub' / 'rusts' when (x, y) is somewhere pirates never fight, else null
   function safeAt(g, x, y) {
-    const c = g.w.byId.ceres;
-    if (c) { const [cx, cy] = World.bodyState(g.w, c, g.t); if (Math.hypot(x - cx, y - cy) < SAFE_CERES) return 'hub'; }
+    const c = g.w.byId.mochi;
+    if (c) { const [cx, cy] = World.bodyState(g.w, c, g.t); if (Math.hypot(x - cx, y - cy) < SAFE_MOCHI) return 'hub'; }
     if (stationsOn() && Stations.pirateFree(g, x, y)) return 'rusts';
     return null;
   }
@@ -131,13 +134,13 @@ const Combat = (() => {
   const st = (g) => g.mod.combat || null;
 
   // rubble grouped by host, with the radial band it occupies (cheap rejection for bullets and pirates)
-  //  one band per ring: a host with two rings (Ceres) gets two bands, never one fat annulus spanning the gap
+  //  one band per ring: a host with two rings (Mochi) gets two bands, never one fat annulus spanning the gap
   function rockBands(w) {
     const out = [], rocks = (w.rocks || []).slice().sort((u, v) => (u.host.idx - v.host.idx) || (u.a - v.a));
     let b = null;
     for (const rk of rocks) {
-      if (!b || b.host !== rk.host || rk.a - rk.r > b.hi + 60) out.push(b = { host: rk.host, lo: Infinity, hi: 0, rocks: [] });
-      b.lo = Math.min(b.lo, rk.a - rk.r); b.hi = Math.max(b.hi, rk.a + rk.r); b.rocks.push(rk);
+      if (!b || b.host !== rk.host || rk.a - rk.r - rk.ae > b.hi + 60) out.push(b = { host: rk.host, lo: Infinity, hi: 0, rocks: [] });
+      b.lo = Math.min(b.lo, rk.a - rk.r - rk.ae); b.hi = Math.max(b.hi, rk.a + rk.r + rk.ae); b.rocks.push(rk);
     }
     return out;
   }
@@ -260,7 +263,7 @@ const Combat = (() => {
     for (let k = 0; k < 12; k++) {
       const ak = a0 + k * Math.PI / 6, x = P.x + 120 * Math.cos(ak), y = P.y + 120 * Math.sin(ak);
       let alt = Game.nearestBody(g, x, y).alt;
-      for (const rk of g.w.rocks) { const [rx, ry] = World.rockState(g.w, rk, g.t); alt = Math.min(alt, Math.hypot(x - rx, y - ry) - rk.r); }
+      for (const rk of g.w.rocks) { if (rk.gone) continue; const [rx, ry] = World.rockState(g.w, rk, g.t); alt = Math.min(alt, Math.hypot(x - rx, y - ry) - rk.r); }
       if (alt > best) { best = alt; a = ak; }
       if (alt > 60) break;
     }
@@ -315,7 +318,7 @@ const Combat = (() => {
       const [hx, hy] = stt[band.host.idx], d0 = Math.hypot(x - hx, y - hy);
       if (d0 + len < band.lo - pad || d0 - len > band.hi + pad) continue;
       for (const rk of band.rocks) {
-        if (Math.abs(d0 - rk.a) > rk.r + len + pad) continue;
+        if (rk.gone || Math.abs(d0 - rk.a) > rk.r + rk.ae + len + pad) continue;
         const [rx, ry, rvx, rvy] = World.rockState(g.w, rk, g.t), R = rk.r * 0.9 + pad;
         const fx = x - rx, fy = y - ry, b2 = fx * ux + fy * uy, c = fx * fx + fy * fy - R * R, disc = b2 * b2 - c;
         if (disc < 0) continue;
@@ -484,7 +487,7 @@ const Combat = (() => {
       const [hx, hy] = stt[band.host.idx], dh = Math.hypot(p.x - hx, p.y - hy);
       if (dh < band.lo - p.r || dh > band.hi + p.r) continue;
       for (const rk of band.rocks) {
-        if (Math.abs(dh - rk.a) > rk.r + p.r) continue;
+        if (rk.gone || Math.abs(dh - rk.a) > rk.r + rk.ae + p.r) continue;
         const [rx, ry, rvx, rvy] = World.rockState(g.w, rk, g.t), dx = p.x - rx, dy = p.y - ry, d = Math.hypot(dx, dy), R = rk.r * 0.9 + p.r * 0.8;
         if (d >= R || d < 1e-9) continue;
         const nx = dx / d, ny = dy / d, vn = (p.vx - rvx) * nx + (p.vy - rvy) * ny;
@@ -532,10 +535,14 @@ const Combat = (() => {
     if (crash) { p.evadeT = 1.2; p.evadeUp = crash; }
     const dodge = p.evadeT > 0 ? null : scan.dodge;
     if (p.evadeT > 0) a = [p.evadeUp[0] * A_MAX, p.evadeUp[1] * A_MAX];
-    else if (dodge) a = dodge;
+    else if (dodge) {                                                      // dodge, but keep sliding toward the goal (never into the rock)
+      const dm = Math.hypot(dodge[0], dodge[1]) || 1, ox = dodge[0] / dm, oy = dodge[1] / dm, along = Math.min(0, a[0] * ox + a[1] * oy);
+      a = [dodge[0] + a[0] - along * ox, dodge[1] + a[1] - along * oy];
+    }
     else a = nudges(g, M, p, a);
     const am = Math.hypot(a[0], a[1]);
     if (am > A_MAX) { a[0] *= A_MAX / am; a[1] *= A_MAX / am; }
+    if (dodge && p.evadeT <= 0) { a[0] = 0.5 * (a[0] + p.ax); a[1] = 0.5 * (a[1] + p.ay); }   // dodges blend with the last command: no nose flip-flop
     p.ax = a[0]; p.ay = a[1];
 
     // -------- heading: point the engine when it is needed, else glare at you --------
@@ -612,29 +619,37 @@ const Combat = (() => {
     return null;
   }
 
-  // the most urgent rubble rock on a collision course -> a burn out of its way (sideways, plus braking against
-  //  the rock when sideways alone cannot clear it in time), else null.  Look-ahead = time to stop, 3-6 s.
+  // rubble rocks on a collision course -> a burn out of their way (sideways, plus braking against a rock when
+  //  sideways alone cannot clear it in time), else null.  Look-ahead = time to stop, 3-6 s.  Every threat pushes,
+  //  weighted by urgency, so a pirate threading a gap between two rocks is squeezed through it, not bounced
+  //  from one to the other (that used to trap pirates flying in formation with a ring).
   function rockScan(g, M, p) {
-    const stt = World.states(g.w, g.t), sp = Math.hypot(p.vx, p.vy), reach = 6 * sp + 30;
-    let best = null, tBest = Infinity;
+    const stt = World.states(g.w, g.t);
+    let sx = 0, sy = 0, wsum = 0;
     for (const band of M.bands) {
-      const [hx, hy] = stt[band.host.idx], dh = Math.hypot(p.x - hx, p.y - hy);
+      const [hx, hy, hvx, hvy] = stt[band.host.idx], dh = Math.hypot(p.x - hx, p.y - hy);
+      const reach = 6 * Math.hypot(p.vx - hvx, p.vy - hvy) + 30;                 // speed relative to the rubble's host (rocks ride it)
       if (dh < band.lo - reach || dh > band.hi + reach) continue;
       for (const rk of band.rocks) {
-        if (Math.abs(dh - rk.a) > rk.r + reach) continue;
+        if (rk.gone || Math.abs(dh - rk.a) > rk.r + rk.ae + reach) continue;
         const [rx, ry, rvx, rvy] = World.rockState(g.w, rk, g.t), dx = p.x - rx, dy = p.y - ry, vx = p.vx - rvx, vy = p.vy - rvy;
         const v2 = vx * vx + vy * vy, v = Math.sqrt(v2) || 1, T = clamp(v / A_MAX + 1, 3, 6);
+        if (v2 > 0.01 && dx * vx + dy * vy >= 0) continue;                    // already pulling away from it
         const tc = v2 > 1e-9 ? clamp(-(dx * vx + dy * vy) / v2, 0, T) : 0;
         const mx = dx + vx * tc, my = dy + vy * tc, md = Math.hypot(mx, my), clear = rk.r + p.r + DODGE_GAP;
-        if (md >= clear || tc >= tBest) continue;
-        tBest = tc;
+        if (md >= clear) continue;
+        if (-(dx * vx + dy * vy) / (Math.hypot(dx, dy) || 1) < 1 && md > rk.r + p.r + 1) continue;   // drifting together slower than 1 m/s: ease past it
         const ox = md > 0.3 ? mx / md : -vy / v, oy = md > 0.3 ? my / md : vx / v;
         const need = 2 * (clear - md) / Math.max(0.25, tc * tc);              // sideways accel to clear it in time
-        const brake = need > 0.7 * A_MAX ? 1 : v > 6 ? 0.5 : 0;
-        best = [ox * A_MAX - vx / v * A_MAX * brake, oy * A_MAX - vy / v * A_MAX * brake];
+        const brake = tc < 0.3 ? 0 : need > 0.7 * A_MAX ? 1 : v > 6 ? 0.5 : 0;   // alongside it already: just step aside
+        const wgt = (1 - md / clear) / (tc + 0.5);
+        sx += wgt * (ox - vx / v * brake); sy += wgt * (oy - vy / v * brake); wsum += wgt;
       }
     }
-    return { dodge: best };
+    if (!wsum) return { dodge: null };
+    const m = Math.hypot(sx, sy);
+    if (m < 0.25 * wsum) return { dodge: null };                               // pushes cancel: the gap is centred, carry on
+    return { dodge: [sx / m * A_MAX, sy / m * A_MAX] };
   }
   const inRubble = (g, M, p, pad) => M.bands.some((band) => {
     const [hx, hy] = World.bodyState(g.w, band.host, g.t), dh = Math.hypot(p.x - hx, p.y - hy);
@@ -650,10 +665,10 @@ const Combat = (() => {
       const dx = p.x - o.x, dy = p.y - o.y, d = Math.hypot(dx, dy);
       if (d < 24 && d > 1e-6) { ax += dx / d * 1.2; ay += dy / d * 1.2; }
     }
-    const c = g.w.byId.ceres;
+    const c = g.w.byId.mochi;
     if (c) {
       const [cx, cy] = stt[c.idx], dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy);
-      if (d < SAFE_CERES + 60 && d > 1e-6) { ax += dx / d * 2; ay += dy / d * 2; }
+      if (d < SAFE_MOCHI + 60 && d > 1e-6) { ax += dx / d * 2; ay += dy / d * 2; }
     }
     if (stationsOn() && typeof Stations.byId === 'function') {
       const ru = Stations.byId(g, 'rusts');
@@ -676,8 +691,8 @@ const Combat = (() => {
   // standoff points never sit inside the Hub's patrol radius or Rust's bubble
   function keepOut(g, x, y) {
     const out = (cx, cy, R) => { const dx = x - cx, dy = y - cy, d = Math.hypot(dx, dy) || 1; if (d < R) { x = cx + dx / d * R; y = cy + dy / d * R; } };
-    const c = g.w.byId.ceres;
-    if (c) { const [cx, cy] = World.bodyState(g.w, c, g.t); out(cx, cy, SAFE_CERES + 40); }
+    const c = g.w.byId.mochi;
+    if (c) { const [cx, cy] = World.bodyState(g.w, c, g.t); out(cx, cy, SAFE_MOCHI + 40); }
     const ru = stationsOn() && typeof Stations.byId === 'function' ? Stations.byId(g, 'rusts') : null;
     if (ru) { const [rx, ry] = ru.state(g.t); out(rx, ry, (Stations.SAFE_R || 260) + 30); }
     return [x, y];
@@ -931,7 +946,7 @@ const Combat = (() => {
     if (!(M.nearD < HINT_R)) return M.lootNear && g.mode === 'ship' && g.status === 'flying'
       ? { pri: 52, text: 'Pirate loot! Fly through the sparkles to scoop it up. Tab targets it so you can match speed.' } : null;
     const why = hostileTo(g), near = M.pirates.filter((p) => !p.gone), fleeing = near.find((p) => p.state === 'flee');
-    const shop = stationsOn() ? "Rust's (Big Potato's L5)" : 'the shop';
+    const shop = stationsOn() ? "Rust's (circling Big Potato)" : 'the shop';
     if (why === 'docked') return { pri: 35, text: 'Pirates are waiting outside. They never shoot docked ships, so take your time.' };
     if (why) return null;
     if (g.mode === 'eva') return { pri: 60, text: `Pirates! On foot you're a sitting duck: your laser only reaches ${Math.round(g.S.laserRange || 7)} m. Board the ship (E)!` };
@@ -1302,7 +1317,7 @@ const Combat = (() => {
   }
 
   return { list: (g) => (st(g) ? st(g).pirates : []), spawn, fire, zoneAt, hostileTo: (g) => hostileTo(g), armed,
-           kill: (g, p, why = 'test') => kill(g, st(g), p, why), ZONES, CREW, PERS, SAFE_CERES, WARP_R };
+           kill: (g, p, why = 'test') => kill(g, st(g), p, why), ZONES, CREW, PERS, SAFE_MOCHI, WARP_R };
 })();
 
 if (typeof module !== 'undefined') module.exports = Combat;

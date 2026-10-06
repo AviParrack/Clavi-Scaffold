@@ -1,5 +1,5 @@
 // ======================================================================
-//  STATIONS  —  Ceres Hub, Kiwi Outpost and Rust's on analytic circular
+//  STATIONS  —  Mochi Hub, Kiwi Outpost and Rust's (round Big Potato) on analytic circular
 //  Kepler rails; docking (F), the 'hub' spawn, nav targets (the docking
 //  ports), rendezvous coaching, keeper chatter and toon art.
 //  API: Stations.list(g), dockedAt(g), byId(g, id), dock(g, id, instant),
@@ -40,15 +40,15 @@ const Stations = (() => {
 
   const DEFS = [
     {
-      id: 'hub', name: 'Ceres Hub', kind: 'hub', keeper: 'Dockmaster Dot', short: 'Dot',
-      host: 'ceres', orbit: () => 420, phase: () => 2.75, r: 16, ext: 27, port: [13, 0], pdir: [1, 0],   // nose retrograde: W drops you
+      id: 'hub', name: 'Mochi Hub', kind: 'hub', keeper: 'Dockmaster Dot', short: 'Dot',
+      host: 'mochi', orbit: () => 420, phase: () => 2.75, r: 16, ext: 27, port: [13, 0], pdir: [1, 0],   // nose retrograde: W drops you
       col: '#9fd8ff', icon: ['#9fd8ff', '#4f86b8', '#e6f6ff'],
       tabs: ['services', 'sell', 'ship', 'suit'], fuelMult: 1, repairMult: 1,
       buy: { ...ORE(1), ...GEMS(1), ...SALV(1), jelly: 0.8 },
-      blurb: (st) => `Fuel, fixes and fries. Circular orbit ${st.orbitR} m from Ceres' centre (${st.orbitR - st.hostBody.R} m up), ` +
+      blurb: (st) => `Fuel, fixes and fries. Circular orbit ${st.orbitR} m from Mochi's centre (${st.orbitR - st.hostBody.R} m up), ` +
         `one lap every ${lap(st.period)}. The habitat ring spins at ${(RING_W * 60 / (2 * Math.PI)).toFixed(1)} rpm, so the crew ` +
-        `feels ${RING_G} m/s², Ceres-normal.`,
-      hello: 'Welcome to Ceres Hub, rookie! Tap W to fly.', hi: 'Ceres Hub here. Dock any time, rookie!',
+        `feels ${RING_G} m/s², Mochi-normal.`,
+      hello: 'Welcome to Mochi Hub, rookie! Tap W to fly.', hi: 'Mochi Hub here. Dock any time, rookie!',
       lines: ['Easy on my paint. Under 1.5 m/s, please.', 'Prograde goes up, retrograde goes down. Really.',
               'Fuel, fixes and fries. Mostly fuel.', 'Lower orbit = faster orbit. Blame Kepler.',
               'Bring me ice, I bring you money.', 'The ring spins so the coffee stays put.'],
@@ -71,18 +71,16 @@ const Stations = (() => {
     },
     {
       id: 'rusts', name: "Rust's", kind: 'black', keeper: 'Rust', short: 'Rust',
-      host: 'ceres', needs: ['ceres', 'potato'], r: 15, ext: 18, port: [1.5, 9],
-      orbit: (w) => w.byId.potato.a, phase: (w) => w.byId.potato.phase - Math.PI / 3, rate: (w) => w.byId.potato.n,   // Potato's own rail, 60° back
+      host: 'potato', r: 15, ext: 18, port: [1.5, 9], orbit: () => 600, phase: () => 2.0,   // a lazy circle round Big Potato
       col: '#ff7eb6', icon: ['#ff7eb6', '#b0306e', '#ffd6ea'], noPirates: true,
       tabs: ['services', 'sell', 'weapons'], fuelMult: 1.5, repairMult: 0.85,
       buy: { ...ORE(0.75), platinum: 0.95, ...GEMS(1.25), opal: 1.3, voidopal: 1.3, ...SALV(1.5), core: 1.4, jelly: 1.6 },
-      blurb: (st, w) => `No names, no receipts. Parked at Big Potato's trailing L5 point, 60° behind it on the same ${st.orbitR} m orbit. ` +
-        'Around Jupiter, L5 is stable (hello, Trojans), but Big Potato has ' +
-        `${(100 * w.byId.potato.mu / (w.byId.potato.mu + st.hostBody.mu)).toFixed(1)}% of the pair's mass, past Routh's 3.85% limit, ` +
-        'and Kiwi keeps tugging, so Rust station-keeps with a leaf blower. Pirates leave Rust\'s alone.',
+      blurb: (st) => `No names, no receipts. Parked ${st.orbitR} m from Big Potato's centre, one lap every ${lap(st.period)} at ` +
+        `${(st.orbitR * st.n).toFixed(1)} m/s. Out here Big Potato's Hill sphere reaches ${(st.hostBody.hill / 1000).toFixed(1)} km, ` +
+        'so Ember barely tugs and nobody needs a leaf blower. Pirates leave Rust\'s alone.',
       hello: 'No names, no receipts. Pirates stay out.',
       lines: ['Scrap, gems, jelly. I buy what others won\'t.', 'Pirates owe me money. They keep away.',
-              'Guns? Orion pulse units? Cash only.', 'L5, kid. Big Potato does half the parking.',
+              'Guns? Orion pulse units? Cash only.', 'Big Potato does the parking. I do the pricing.',
               'It all fell off a freighter. Honest.'],
       bye: ['NO REFUNDS!', 'DON\'T GET SHOT!', 'COME BACK RICH!', 'YOU SAW NOTHING!'],
     },
@@ -403,7 +401,7 @@ const Stations = (() => {
     if (g.navId) return null;
     if (g.status === 'landed') return cargoHint(g);
     if (g.status !== 'flying') return null;
-    const np = nearestPort(g), m = g.mod.stations, landed = g.done.land_ceres !== undefined;
+    const np = nearestPort(g), m = g.mod.stations, landed = g.done.land_mochi !== undefined;
     if (np && m.left && m.left.id === np.st.id && np.q.d < 300 && (g.t - m.left.t < 25 || (!landed && np.st.id === 'hub')))
       return { pri: 14, text: `Free flying! Retrograde (pink marker) drops you toward ${np.st.hostBody.name}; prograde (yellow) climbs.` };
     if (np && np.q.d < 150 && landed) return { pri: 14, text: `${np.st.name} is right here: press H to target its dock, match speed, then F.` };
@@ -642,9 +640,9 @@ const Stations = (() => {
   }
 
 
-  // ---------------- Ceres Hub: spinning habitat ring, solar wings, nav lights, a sign ----------------
+  // ---------------- Mochi Hub: spinning habitat ring, solar wings, nav lights, a sign ----------------
   //  The long truss hangs radially (a long body in orbit settles that way: the gravity gradient), and the
-  //  dock faces retrograde (+x), so a docked nose points retrograde and W gently drops you toward Ceres.
+  //  dock faces retrograde (+x), so a docked nose points retrograde and W gently drops you toward Mochi.
 
   const GREY = ['#bdb7da', '#7d77a3', '#efedff'], CREAM = ['#ffe0a3', '#d29a52', '#fff6dc'];
   const PANEL = ['#4f78e0', '#2c4699', '#bcd2ff'], RINGC = ['#eeeaff', '#a99fd4', '#ffffff'];
@@ -656,7 +654,7 @@ const Stations = (() => {
     turned(P, -10.7, 7.8, 0.75, (Q) => toon(Q, () => { c.beginPath(); c.ellipse(0, 0, 1.6, 0.7, 0, Math.PI, 2 * Math.PI); c.closePath(); }, GREY, 0.3, null));
     light(P, -11.3, 9.0, '255,255,255', P.t % 2 < 0.12, 0.45);
     turned(P, 0, 0, -Math.PI / 2, hubBody);                          // drawn with the truss along x and the collar up, turned a quarter
-    if (P.detail) porthole(P, 1.6, 0, 2.0, '#ffb3c7', (x, y, R) => {      // Dot wears a headset (upright: her up is away from Ceres)
+    if (P.detail) porthole(P, 1.6, 0, 2.0, '#ffb3c7', (x, y, R) => {      // Dot wears a headset (upright: her up is away from Mochi)
       c.beginPath(); c.arc(x, y + R * 0.15, R * 0.95, Math.PI * 0.15, Math.PI * 0.85); ink(P, R * 0.12);
       c.beginPath(); c.arc(x + R * 0.9, y - R * 0.05, R * 0.18, 0, 2 * Math.PI); c.fillStyle = '#ff9f1c'; c.fill();
     });
@@ -703,14 +701,14 @@ const Stations = (() => {
     c.restore();
   }
 
-  // hangs from the boom toward Ceres (the gravity gradient points down there)
+  // hangs from the boom toward Mochi (the gravity gradient points down there)
   function hubSign(P, x, y) {
     const c = P.c, sway = Math.sin(P.t * 0.7) * 0.04;
     turned(P, x, y, sway, (Q) => {
       cable(Q, -2.6, 0, -5.2, -6.4); cable(Q, 2.6, 0, 5.2, -6.4);
       rr(c, -7.8, -11.4, 15.6, 5, 1); c.fillStyle = PAPER; c.fill(); ink(Q);
       rr(c, -7.8, -11.4, 15.6, 1.2, 0.6); c.fillStyle = '#ffe2b0'; c.fill();
-      text(Q, 'CERES HUB', 0, -8.1, 2.5, INK);
+      text(Q, 'MOCHI HUB', 0, -8.1, 2.5, INK);
       text(Q, 'fuel · fixes · fries', 0, -10.4, 1.05, '#6d5f8a', 600);
     });
   }
@@ -910,7 +908,7 @@ const Stations = (() => {
     c.beginPath(); c.moveTo(x - 0.62, y + 0.1); c.lineTo(x + 0.62, y + 0.1); c.strokeStyle = '#fff4dc'; c.lineWidth = 0.35; c.stroke();
   }
 
-  // tethered junk hangs toward Ceres: in orbit the tidal gradient really does pull it "down"
+  // tethered junk hangs toward Mochi: in orbit the tidal gradient really does pull it "down"
   function hangingScrap(P) {
     const c = P.c, items = [[-6.5, -5.0, 5.0, 'gear'], [-0.8, -5.3, 6.4, 'duck'], [4.8, -5.2, 4.0, 'wrench']];
     items.forEach(([x, y, L, kind], k) => {
@@ -991,6 +989,7 @@ const Stations = (() => {
       const [x, y] = st.state(g.t), [sx, sy] = kit.toScreen(x, y), rs = st.r * kit.cam.zoom;
       if (!kit.onScreen(sx, sy, 0)) { if (st === tg && !kit.edgeArrow) edgeArrow(g, kit, st, sx, sy); continue; }   // the core lays out its own
       if (rs > 110 || st === tg) continue;                          // big: the art speaks; targeted: the core labels it
+      if (st.orbitR * kit.cam.zoom < 14) continue;                  // belt-scale map: it sits on its host's dot, whose label says enough
       let oy = Math.max(st.ext * kit.cam.zoom, ICON_PX) + 14;
       if (st === at) { const [, qy] = kit.toScreen(g.sh.x, g.sh.y); if (qy > sy) oy = -oy - 2; }    // keep the label off the docked ship
       const m = g.mod.stations, known = m.visited[st.id] || m.met[st.id];
@@ -1047,11 +1046,11 @@ const Stations = (() => {
   });
   on = Game.mods.includes(mod);
   if (on) {
-    const dockSpawn = (id) => (g) => { if (!dock(g, id, true)) Game.landAt(g, g.w.byId.ceres, Math.PI / 2); };
-    Game.addSpawn('hub', 'docked at Ceres Hub', dockSpawn('hub'));
+    const dockSpawn = (id) => (g) => { if (!dock(g, id, true)) Game.landAt(g, g.w.byId.mochi, Math.PI / 2); };
+    Game.addSpawn('hub', 'docked at Mochi Hub', dockSpawn('hub'));
     Game.addSpawn('outpost', 'docked at Kiwi Outpost', dockSpawn('outpost'));
     Game.addSpawn('rusts', "docked at Rust's", dockSpawn('rusts'));
-    Game.addGoals([{ id: 'undock', order: 10, reward: 25, text: 'Undock from Ceres Hub (tap W)',
+    Game.addGoals([{ id: 'undock', order: 10, reward: 25, text: 'Undock from Mochi Hub (tap W)',
                      test: (g) => !!(g.mod.stations && g.mod.stations.leftHub) }]);
   }
 

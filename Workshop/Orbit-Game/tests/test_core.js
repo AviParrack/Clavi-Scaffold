@@ -12,25 +12,26 @@ function check(name, ok, info = '') {
   ok ? nPass++ : nFail++;
 }
 const fresh = (spawn = 'pad') => Game.create(7, spawn, { fresh: true });
+const WMAX = CONFIG.sim.warps[CONFIG.sim.warps.length - 1];
 
 
 // ---------------- 1. terrain grid ----------------
 {
-  const g = fresh(), ceres = g.w.byId.ceres, T = Terrain.of(ceres);
+  const g = fresh(), mochi = g.w.byId.mochi, T = Terrain.of(mochi);
   let inside = 0, outside = 0, n = 0;
   for (let k = 0; k < 400; k++) {
-    const th = k / 400 * 2 * Math.PI, R = World.surfaceR(ceres, th);
+    const th = k / 400 * 2 * Math.PI, R = World.surfaceR(mochi, th);
     n++;
     if (Terrain.solid(T, (R - 0.6) * Math.cos(th), (R - 0.6) * Math.sin(th))) inside++;
     if (!Terrain.solid(T, (R + 0.6) * Math.cos(th), (R + 0.6) * Math.sin(th))) outside++;
   }
   check('grid matches the drawn outline (±0.6 m)', inside === n && outside === n, `${inside}/${n} just inside solid, ${outside}/${n} just outside empty`);
   const ores = {}; for (const m of T.grid) if (m > Terrain.REG) ores[Terrain.MATS[m].id] = (ores[Terrain.MATS[m].id] || 0) + 1;
-  check('Ceres has ice and iron veins', ores.ice > 1000 && ores.iron > 200, JSON.stringify(ores));
-  const hit = Terrain.collideCircle(T, 0, World.surfaceR(ceres, Math.PI / 2) + 3, 4);
+  check('Mochi has ice and iron veins', ores.ice > 1000 && ores.iron > 200, JSON.stringify(ores));
+  const hit = Terrain.collideCircle(T, 0, World.surfaceR(mochi, Math.PI / 2) + 3, 4);
   check('collideCircle pushes up out of the ground', hit && hit.ny > 0.95 && hit.depth > 0.5 && hit.depth < 1.6, hit ? `n (${hit.nx.toFixed(2)}, ${hit.ny.toFixed(2)}) depth ${hit.depth.toFixed(2)}` : 'no hit');
   const ray = Terrain.raycast(T, 0, 320, 0, -1, 40);
-  check('raycast straight down finds the surface', ray && Math.abs(ray.ly - World.surfaceR(ceres, Math.PI / 2)) < 0.4, ray ? `hit at y ${ray.ly.toFixed(2)}` : 'miss');
+  check('raycast straight down finds the surface', ray && Math.abs(ray.ly - World.surfaceR(mochi, Math.PI / 2)) < 0.4, ray ? `hit at y ${ray.ly.toFixed(2)}` : 'miss');
 }
 
 
@@ -74,26 +75,30 @@ function dropOn(bodyId, speed, th = 1.0) {
 
   const g2 = dropOn('kiwi', 4.5);
   check('medium hit bounces and dents the hull', g2.sh.hull < g2.S.hull && g2.status !== 'dead', `hull ${g2.sh.hull.toFixed(0)}, ${g2.status}`);
-  const g3 = dropOn('ceres', 12);
+  const g3 = dropOn('mochi', 12);
   check('fast hit destroys the ship', g3.status === 'dead', g3.crashMsg);
   H.run(g3, 2, { pressed: ['KeyR'] });
   check('R after a crash respawns a fresh ship', g3.status !== 'dead' && g3.sh.hull === g3.S.hull, `${g3.status} at ${g3.spawn}`);
 }
 {
-  const g = fresh('pad'), b = g.w.byId.ceres, [bx, by] = World.bodyState(g.w, b, g.t);
+  const g = fresh('pad'), b = g.w.byId.mochi, [bx, by] = World.bodyState(g.w, b, g.t);
   for (let i = 0; i < 40; i++) Game.dig(g, b, g.sh.x, g.sh.y - g.S.radius - 0.5, 3.5, 5);
   H.run(g, 30, {});
   check('ship falls when the ground under it is dug away', g.status === 'flying' || (g.status === 'landed' && g.land.ly < g.sh.y - by - 0.1 + 100), `${g.status}`);
   H.run(g, 240, {});
-  check('...and settles lower in the hole', g.status === 'landed' && g.sh.y - by < World.surfaceR(b, Math.PI / 2) + g.S.radius - 0.5, `${g.status} at local y ${(g.sh.y - by).toFixed(1)}`);
+  const by2 = World.bodyState(g.w, b, g.t)[1];                       // Mochi rides its rail round Ember meanwhile: compare in its frame
+  check('...and settles lower in the hole', g.status === 'landed' && g.sh.y - by2 < World.surfaceR(b, Math.PI / 2) + g.S.radius - 0.5, `${g.status} at local y ${(g.sh.y - by2).toFixed(1)}`);
 }
 
 
 // ---------------- 4. pickups: settle on the ground, ship scoops them ----------------
 {
-  const g = fresh('pad'), b = g.w.byId.ceres, [bx, by] = World.bodyState(g.w, b, g.t);
-  const p = Game.spawnPickup(g, { x: bx + 20, y: by + World.surfaceR(b, Math.atan2(by + 300, 20)) + 3, item: 'ice', qty: 5 });
+  const g = fresh('pad'), b = g.w.byId.mochi;
+  let [bx, by] = World.bodyState(g.w, b, g.t);
+  const [, , bvx, bvy] = World.bodyState(g.w, b, g.t);
+  const p = Game.spawnPickup(g, { x: bx + 20, y: by + World.surfaceR(b, Math.atan2(300, 20)) + 3, vx: bvx, vy: bvy, item: 'ice', qty: 5 });
   H.run(g, 300, {});
+  [bx, by] = World.bodyState(g.w, b, g.t);
   check('pickup falls and comes to rest on the surface', p.rest && Math.abs(Math.hypot(p.x - bx, p.y - by) - World.surfaceR(b, Math.atan2(p.y - by, p.x - bx))) < 1, p.rest ? `rests at alt ${(Math.hypot(p.x - bx, p.y - by) - World.surfaceR(b, Math.atan2(p.y - by, p.x - bx))).toFixed(2)}` : 'still moving');
   Game.spawnPickup(g, { x: g.sh.x + 1, y: g.sh.y, vx: g.sh.vx, vy: g.sh.vy, item: 'iron', qty: 10 });
   H.run(g, 5, {});
@@ -102,6 +107,21 @@ function dropOn(bodyId, speed, th = 1.0) {
   const n = Game.addCargo(g, 'scrap', 1000);
   check('cargo hold caps by mass', g.sh.cargoKg <= g.S.cargoCap && n === Math.floor((g.S.cargoCap - 10) / 10), `added ${n} scrap, hold ${g.sh.cargoKg} kg`);
 }
+{                                                                     // ore tossed up next to a landed ship, then max warp
+  for (const fd of [1 / 60, 1 / 20]) {
+    const g = fresh('pad'), b = g.w.byId.mochi, R = World.rng(9), [bx, by, bvx, bvy] = World.bodyState(g.w, b, g.t), ps = [];
+    for (let i = 0; i < 40; i++) {
+      const th = Math.PI / 2 + 0.3 + i * 0.01, r = World.surfaceR(b, th) + 1 + 6 * R(), sp = 3 * R(), a = 2 * Math.PI * R();
+      ps.push(Game.spawnPickup(g, { x: bx + r * Math.cos(th), y: by + r * Math.sin(th), vx: bvx + sp * Math.cos(a), vy: bvy + sp * Math.sin(a), item: 'ice', qty: 1 }));
+    }
+    let worst = 0;
+    for (let f = 0; f < 3; f++) { g.warpIdx = CONFIG.sim.warps.length - 1; const t0 = Date.now(); Game.update(g, H.input(), fd); worst = Math.max(worst, Date.now() - t0); }
+    const [cx, cy] = World.bodyState(g.w, b, g.t);
+    const under = ps.filter((p) => Terrain.solid(Terrain.of(b), p.x - cx, p.y - cy) || Math.hypot(p.x - cx, p.y - cy) < World.surfaceR(b, Math.atan2(p.y - cy, p.x - cx)) - 1).length;
+    check(`loose ore settles at ${g.warp}x (${Math.round(1 / fd)} fps frames), none falls through`, under === 0 && ps.every((p) => p.rest),
+          `${ps.filter((p) => p.rest).length}/40 resting, ${under} underground, ${(g.t).toFixed(0)} s sim, slowest frame ${worst} ms`);
+  }
+}
 
 
 // ---------------- 5. warp caps ----------------
@@ -109,26 +129,74 @@ function dropOn(bodyId, speed, th = 1.0) {
   const g = fresh('belt');
   g.warpIdx = CONFIG.sim.warps.length - 1;
   H.run(g, 3, {});
-  check('co-orbiting the rubble: warp only caps when a rock is closing', g.warp === 64 || g.rockTTC < 20 || g.nearDist < 8, `warp ${g.warp}x, clearance ${g.nearDist.toFixed(0)} m, ttc ${g.rockTTC.toFixed(0)} s, ${g.warpWhy}`);
+  check('co-orbiting the rubble: warp only caps when a rock is closing', g.warp === WMAX || g.rockTTC < 20 || g.nearDist < 8, `warp ${g.warp}x, clearance ${g.nearDist.toFixed(0)} m, ttc ${g.rockTTC.toFixed(0)} s, ${g.warpWhy}`);
   const rk = g.w.rocks.find((r) => r.r > 3), [rx, ry, rvx, rvy] = World.rockState(g.w, rk, g.t), D = rk.r + g.S.radius + 30;
-  Object.assign(g.sh, { x: rx + D, y: ry, vx: rvx - 2, vy: rvy });
+  Object.assign(g.sh, { x: rx + D, y: ry, vx: rvx - 2, vy: rvy }); Game.refresh(g);
+  check('a straight-line hit that Mochi\'s tide curves away (17 m miss) is no rock warning', g.rockTTC === Infinity, `ttc ${g.rockTTC}`);
+  Object.assign(g.sh, { x: rx + D, y: ry, vx: rvx - 4, vy: rvy });
   g.warpIdx = CONFIG.sim.warps.length - 1; Game.refresh(g); H.run(g, 1, {});
-  check('a rock closing at 2 m/s caps warp to 4x', g.warp <= CONFIG.sim.nearWarp && /rock/.test(g.warpWhy), `warp ${g.warp}x, ttc ${g.rockTTC.toFixed(1)} s, ${g.warpWhy}`);
+  check('a rock closing at 4 m/s caps warp to 4x', g.warp <= CONFIG.sim.nearWarp && /rock/.test(g.warpWhy), `warp ${g.warp}x, ttc ${g.rockTTC.toFixed(1)} s, ${g.warpWhy}`);
   Object.assign(g.sh, { x: rx + rk.r + g.S.radius + 6, y: ry, vx: rvx - 2, vy: rvy }); Game.refresh(g); H.run(g, 1, {});
   check('...and to 1x with a hint a few seconds out', g.warp === 1 && /Rock ahead/.test(Game.hint(g)), `warp ${g.warp}x: ${Game.hint(g)}`);
   H.run(g, 1, { keys: ['KeyA'] });
   check('firing thrusters drops warp to 1x and resets the pick', g.warp === 1 && g.warpIdx === 0, `warp ${g.warp}x`);
-  const g2 = fresh('orbit'); Object.assign(g2.sh, { x: 0, y: 1300, vx: 0, vy: 0 }); g2.everFlew = true;   // far out, falling
+  const g2 = fresh('orbit'), [mx, my, mvx, mvy] = World.bodyState(g2.w, g2.w.byId.mochi, g2.t);
+  Object.assign(g2.sh, { x: mx, y: my + 1300, vx: mvx, vy: mvy }); g2.everFlew = true;   // 1.3 km above Mochi, falling from rest
   g2.warpIdx = CONFIG.sim.warps.length - 1;
   H.run(g2, 2, {});
-  check('far from everything: full 64x', g2.warp === 64, `warp ${g2.warp}x  clearance ${g2.nearDist.toFixed(0)} m`);
+  check(`far from everything: full ${WMAX}x`, g2.warp === WMAX && g2.status === 'flying', `warp ${g2.warp}x  ${g2.status}  clearance ${g2.nearDist.toFixed(0)} m`);
+}
+
+
+// ---------------- 5b. big warps never jump past a warning (a 1024x frame at 20 fps covers 51 s) ----------------
+{
+  const WI = CONFIG.sim.warps.length - 1;
+  // coast at a body, the player holding max warp until it drops to 1x: how long before the end did it drop?
+  const lead = (id, D, v, fd) => {
+    const g = fresh('orbit'), b = g.w.byId[id], [bx, by, bvx, bvy] = World.bodyState(g.w, b, g.t), th = 2.0;
+    Object.assign(g.sh, { x: bx + D * Math.cos(th), y: by + D * Math.sin(th), vx: bvx - v * Math.cos(th), vy: bvy - v * Math.sin(th), omega: 0 });
+    g.everFlew = true; Game.refresh(g);
+    let t1 = null;
+    for (let f = 0; f < 4000 && g.status === 'flying'; f++) {
+      if (t1 === null) g.warpIdx = WI;
+      Game.update(g, H.input(), fd);
+      if (t1 === null && g.warp === 1) t1 = g.t;
+    }
+    return { dead: g.status === 'dead', lead: t1 === null ? -1 : g.t - t1, msg: g.crashMsg };
+  };
+  const runs = [['pretzel', 1300, 10], ['pretzel', 1500, 25], ['truffle', 1500, 50], ['ember', 20000, 0]].map(([id, D, v]) => ({ id, v, ...lead(id, D, v, 1 / 20) }));
+  check('coasting into a body at max warp (20 fps): 1x comes ~20 s before impact', runs.every((r) => r.dead && r.lead > 18),
+        runs.map((r) => `${r.id} ${r.v} m/s: ${r.lead.toFixed(1)} s`).join(', '));
+  check('...a star dive too (SIZZLE)', /SIZZLE/.test(runs[3].msg), runs[3].msg);
+
+  // fly straight at a lone belt rock with max warp held every frame: it must hit (no tunnelling), and only at <= 4x
+  const g0 = fresh('pad'), RK = g0.w.rocks.find((r) => r.host === g0.w.root && r.swarm === -1 && r.r > 4 &&
+    g0.w.rocks.every((o) => o === r || o.host !== g0.w.root || Math.hypot(...World.rockState(g0.w, o, 0).slice(0, 2).map((c, i) => c - World.rockState(g0.w, r, 0)[i])) > 1500));
+  const out = [];
+  for (const fd of [1 / 60, 1 / 20]) for (const v of [30, 40]) for (const gap0 of [450, 650, 900]) {
+    const g = fresh('pad'), rk = g.w.rocks[RK.id], [rx, ry, rvx, rvy] = World.rockState(g.w, rk, g.t), d = Math.hypot(rx, ry), ux = rx / d, uy = ry / d;
+    const D = gap0 + rk.r + g.S.radius;
+    g.status = 'flying'; g.landedOn = null; g.land = null; g.everFlew = true;
+    Object.assign(g.sh, { x: rx + ux * D, y: ry + uy * D, vx: rvx - ux * v, vy: rvy - uy * v, omega: 0 }); Game.refresh(g);
+    let res = 'missed';
+    for (let f = 0; f < 3000 && res === 'missed'; f++) {
+      g.warpIdx = WI; const hull = g.sh.hull;
+      Game.update(g, H.input(), fd);
+      const [x2, y2, vx2, vy2] = World.rockState(g.w, rk, g.t);
+      if (g.sh.hull < hull) res = g.warp <= CONFIG.sim.nearWarp ? 'hit' : `hit at ${g.warp}x`;
+      else if ((g.sh.x - x2) * (g.sh.vx - vx2) + (g.sh.y - y2) * (g.sh.vy - vy2) > 0 && Math.hypot(g.sh.x - x2, g.sh.y - y2) > rk.r + 30) res = 'tunnelled';
+    }
+    out.push(res);
+  }
+  check('flying at a rock with max warp held: always hit (never tunnelled), always capped to <= 4x first', out.every((r) => r === 'hit'), `rock ${RK.id} r ${RK.r.toFixed(1)} m: ${out.join(', ')}`);
 }
 
 
 // ---------------- 6. docking hold & release ----------------
 {
-  const g = fresh('orbit'), c = g.w.byId.ceres;
-  const st = (t) => { const r = 420, n = Math.sqrt(c.mu / r ** 3), th = n * t; return [r * Math.cos(th), r * Math.sin(th), -r * n * Math.sin(th), r * n * Math.cos(th)]; };
+  const g = fresh('orbit'), c = g.w.byId.mochi;
+  const st = (t) => { const r = 420, n = Math.sqrt(c.mu / r ** 3), th = n * t, [cx, cy, cvx, cvy] = World.bodyState(g.w, c, t);
+                      return [cx + r * Math.cos(th), cy + r * Math.sin(th), cvx - r * n * Math.sin(th), cvy + r * n * Math.cos(th)]; };
   Game.dock(g, { name: 'Test Port', state: st, ang: Math.PI / 2 });
   H.run(g, 60, {});
   const s = st(g.t);
@@ -144,8 +212,8 @@ function dropOn(bodyId, speed, th = 1.0) {
   Game.dealDamage(g, { x: g.sh.x + 2, y: g.sh.y, r: 1, dmg: 10, kind: 'bullet', team: 'pirate' });
   Game.dealDamage(g, { x: g.sh.x, y: g.sh.y, r: 1, dmg: 10, kind: 'bullet', team: 'player' });
   check('dealDamage hits other teams only', g.sh.hull === h0 - 10, `hull ${h0} -> ${g.sh.hull}`);
-  const c = g.w.byId.ceres, hit = Game.raycast(g, 0, 400, 0, -1, 200, { targets: false });
-  check('raycast hits Ceres from above', hit && hit.body === c && Math.abs(hit.y - World.surfaceR(c, Math.PI / 2)) < 0.4, hit ? `t ${hit.t.toFixed(2)}` : 'miss');
+  const c = g.w.byId.mochi, [cx, cy] = World.bodyState(g.w, c, g.t), hit = Game.raycast(g, cx, cy + 400, 0, -1, 200, { targets: false });
+  check('raycast hits Mochi from above', hit && hit.body === c && Math.abs(hit.y - cy - World.surfaceR(c, Math.PI / 2)) < 0.4, hit ? `t ${hit.t.toFixed(2)}` : 'miss');
   const hit2 = Game.raycast(g, g.sh.x + 10, g.sh.y, -1, 0, 20, { terrain: false });
   check('raycast hits the ship as a target', hit2 && hit2.target && hit2.target.id === 'ship' && Math.abs(hit2.t - (10 - g.S.radius)) < 1e-6, hit2 ? `t ${hit2.t.toFixed(2)}` : 'miss');
   const vx0 = g.sh.vx; Game.impulse(g, 5, 0);
@@ -161,6 +229,18 @@ function dropOn(bodyId, speed, th = 1.0) {
   check('targeting Dorito computes a closest approach', ap && ap.i >= 0 && isFinite(ap.d) && ap.dNow > 0, ap ? `now ${ap.dNow.toFixed(0)} m, closest ${ap.d.toFixed(0)} m in ${(ap.t - g.t).toFixed(0)} s` : 'none');
   H.run(g, 1, { pressed: ['Tab'] });
   check('Tab cycles to the next target', g.navId === 'body:kiwi', g.navId);
+  // out in the belt the path is drawn in the target's lane body frame: Mochi for the Hub or Kiwi (no corkscrew), Pretzel as itself
+  const gb = fresh('orbit'), m = gb.w.byId.mochi, [mx, my, mvx, mvy] = World.bodyState(gb.w, m, gb.t);
+  Object.assign(gb.sh, { x: mx * 1.17, y: my * 1.17 + 300, vx: mvx * 0.92, vy: mvy * 0.92 }); gb.everFlew = true;
+  const frames = ['station:hub', 'body:kiwi', 'body:seed', 'body:pretzel'].map((id) => { gb.navId = id; Game.refresh(gb); return `${id} -> ${gb.frame.id}`; });
+  check('belt path frame: Hub, Kiwi and Seed draw in Mochi\'s frame, Pretzel in its own', gb.ref === gb.w.root &&
+        frames.join() === 'station:hub -> body:mochi,body:kiwi -> body:mochi,body:seed -> body:mochi,body:pretzel -> body:pretzel', frames.join(', '));
+  const gs = fresh('swarm'), sw = gs.w.swarms.reduce((a, b) => (Math.hypot(gs.sh.x - World.swarmState(gs.w, a, 0)[0], gs.sh.y - World.swarmState(gs.w, a, 0)[1]) <
+                                                       Math.hypot(gs.sh.x - World.swarmState(gs.w, b, 0)[0], gs.sh.y - World.swarmState(gs.w, b, 0)[1]) ? a : b));
+  const [sx, sy] = World.swarmState(gs.w, sw, 0), ang = Math.acos((sx * mx + sy * my) / Math.hypot(sx, sy) / Math.hypot(mx, my)) * 180 / Math.PI;
+  check('the swarm spawn picks the swarm furthest round the belt from Mochi', gs.w.swarms.every((o) => {
+    const [ox, oy] = World.swarmState(gs.w, o, 0); return Math.acos((ox * mx + oy * my) / Math.hypot(ox, oy) / Math.hypot(mx, my)) * 180 / Math.PI <= ang + 1e-9; }),
+        `${sw.name}, ${ang.toFixed(0)}° from Mochi`);
 }
 
 
@@ -214,7 +294,7 @@ function dropOn(bodyId, speed, th = 1.0) {
   // landed: stays landed, nose along the ground normal
   const l = fresh('pad'); H.run(l, 30, {}); Game.save(l);
   const l2 = reload(); H.run(l2, 30, {});
-  check('reload while landed: still landed on the same body', l2.status === 'landed' && l2.landedOn === l2.w.byId.ceres && near(l2.sh.y, l.sh.y + 0, 0.05), `${l2.status} on ${l2.landedOn && l2.landedOn.name}`);
+  check('reload while landed: still landed on the same body', l2.status === 'landed' && l2.landedOn === l2.w.byId.mochi && near(l2.land.ly, l.land.ly, 0.05) && near(l2.land.lx, l.land.lx, 0.05), `${l2.status} on ${l2.landedOn && l2.landedOn.name}`);
 
   // dug holes and taken gems stay dug
   const t = fresh('pad'), b = t.w.byId.seed, T = Terrain.of(b), gm = T.gems[0];
@@ -224,12 +304,12 @@ function dropOn(bodyId, speed, th = 1.0) {
   Game.save(t);
   const t2 = reload(), T2 = Terrain.of(t2.w.byId.seed), dug2 = T2.grid.reduce((n, v) => n + (v === Terrain.DUG), 0);
   check('reload keeps dug holes and taken gems (no gem farming)', dug > 0 && dug2 === dug && T2.gems[0].state === 'taken', `${dug} dug -> ${dug2}, gem ${T2.gems[0].state}`);
-  const raw = JSON.parse(store['pocket-orbit-v3']);
-  check('save stays small', store['pocket-orbit-v3'].length < 20000, `${store['pocket-orbit-v3'].length} chars, bodies ${Object.keys(raw.ter).join(',')}`);
+  const raw = JSON.parse(store['pocket-orbit-v4']);
+  check('save stays small', store['pocket-orbit-v4'].length < 20000, `${store['pocket-orbit-v4'].length} chars, bodies ${Object.keys(raw.ter).join(',')}`);
 
   // ?fresh=1 / ?mods= games never write
   const n = Game.create(7, 'pad', { fresh: true, noSave: true }); n.money = 1;
-  check('noSave games never overwrite the save', Game.save(n) === false && JSON.parse(store['pocket-orbit-v3']).money !== 1);
+  check('noSave games never overwrite the save', Game.save(n) === false && JSON.parse(store['pocket-orbit-v4']).money !== 1);
   delete global.localStorage;
 
   // triple R: one tow, not two
@@ -246,7 +326,7 @@ function dropOn(bodyId, speed, th = 1.0) {
   // ion drive only burns in flight, from the ship
   const q = fresh('belt'); q.S.ionThrust = 0.25; q.S.ionTank = 0.4; q.sh.xe = 0.4;
   Game.toggleIon(q); const on = q.ionOn;
-  Game.landAt(q, q.w.byId.ceres, Math.PI / 2); H.run(q, 1, {});
+  Game.landAt(q, q.w.byId.mochi, Math.PI / 2); H.run(q, 1, {});
   check('ion drive: on in flight, switched off once not flying', on && !q.ionOn);
   const q2 = fresh('pad'); q2.S.ionThrust = 0.25; q2.sh.xe = 0.4; Game.toggleIon(q2);
   check('ion drive will not start on the pad', !q2.ionOn);
@@ -258,6 +338,151 @@ function dropOn(bodyId, speed, th = 1.0) {
         `omega ${w1.toFixed(3)} vs ${full.sh.omega.toFixed(3)} rad/s`);
   const k = fresh('pad'); k.money = 900; H.run(k, 1, { pressed: ['KeyR'] }); H.run(k, 1, { pressed: ['KeyR'] });
   check('R R on the pad still tows (not docked)', k.money < 900);
+}
+
+
+// ---------------- the starter trip: Mochi Hub -> Pretzel -> land -> Hub, stock ship, real game loop ----------------
+//  A tiny flight computer plays the careful pilot: it plans a coast that misses every rock and moon (waiting for
+//  a gap in Mochi's rings), burns it with the main engine, trims twice, hovers down onto Pretzel, then does the
+//  same back to the Hub port and presses F.  Attitude is set by fiat (no RCS); thrust, fuel and collisions are the game's.
+{
+  const AP = { mode: 'off', g: null, used: 0, frameDt: 1 / 20 };
+  Game.register({ id: 'autopilot', shipCtrl(g, ctrl) { if (AP.g === g && AP.mode !== 'off') steer(g, ctrl); } });
+  function steer(g, ctrl) {
+    const sh = g.sh, aMax = g.S.thrust / Physics.mass(sh, g.S);
+    if (AP.mode === 'burn') {                                       // deliver AP.dv by thrust, full throttle, then stop
+      const left = Math.hypot(AP.dv[0], AP.dv[1]);
+      if (left < 0.02) { AP.mode = 'off'; return; }
+      ctrl.main = Math.min(1, left / (aMax * AP.frameDt)); sh.ang = Math.atan2(AP.dv[1], AP.dv[0]); sh.omega = 0;
+      const got = ctrl.main * aMax * AP.frameDt;
+      AP.dv[0] -= AP.dv[0] / left * got; AP.dv[1] -= AP.dv[1] / left * got;
+      return;
+    }
+    const [px, py, pvx, pvy, pax, pay] = AP.point(g.t), dx = px - sh.x, dy = py - sh.y, d = Math.hypot(dx, dy), rvx = sh.vx - pvx, rvy = sh.vy - pvy;
+    const sp = Math.min(AP.vcap, Math.sqrt(0.6 * aMax * d), 0.3 * d), [gx, gy] = World.gravity(g.w, sh.x, sh.y, g.t);   // 'goto': braking curve + gravity feed-forward
+    const ax = ((d > 1e-6 ? dx / d * sp : 0) - rvx) / 1.5 + pax - gx, ay = ((d > 1e-6 ? dy / d * sp : 0) - rvy) / 1.5 + pay - gy, a = Math.hypot(ax, ay);
+    ctrl.main = a > 0.02 ? Math.min(1, a / aMax) : 0;
+    if (ctrl.main) { sh.ang = Math.atan2(ay, ax); sh.omega = 0; }
+    AP.d = d; AP.v = Math.hypot(rvx, rvy);
+  }
+  const withAcc = (st) => (t) => { const p = st(t), a = st(t + 0.05), b = st(t - 0.05); return [p[0], p[1], p[2], p[3], (a[2] - b[2]) / 0.1, (a[3] - b[3]) / 0.1]; };
+  const bodyPoint = (g, b, lx, ly) => withAcc((t) => { const s = World.bodyState(g.w, b, t); return [s[0] + lx, s[1] + ly, s[2], s[3]]; });
+
+  // free fall in World gravity after an optional finite burn (kick m/s at aB m/s^2); onStep(x, y, t, vx, vy, dt)
+  function coast(w, s, t, T, onStep, kick = null, aB = 1) {
+    let [x, y, vx, vy] = s, left = kick ? Math.hypot(kick[0], kick[1]) : 0, [ax, ay] = World.gravity(w, x, y, t);
+    const tEnd = t + T, ux = left ? kick[0] / left : 0, uy = left ? kick[1] / left : 0;
+    while (t < tEnd - 1e-9) {
+      const fa = left > 1e-9 ? aB : 0, dt = Math.min(fa ? Math.min(0.05, left / aB) : 0.5, tEnd - t);
+      vx += (ax + ux * fa) * dt / 2; vy += (ay + uy * fa) * dt / 2; x += vx * dt; y += vy * dt; t += dt;
+      [ax, ay] = World.gravity(w, x, y, t); vx += (ax + ux * fa) * dt / 2; vy += (ay + uy * fa) * dt / 2;
+      left -= fa * dt;
+      if (onStep) onStep(x, y, t, vx, vy, dt);
+    }
+    return [x, y, vx, vy];
+  }
+  // the kick that lands state s (at t0) on point P(t0 + T): Newton on the miss, numerical Jacobian, damped steps
+  function shoot(w, s, t0, T, P, guess, aB) {
+    const tgt = P(t0 + T);
+    let dv = guess ? guess.slice() : [(tgt[0] - s[0]) / T - s[2], (tgt[1] - s[1]) / T - s[3]];
+    for (let it = 0; it < 15; it++) {
+      const end = (d) => coast(w, s, t0, T, null, d, aB), e0 = end(dv), mx = e0[0] - tgt[0], my = e0[1] - tgt[1];
+      if (Math.hypot(mx, my) < 0.5) return { dv, arrive: e0 };
+      const ex = end([dv[0] + 0.01, dv[1]]), ey = end([dv[0], dv[1] + 0.01]);
+      const J = [[(ex[0] - e0[0]) / 0.01, (ey[0] - e0[0]) / 0.01], [(ex[1] - e0[1]) / 0.01, (ey[1] - e0[1]) / 0.01]], det = J[0][0] * J[1][1] - J[0][1] * J[1][0];
+      let sx = (J[1][1] * mx - J[0][1] * my) / det, sy = (-J[1][0] * mx + J[0][0] * my) / det;
+      const sm = Math.hypot(sx, sy); if (sm > 10) { sx *= 10 / sm; sy *= 10 / sm; }
+      dv = [dv[0] - sx, dv[1] - sy];
+    }
+    return null;
+  }
+  // closest the flight comes to a rock or a moon surface [m] (closest approach inside each step)
+  function clearance(g, s, t0, T, skip, kick, aB) {
+    let worst = Infinity, who = '';
+    const gap = (x, y, vx, vy, o, rr, h) => {
+      const dx = x - o[0], dy = y - o[1], ux = vx - o[2], uy = vy - o[3], u2 = ux * ux + uy * uy, tau = u2 > 1e-9 ? Math.max(0, Math.min(h, (dx * ux + dy * uy) / u2)) : 0;
+      return Math.hypot(dx - ux * tau, dy - uy * tau) - rr;
+    };
+    coast(g.w, s, t0, T, (x, y, t, vx, vy, h) => {
+      const st = World.states(g.w, t);
+      for (const rk of g.w.rocks) {
+        const hs = st[rk.host.idx];
+        if (rk.gone || Math.abs(Math.hypot(x - hs[0], y - hs[1]) - rk.a) > rk.ae + rk.r + 40) continue;
+        const d = gap(x, y, vx, vy, World.rockState(g.w, rk, t), rk.r + g.S.radius, h);
+        if (d < worst) { worst = d; who = `rock ${rk.id}`; }
+      }
+      for (const b of g.w.bodies) {
+        if (b === skip || b.star) continue;
+        const d = gap(x, y, vx, vy, st[b.idx], b.R * (1 + b.shape) + g.S.radius, h);
+        if (d < worst) { worst = d; who = b.name; }
+      }
+    }, kick, aB);
+    return { worst, who };
+  }
+  // cheapest clear transfer: go at t0 = now + wait (from(t0) = where we will be), coast T; cost = kick + match on arrival
+  function plan(g, P, from, skip) {
+    const aB = g.S.thrust / Physics.mass(g.sh, g.S);
+    let best = null, n = 0;
+    for (let wt = 0; wt <= 300; wt += 15) {
+      const t0 = g.t + wt, s = from(t0).slice(0, 4);
+      let guess = null;
+      for (const T of [500, 700, 900]) {
+        const sol = shoot(g.w, s, t0, T, P, guess, aB);
+        if (!sol) continue;
+        n++; guess = sol.dv;
+        const tg = P(t0 + T), cost = Math.hypot(...sol.dv) + Math.hypot(sol.arrive[2] - tg[2], sol.arrive[3] - tg[3]);
+        if (best && cost >= best.cost) continue;
+        const c = clearance(g, s, t0, T, skip, sol.dv, aB);
+        if (c.worst > 6) best = { wt, T, t0, dv: sol.dv, cost, gap: c.worst, who: c.who };
+      }
+    }
+    if (best) best.n = n;
+    return best;
+  }
+
+  const g = Game.create(7, 'hub', { fresh: true }); AP.g = g;
+  const hub = Stations.byId(g, 'hub'), pz = g.w.byId.pretzel, mochi = g.w.byId.mochi, dv0 = Physics.deltaV(g.sh, g.S), t0 = g.t, ms0 = Date.now();
+  const used = () => dv0 - Physics.deltaV(g.sh, g.S), notes = [];
+  const runUntil = (cond, max, warp = 1) => { for (let f = 0; f < max && g.status !== 'dead' && !cond(); f++) { if (warp > 1) Game.setWarp(g, warp); else g.warpIdx = 0; H.run(g, 1, {}, AP.frameDt); } };
+  const leg = (name) => { const l = `${name} t+${(g.t - t0).toFixed(0)} s, ${used().toFixed(1)} m/s used, hull ${g.sh.hull}`; notes.push(l); console.log('      ' + l); };
+  const aim = (point, vcap) => Object.assign(AP, { mode: 'goto', vcap, point, d: Infinity });
+  function transfer(P, from, skip, hold) {
+    const p = plan(g, P, from, skip);
+    if (!p) { leg('no clear transfer found'); return false; }
+    console.log(`      plan (${p.n} solved): wait ${p.wt} s, coast ${p.T} s, kick ${Math.hypot(...p.dv).toFixed(1)} + match ~${(p.cost - Math.hypot(...p.dv)).toFixed(1)} m/s, closest pass ${p.gap.toFixed(0)} m (${p.who})`);
+    if (hold) { runUntil(() => g.t >= p.t0 - 40, 1e6, 16); aim(hold, 3); }        // wait on the ground, climb to the start point
+    runUntil(() => g.t >= p.t0 - 1e-9, 1e6);
+    const aB = () => g.S.thrust / Physics.mass(g.sh, g.S), sol = shoot(g.w, [g.sh.x, g.sh.y, g.sh.vx, g.sh.vy], g.t, p.t0 + p.T - g.t, P, p.dv, aB());
+    Object.assign(AP, { mode: 'burn', dv: (sol || p).dv.slice() }); runUntil(() => AP.mode === 'off', 20 * 60);
+    for (const frac of [0.5, 0.85]) {                                                  // mid-course trims
+      runUntil(() => g.t >= p.t0 + frac * p.T, 1e6, 64);
+      const tr = shoot(g.w, [g.sh.x, g.sh.y, g.sh.vx, g.sh.vy], g.t, p.t0 + p.T - g.t, P, [0, 0], aB());
+      if (tr && Math.hypot(...tr.dv) > 0.05) { Object.assign(AP, { mode: 'burn', dv: tr.dv.slice() }); runUntil(() => AP.mode === 'off', 20 * 30); }
+    }
+    runUntil(() => g.t >= p.t0 + p.T - 2, 1e6, 64);
+    return true;
+  }
+
+  // out: undock, coast to 120 m over Pretzel's Mochi-facing side, hover down
+  const [mx, my] = World.bodyState(g.w, mochi, g.t), [qx, qy] = World.bodyState(g.w, pz, g.t), L = Math.hypot(mx - qx, my - qy), u = [(mx - qx) / L, (my - qy) / L];
+  const over = bodyPoint(g, pz, u[0] * 120, u[1] * 120), up = bodyPoint(g, pz, u[0] * 100, u[1] * 100);
+  H.run(g, 1, { keys: ['KeyW'] }, AP.frameDt); H.run(g, 1, {}, AP.frameDt); leg('undocked');
+  const s0 = [g.sh.x, g.sh.y, g.sh.vx, g.sh.vy], tA = g.t, drift = (t) => (t > tA + 1e-9 ? coast(g.w, s0, tA, t - tA) : s0);
+  transfer(over, drift, pz); leg('coasted to Pretzel');
+  aim(over, 3); runUntil(() => AP.d < 3 && AP.v < 0.3, 20 * 300); leg('holding 120 m over Pretzel');
+  aim(bodyPoint(g, pz, u[0] * (pz.R - 5), u[1] * (pz.R - 5)), 1); runUntil(() => g.status === 'landed', 20 * 300); AP.mode = 'off';
+  const landed = g.status === 'landed' && g.landedOn === pz, dvLand = used(); leg(`landed on ${g.landedOn ? g.landedOn.name : '?'}`);
+  H.run(g, 40, {}, AP.frameDt);
+  // back: wait on Pretzel for a gap, lift off, coast to 40 m outside the Hub port, close in, F
+  const near = withAcc((t) => { const p = hub.portState(t), [hx, hy] = World.bodyState(g.w, mochi, t), r = Math.hypot(p[0] - hx, p[1] - hy); return [p[0] + (p[0] - hx) / r * 40, p[1] + (p[1] - hy) / r * 40, p[2], p[3]]; });
+  transfer(near, up, mochi, up); leg('coasted back to the Hub');
+  aim(withAcc((t) => hub.portState(t)), 2); runUntil(() => AP.d < 5 && AP.v < 0.4, 20 * 300); AP.mode = 'off'; leg('at the Hub port');
+  H.run(g, 1, { pressed: ['KeyF'] }, AP.frameDt); H.run(g, 80, {}, AP.frameDt); leg(g.status);
+  const dvAll = used();
+  check('starter trip: Hub -> Pretzel, land (job done)', landed && g.done.pretzel !== undefined, `landed after ${dvLand.toFixed(0)} m/s`);
+  check('...and back to dock at the Hub, not a scratch on the hull', g.status === 'docked' && g.attach && /Hub/.test(g.attach.name) && g.sh.hull === g.S.hull,
+        `${g.status} at ${g.attach ? g.attach.name : '-'}, hull ${g.sh.hull}/${g.S.hull}, ${((g.t - t0) / 60).toFixed(0)} min of game time, ${((Date.now() - ms0) / 1000).toFixed(0)} s wall`);
+  check('...on well under half the stock tank (and inside v3\'s whole 131 m/s)', dvAll < 0.5 * dv0 && dvAll < 131, `${dvAll.toFixed(1)} of ${dv0.toFixed(0)} m/s (${(100 * dvAll / dv0).toFixed(0)}%)`);
 }
 
 console.log(`\n${nPass} passed, ${nFail} failed`);

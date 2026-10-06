@@ -1,6 +1,6 @@
 // ======================================================================
 //  EVA TESTS  —  step out only when landed, walking stays on the ground
-//  (Ceres, Kiwi, Seed), riding a moving rock, jump comes back down, Seed
+//  (Mochi, Kiwi, Seed), riding a moving rock, jump comes back down, Seed
 //  cannot be escaped, laser digs ore into the pack, gems + scanner, board
 //  unloads the pack, air runs out -> recall, tether recall, laser zaps a
 //  target, ship death while out, jobs, save/load, camera, NaN-free art, fuzz.
@@ -24,7 +24,8 @@ const finite = (...v) => v.every(Number.isFinite);
 
 // a test-only target the laser can zap (registered only because 'evatest' is in H.load's list)
 const dummy = { on: false, x: 0, y: 0, r: 0.6, dmg: 0, kinds: new Set() };
-Game.register({ id: 'evatest', targets: () => (dummy.on ? [{ id: 'dummy', team: 'bug', x: dummy.x, y: dummy.y, r: dummy.r, name: 'dummy',
+const dummyAt = (g) => { if (!dummy.b) return [dummy.x, dummy.y]; const [bx, by] = World.bodyState(g.w, dummy.b, g.t); return [bx + dummy.x, by + dummy.y]; };
+Game.register({ id: 'evatest', targets: (g) => (dummy.on ? [{ id: 'dummy', team: 'bug', x: dummyAt(g)[0], y: dummyAt(g)[1], r: dummy.r, name: 'dummy',
   hit: (g, d, kind) => { dummy.dmg += d; dummy.kinds.add(kind); } }] : []) });
 
 // land on a body at polar angle th and step out
@@ -35,6 +36,8 @@ function outOn(bodyId, th) {
   return g;
 }
 const mouseAt = (x, y, down = true) => ({ x, y, sx: 400, sy: 300, px: 0.05, down, pressed: false, released: false, button: 0 });
+// aim at a spot fixed on a body (local lx, ly): bodies ride rails now, so the world point moves every frame
+const mouseOn = (g, b, lx, ly, down = true) => { const [bx, by] = World.bodyState(g.w, b, g.t); return mouseAt(bx + lx, by + ly, down); };
 
 
 // ---------------- 1. stepping out only when landed ----------------
@@ -42,7 +45,7 @@ const mouseAt = (x, y, down = true) => ({ x, y, sx: 400, sy: 300, px: 0.05, down
   const g = fresh('orbit');
   H.run(g, 1, {}); H.run(g, 1, { pressed: ['KeyE'] });
   check('no stepping out in orbit', g.mode === 'ship' && !g.astro.on && !g.prompts.some((p) => p.key === 'KeyE'), `${g.status} ${g.mode}`);
-  const c = g.w.byId.ceres;
+  const c = g.w.byId.mochi;
   Game.dock(g, { name: 'Test Port', state: (t) => { const r = 420, n = Math.sqrt(c.mu / r ** 3); return [r * Math.cos(n * t), r * Math.sin(n * t), -r * n * Math.sin(n * t), r * n * Math.cos(n * t)]; }, ang: 0 });
   H.run(g, 1, {}); H.run(g, 1, { pressed: ['KeyE'] });
   check('no stepping out while docked', g.mode === 'ship' && !g.astro.on, g.status);
@@ -79,9 +82,9 @@ function walkTest(bodyId, th, secs) {
   return { g, b, frac: ground / Math.max(1, n), maxAlt, moved: Math.hypot(l1[0] - l0[0], l1[1] - l0[1]), maxV, recalled };
 }
 {
-  const r = walkTest('ceres', Math.PI / 2, 30);
-  check('Ceres: 30 s of walking stays on the ground', !r.recalled && r.frac > 0.97 && r.maxAlt < 1.6, `grounded ${(100 * r.frac).toFixed(1)}%, max alt ${r.maxAlt.toFixed(2)} m`);
-  check('Ceres: walking actually covers ground (~3 m/s)', r.moved > 20 && r.maxV < 3.3, `net ${r.moved.toFixed(1)} m (walks out and back), top speed ${r.maxV.toFixed(2)} m/s`);
+  const r = walkTest('mochi', Math.PI / 2, 30);
+  check('Mochi: 30 s of walking stays on the ground', !r.recalled && r.frac > 0.97 && r.maxAlt < 1.6, `grounded ${(100 * r.frac).toFixed(1)}%, max alt ${r.maxAlt.toFixed(2)} m`);
+  check('Mochi: walking actually covers ground (~3 m/s)', r.moved > 20 && r.maxV < 3.3, `net ${r.moved.toFixed(1)} m (walks out and back), top speed ${r.maxV.toFixed(2)} m/s`);
 }
 {
   const r = walkTest('kiwi', 1.0, 30);
@@ -102,7 +105,7 @@ function walkTest(bodyId, th, secs) {
 // walking never gets stuck on the 0.5 m dig grid: every rock, a few spots, both ways
 {
   const slow = [];
-  for (const id of ['ceres', 'kiwi', 'potato', 'dorito', 'glimmer', 'seed']) for (const th of [0.3, 2.5, 3.9]) for (const key of ['KeyA', 'KeyD']) {
+  for (const id of ['mochi', 'kiwi', 'potato', 'dorito', 'glimmer', 'seed']) for (const th of [0.3, 2.5, 3.9]) for (const key of ['KeyA', 'KeyD']) {
     const g = outOn(id, th), b = g.w.byId[id];
     if (!g.astro.on) { slow.push(`${id}@${th} no EVA`); continue; }
     let dist = 0, last = null;
@@ -121,14 +124,14 @@ function walkTest(bodyId, th, secs) {
 
 // ---------------- 3. jump comes back down; Seed cannot be escaped ----------------
 {
-  const g = outOn('ceres', Math.PI / 2), a0 = alt(g);
+  const g = outOn('mochi', Math.PI / 2), a0 = alt(g);
   H.run(g, 1, { pressed: ['KeyW'] });
   let maxA = 0, back = -1;
   for (let i = 0; i < 600; i++) { H.run(g, 1, {}); maxA = Math.max(maxA, alt(g) - a0); if (i > 10 && M(g).grounded && back < 0) back = i / 60; }
-  check('Ceres: a jump goes up and comes back down', maxA > 1.5 && maxA < 4 && back > 1 && back < 5, `apex +${maxA.toFixed(2)} m, back down after ${back.toFixed(2)} s`);
+  check('Mochi: a jump goes up and comes back down', maxA > 1.5 && maxA < 4 && back > 1 && back < 5, `apex +${maxA.toFixed(2)} m, back down after ${back.toFixed(2)} s`);
   const j0 = M(g).jet;
   H.run(g, 1, { pressed: ['KeyW'], keys: ['KeyW'] }); H.run(g, 120, { keys: ['KeyW'] });
-  check('Ceres: holding W after a jump lights the jetpack', M(g).jet < j0 - 1 && alt(g) - a0 > 3, `jet ${j0.toFixed(1)} -> ${M(g).jet.toFixed(1)} s, alt +${(alt(g) - a0).toFixed(1)} m`);
+  check('Mochi: holding W after a jump lights the jetpack', M(g).jet < j0 - 1 && alt(g) - a0 > 3, `jet ${j0.toFixed(1)} -> ${M(g).jet.toFixed(1)} s, alt +${(alt(g) - a0).toFixed(1)} m`);
   H.run(g, 600, {});
   check('...and you land again (jet refills on the ground)', M(g).grounded && M(g).jet > 0, `jet ${M(g).jet.toFixed(2)} s`);
 }
@@ -166,12 +169,12 @@ function findOre(g, b, mat, dMin, dMax) {
   return null;
 }
 {
-  const g0 = fresh('orbit'), c = g0.w.byId.ceres, ore = findOre(g0, c, 'ice', 1.0, 2.0);
+  const g0 = fresh('orbit'), c = g0.w.byId.mochi, ore = findOre(g0, c, 'ice', 1.0, 2.0);
   const r0 = World.surfaceR(c, ore.th), dth = (g0.S.radius + 1.6 + 2.5) / r0;
-  const g = outOn('ceres', ore.th + dth), T = Terrain.of(g.w.byId.ceres);
+  const g = outOn('mochi', ore.th + dth), T = Terrain.of(g.w.byId.mochi);
   const pre = Terrain.mat(T, ore.lx, ore.ly);
-  for (let i = 0; i < 25 * 60 && Terrain.mat(T, ore.lx, ore.ly) !== Terrain.DUG; i++) H.run(g, 1, { mouse: mouseAt(ore.lx, ore.ly) });
-  H.run(g, 120, { mouse: mouseAt(ore.lx, ore.ly, false) });
+  for (let i = 0; i < 25 * 60 && Terrain.mat(T, ore.lx, ore.ly) !== Terrain.DUG; i++) H.run(g, 1, { mouse: mouseOn(g, g.w.byId.mochi, ore.lx, ore.ly) });
+  H.run(g, 120, { mouse: mouseOn(g, g.w.byId.mochi, ore.lx, ore.ly, false) });
   check('laser digs a hole toward the cursor', pre === Terrain.MAT_ID.ice && Terrain.mat(T, ore.lx, ore.ly) === Terrain.DUG, `${Terrain.MATS[pre].id} -> ${Terrain.MATS[Terrain.mat(T, ore.lx, ore.ly)].id}`);
   check('dug ice flies into the backpack', g.pack.ice >= 5 && M(g).hauled >= 5, `pack ${JSON.stringify(g.pack)}, hauled ${M(g).hauled} kg`);
   check('beam and hover info while aiming', M(g).aimDir && finite(...M(g).aimDir), '');
@@ -193,9 +196,9 @@ function findOre(g, b, mat, dMin, dMax) {
   check('full hold: leftovers stay in the pack', g.mode === 'ship' && Game.kgOf(g.cargo) === g.S.cargoCap && g.pack.ice === 30 - room && toastHas(g, 'STAYS IN YOUR PACK'), `hold room ${room} kg, pack ${JSON.stringify(g.pack)}`);
 }
 {
-  const g0 = fresh('orbit'), c = g0.w.byId.ceres, ore = findOre(g0, c, 'iron', 1.0, 2.5);
-  const g = outOn('ceres', ore.th + (g0.S.radius + 1.6 + 2) / World.surfaceR(c, ore.th));
-  for (let i = 0; i < 30 * 60 && !g.pack.iron; i++) H.run(g, 1, { mouse: mouseAt(ore.lx, ore.ly) });
+  const g0 = fresh('orbit'), c = g0.w.byId.mochi, ore = findOre(g0, c, 'iron', 1.0, 2.5);
+  const g = outOn('mochi', ore.th + (g0.S.radius + 1.6 + 2) / World.surfaceR(c, ore.th));
+  for (let i = 0; i < 30 * 60 && !g.pack.iron; i++) H.run(g, 1, { mouse: mouseOn(g, c, ore.lx, ore.ly) });
   check('iron (hardness 2.2) digs too, just slower', g.pack.iron > 0, `pack ${JSON.stringify(g.pack)} after ${(g.t).toFixed(0)} s`);
   check('beam impact star takes a CSS colour string', M(g).beam && typeof M(g).beam.col === 'string', M(g).beam && JSON.stringify(M(g).beam.col));
 }
@@ -203,23 +206,23 @@ function findOre(g, b, mat, dMin, dMax) {
 
 // ---------------- 5. gems: scanner, digging one out, the gem job ----------------
 {
-  const g = outOn('ceres', Math.PI / 2), c = g.w.byId.ceres, T = Terrain.of(c);
+  const g = outOn('mochi', Math.PI / 2), c = g.w.byId.mochi, T = Terrain.of(c);
   const gm = T.gems.filter((x) => x.state === 'buried').sort((a, b) => (World.surfaceR(c, Math.atan2(a.ly, a.lx)) - Math.hypot(a.lx, a.ly)) - (World.surfaceR(c, Math.atan2(b.ly, b.lx)) - Math.hypot(b.lx, b.ly)))[0];
   const th = Math.atan2(gm.ly, gm.lx), depth = World.surfaceR(c, th) - Math.hypot(gm.lx, gm.ly);
   const far = T.gems.filter((x) => x !== gm && x.state === 'buried' && !x.seen);
   check('scanner (stock): far-away gems stay hidden', far.length > 5 && far.every((x) => !x.seen), `${far.length} unseen`);
-  const g2 = outOn('ceres', th + (g.S.radius + 1.6 + 1.2) / World.surfaceR(c, th)), gm2 = Terrain.of(g2.w.byId.ceres).gems.find((x) => x.lx === gm.lx);
+  const g2 = outOn('mochi', th + (g.S.radius + 1.6 + 1.2) / World.surfaceR(c, th)), gm2 = Terrain.of(g2.w.byId.mochi).gems.find((x) => x.lx === gm.lx);
   H.run(g2, 30, {});
-  const dGem = Math.hypot(g2.astro.x - gm2.lx, g2.astro.y - gm2.ly);
+  const [al2x, al2y] = local(g2, c), dGem = Math.hypot(al2x - gm2.lx, al2y - gm2.ly);
   check('scanner (stock): a gem within ~4 m becomes seen', dGem < 4 ? gm2.seen : true, `gem ${gm2.type} ${depth.toFixed(1)} m deep, ${dGem.toFixed(1)} m away, seen ${gm2.seen}`);
-  for (let i = 0; i < 40 * 60 && !(M(g2).gems > 0); i++) H.run(g2, 1, { mouse: mouseAt(gm2.lx, gm2.ly) });
+  for (let i = 0; i < 40 * 60 && !(M(g2).gems > 0); i++) H.run(g2, 1, { mouse: mouseOn(g2, c, gm2.lx, gm2.ly) });
   check('laser frees the gem and it lands in the pack', gm2.state === 'taken' && g2.pack[gm2.type] === 1 && M(g2).gems === 1, `pack ${JSON.stringify(g2.pack)}`);
   H.run(g2, 2, {});
   check('gem job done ($150)', g2.done.gem !== undefined, `money $${g2.money}`);
 
-  const g3 = outOn('ceres', Math.PI / 2);
+  const g3 = outOn('mochi', Math.PI / 2);
   g3.S.scanner = 2; H.run(g3, 30, {});
-  const T3 = Terrain.of(g3.w.byId.ceres);
+  const T3 = Terrain.of(g3.w.byId.mochi);
   check('deep scanner (S.scanner 2): every buried gem on the rock is seen', T3.gems.filter((x) => x.state === 'buried').every((x) => x.seen), `${T3.gems.length} gems`);
   g3.S.scanner = 1;
   const g4 = outOn('kiwi', 1.0), Tk = Terrain.of(g4.w.byId.kiwi); g4.S.scanner = 1; H.run(g4, 30, {});
@@ -231,7 +234,7 @@ function findOre(g, b, mat, dMin, dMax) {
 
 // ---------------- 6. the mine job ----------------
 {
-  const g = outOn('ceres', Math.PI / 2), $0 = g.money;
+  const g = outOn('mochi', Math.PI / 2), $0 = g.money;
   g.pack = { ice: 25 }; H.run(g, 2, {});
   check('mine job waits for 40 kg', g.done.mine === undefined && M(g).hauled === 25, `hauled ${M(g).hauled} kg`);
   g.pack.iron = 15; H.run(g, 2, {});
@@ -241,7 +244,7 @@ function findOre(g, b, mat, dMin, dMax) {
 
 // ---------------- 7. suit: air runs out -> HP drains -> emergency recall ----------------
 {
-  const g = outOn('ceres', Math.PI / 2);
+  const g = outOn('mochi', Math.PI / 2);
   g.pack = { iron: 12 }; M(g).o2 = 31; H.run(g, 120, {});
   check('air warning toast under 30 s', toastHas(g, 'AIR LOW'), g.toasts.map((t) => t.text).join(' | '));
   check('air-low hint', Game.hint(g).includes('Air low'), Game.hint(g));
@@ -260,7 +263,7 @@ function findOre(g, b, mat, dMin, dMax) {
 
 // ---------------- 8. tether: too far from the ship -> warning -> recall (pack kept) ----------------
 {
-  const g = outOn('ceres', Math.PI / 2), c = g.w.byId.ceres, th = Math.PI / 2 - 165 / 300;
+  const g = outOn('mochi', Math.PI / 2), c = g.w.byId.mochi, th = Math.PI / 2 - 165 / 300;
   const r = World.surfaceR(c, th) + 1.2;
   Object.assign(g.astro, { x: r * Math.cos(th), y: r * Math.sin(th), vx: 0, vy: 0 });
   g.pack = { ice: 10 }; H.run(g, 60, {});
@@ -270,7 +273,7 @@ function findOre(g, b, mat, dMin, dMax) {
   check('recall drops the stale "turn back" nag from the toast queue', !g.toasts.some((t) => t.key === 'evaTether' || t.key === 'evaO2'), g.toasts.map((t) => t.text).join(' | '));
 
   // HP hits 0 on the very frame the tether would reel you in: the suit failure wins, nothing left at 0 HP
-  const g2 = outOn('ceres', Math.PI / 2);
+  const g2 = outOn('mochi', Math.PI / 2);
   Object.assign(g2.astro, { x: r * Math.cos(th), y: r * Math.sin(th), vx: 0, vy: 0 });
   g2.pack = { ice: 10 }; H.run(g2, 2, {});
   Object.assign(M(g2), { lost: 5.999, o2: 0 }); g2.astro.hp = 0.01; H.run(g2, 1, {});
@@ -280,10 +283,10 @@ function findOre(g, b, mat, dMin, dMax) {
 
 // ---------------- 9. laser zaps a target ----------------
 {
-  const g = outOn('ceres', Math.PI / 2), [ux, uy] = [Math.cos(g.astro.ang), Math.sin(g.astro.ang)];
-  Object.assign(dummy, { on: true, x: g.astro.x + uy * 4, y: g.astro.y - ux * 4 + uy * 0.2, dmg: 0 });
-  dummy.x = g.astro.x + uy * 4 + ux * 0.2; dummy.y = g.astro.y - ux * 4 + uy * 0.2;
-  H.run(g, 60, { mouse: mouseAt(dummy.x, dummy.y) });
+  const g = outOn('mochi', Math.PI / 2), [ux, uy] = [Math.cos(g.astro.ang), Math.sin(g.astro.ang)];
+  const c = g.w.byId.mochi, [ax, ay] = local(g, c);
+  Object.assign(dummy, { on: true, b: c, x: ax + uy * 4 + ux * 0.2, y: ay - ux * 4 + uy * 0.2, dmg: 0 });   // sits on Mochi (local coords)
+  for (let i = 0; i < 60; i++) H.run(g, 1, { mouse: mouseOn(g, c, dummy.x, dummy.y) });
   check('laser damages a target (~laserDps)', Math.abs(dummy.dmg - g.S.laserDps) < g.S.laserDps * 0.25 && dummy.kinds.has('laser'), `${dummy.dmg.toFixed(1)} dmg in 1 s (dps ${g.S.laserDps})`);
   const h0 = g.sh.hull;
   dummy.on = false;
@@ -294,16 +297,16 @@ function findOre(g, b, mat, dMin, dMax) {
 
 // ---------------- 10. ship wrecked while you are out ----------------
 {
-  const g = outOn('ceres', Math.PI / 2);
+  const g = outOn('mochi', Math.PI / 2);
   g.pack = { ice: 5 };
   Game.die(g, 'test: hit by a meteor'); H.run(g, 10, {});
   check('ship dies: astronaut stays out, toast, no board prompt', g.astro.on && g.mode === 'eva' && toastHas(g, 'WRECKED') && !g.prompts.some((p) => p.key === 'KeyE'), g.prompts.map((p) => p.text).join(','));
   H.run(g, 1, { pressed: ['KeyR'] });
   check('R tows you home: fresh ship, back in it', g.status !== 'dead' && g.mode === 'ship' && !g.astro.on && Game.kgOf(g.pack) === 0, `${g.status} ${g.mode}`);
-  const g2 = outOn('ceres', Math.PI / 2);
+  const g2 = outOn('mochi', Math.PI / 2);
   Game.die(g2, 'test'); g2.astro.hp = 0; H.run(g2, 2, {});
   check('suit fails with the ship wrecked -> tow', g2.status !== 'dead' && g2.mode === 'ship' && !g2.astro.on, `${g2.status} ${g2.mode}`);
-  const g3 = outOn('ceres', Math.PI / 2);
+  const g3 = outOn('mochi', Math.PI / 2);
   H.run(g3, 1, { pressed: ['KeyR'] }); H.run(g3, 1, { pressed: ['KeyR'] });
   check('R R tow while on foot resets cleanly', g3.mode === 'ship' && !g3.astro.on && Game.first(g3, 'camera') === null && M(g3).beam === null, `${g3.status}`);
 }
@@ -313,7 +316,7 @@ function findOre(g, b, mat, dMin, dMax) {
 {
   const store = {};
   global.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
-  const g = outOn('ceres', Math.PI / 2);
+  const g = outOn('mochi', Math.PI / 2);
   g.pack = { ice: 15, salt: 1 }; H.run(g, 2, {});
   Game.save(g);
   const g2 = Game.create(7, 'pad');
@@ -351,7 +354,7 @@ function findOre(g, b, mat, dMin, dMax) {
   const mod = Game.mods.find((x) => x.id === 'eva');
   const draw = (g) => { [cam.x, cam.y] = [g.astro.x, g.astro.y]; for (const h of ['drawWorld', 'drawWorldTop', 'drawScreen', 'drawHUD']) mod[h](g, kit); };
   let frames = 0;
-  for (const id of ['ceres', 'kiwi', 'seed', 'glimmer']) {
+  for (const id of ['mochi', 'kiwi', 'seed', 'glimmer']) {
     const g = outOn(id, 1.3), [bx, by] = World.bodyState(g.w, g.w.byId[id], g.t);
     for (const zoom of [0.3, 4, 22, 80]) {
       cam.zoom = zoom;
@@ -373,7 +376,7 @@ function findOre(g, b, mat, dMin, dMax) {
   let rand = 12345; const rnd = () => { rand = (rand * 1103515245 + 12345) & 0x7fffffff; return rand / 0x7fffffff; };
   const keysAll = ['KeyA', 'KeyD', 'KeyW', 'KeyS', 'Space'];
   let worst = '', ok = true;
-  for (const id of ['ceres', 'dorito', 'kiwi', 'seed', 'potato', 'glimmer']) {
+  for (const id of ['mochi', 'dorito', 'kiwi', 'seed', 'potato', 'glimmer']) {
     const g = outOn(id, 0.3 + rnd() * 6), b = g.w.byId[id];
     let maxD = 0;
     for (let i = 0; i < 60 * 60; i++) {

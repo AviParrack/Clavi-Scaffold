@@ -2,7 +2,7 @@
 //  MAIN  —  input (keys, mouse, touch, warp buttons), URL params, loop
 //  ?debug=1 or #debug   overlay + self-test        ?seed=N   world layout
 //  ?dev=1 or #dev       dev mode: $50k, no save, T cycles spawn points
-//  ?spawn=pad|orbit|belt|kiwi|potato|glimmer|hub  (or #kiwi etc.)
+//  ?spawn=hub|outpost|rusts|pad|orbit|belt|kiwi|pretzel|potato|glimmer|swarm  (or #kiwi etc.)
 //  ?fresh=1             ignore the saved game
 // ======================================================================
 
@@ -34,7 +34,7 @@
     keys.add(e.code);
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
     if (e.repeat) return;
-    if (e.code === 'KeyM') { Render.cam.map = !Render.cam.map; Render.cam.userZoom = 1; return; }
+    if (e.code === 'KeyM') { Render.cycleMap(); return; }
     if (e.code === 'Equal' || e.code === 'NumpadAdd') { zoom(1.25); return; }
     if (e.code === 'Minus' || e.code === 'NumpadSubtract') { zoom(0.8); return; }
     pressed.push(e.code);
@@ -61,7 +61,7 @@
   const touch = {};
   document.querySelectorAll('[data-touch]').forEach((b) => {
     const k = b.dataset.touch, hold = !['map', 'spawn', 'use'].includes(k);
-    const on = (e) => { e.preventDefault(); if (hold) touch[k] = true; else if (k === 'map') Render.cam.map = !Render.cam.map; else pressed.push(k === 'use' ? 'KeyE' : 'KeyF'); };
+    const on = (e) => { e.preventDefault(); if (hold) touch[k] = true; else if (k === 'map') Render.cycleMap(); else pressed.push(k === 'use' ? 'KeyE' : 'KeyF'); };
     const off = (e) => { e.preventDefault(); touch[k] = false; };
     b.addEventListener('pointerdown', on);
     for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, off);
@@ -76,7 +76,7 @@
     if (k === 'pause') g.paused = !g.paused;
     if (k === 'up') Game.warpStep(g, +1);
     if (k === 'down') Game.warpStep(g, -1);
-    if (k === 'max') { g.paused = false; g.warpIdx = CONFIG.sim.warps.length - 1; if (g.warpMax < 64) Game.toast(g, `WARP CAPPED AT ${g.warpMax}x: ${g.warpWhy}`.toUpperCase(), '#ffd166', 'warp'); }
+    if (k === 'max') { g.paused = false; g.warpIdx = CONFIG.sim.warps.length - 1; if (g.warpMax < CONFIG.sim.warps[CONFIG.sim.warps.length - 1]) Game.toast(g, `WARP CAPPED AT ${g.warpMax}x: ${g.warpWhy}`.toUpperCase(), '#ffd166', 'warp'); }
   }));
   let lastWarpTxt = '';
   function updateWarpBar() {
@@ -89,13 +89,14 @@
   // ---------------- debug self-test ----------------
 
   if (DEBUG) {
-    const w = World.create({ ...CONFIG, bodies: [CONFIG.bodies[0]], rubble: [] }, 1), c = w.bodies[0], r0 = 360, S = CONFIG.ship;
+    const lone = { ...CONFIG.bodies.find((b) => b.id === 'mochi'), parent: null, a: 0 };
+    const w = World.create({ ...CONFIG, bodies: [lone], rubble: [] }, 1), c = w.bodies[0], r0 = 360, S = CONFIG.ship;
     const sh = Physics.newShip(S); Object.assign(sh, { x: r0, y: 0, vx: 0, vy: Math.sqrt(c.mu / r0) });
     const T = 2 * Math.PI * Math.sqrt(r0 ** 3 / c.mu), E0 = Physics.orbitRel(sh, c, 0, w).E, dt = CONFIG.sim.dt;
     let t = 0; const off = { main: 0, ion: 0, rot: 0, kill: false, fwd: 0, left: 0 };
     for (; t < T; t += dt) Physics.step(sh, off, t, dt, w, S);
     const err = Math.abs(Math.hypot(sh.x, sh.y) - r0) / r0, dE = Math.abs((Physics.orbitRel(sh, c, t, w).E - E0) / E0);
-    console.log(`[orbit] self-test: one Ceres orbit, radius err ${err.toExponential(2)}, energy err ${dE.toExponential(2)}  ${err < 1e-3 && dE < 1e-6 ? 'PASS' : 'FAIL'}`);
+    console.log(`[orbit] self-test: one Mochi orbit, radius err ${err.toExponential(2)}, energy err ${dE.toExponential(2)}  ${err < 1e-3 && dE < 1e-6 ? 'PASS' : 'FAIL'}`);
   }
 
   // ---------------- loop (a thrown error is shown, never freezes the game) ----------------

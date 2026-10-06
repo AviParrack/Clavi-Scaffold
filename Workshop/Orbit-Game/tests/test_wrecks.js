@@ -102,7 +102,7 @@ safely('catalogue', () => {
         `${orb.map((w) => w.id).join(' ')} | ${crashed.map((w) => w.id).join(' ')}`);
   check('unique ids and names; every wreck has a crew log and a fact', new Set(L.map((w) => w.id)).size === L.length &&
         new Set(L.map((w) => w.name)).size === L.length && L.every((w) => w.who && w.log && typeof w.fact === 'function'));
-  check('crashed on Ceres, Dorito, Kiwi, Big Potato, Glimmer (+ Seed)', ['ceres', 'dorito', 'kiwi', 'potato', 'glimmer', 'seed'].every((b) => crashed.some((w) => w.host === b)));
+  check('crashed on Mochi, Dorito, Kiwi, Big Potato, Glimmer (+ Seed)', ['mochi', 'dorito', 'kiwi', 'potato', 'glimmer', 'seed'].every((b) => crashed.some((w) => w.host === b)));
   check('3 wrecks guarantee a blueprint', L.filter((w) => w.loot && w.loot.bp === 1).length === 3, L.filter((w) => w.loot && w.loot.bp === 1).map((w) => w.id).join(' '));
   check('job "wreck": order 75, pays $150', Game.GOALS.some((x) => x.id === 'wreck' && x.order === 75 && x.reward === 150));
   check('every fact text renders (no undefined / NaN)', L.every((w) => { const s = w.fact(w, g.w); return s && !/undefined|NaN/.test(s); }));
@@ -121,8 +121,8 @@ safely('rails', () => {
       eV = Math.max(eV, Math.abs(Math.hypot(vx, vy) - vc) / vc);
       eRad = Math.max(eRad, Math.abs(rx * vx + ry * vy) / (wr.a * vc));
       if (Math.sign(rx * vy - ry * vx) !== (wr.dir || 1)) dirOk = false;
-      const hd = 1e-3, sp = wr.state(t + hd), sm = wr.state(t - hd);
-      eDer = Math.max(eDer, Math.hypot((sp[0] - sm[0]) / (2 * hd) - s[2], (sp[1] - sm[1]) / (2 * hd) - s[3]) / vc);
+      const hd = 1e-3, sp = wr.state(t + hd), sm = wr.state(t - hd), hp = World.bodyState(g.w, wr.hostBody, t + hd).slice(), hm = World.bodyState(g.w, wr.hostBody, t - hd);   // relative to the host: its belt
+      eDer = Math.max(eDer, Math.hypot((sp[0] - hp[0] - sm[0] + hm[0]) / (2 * hd) - vx, (sp[1] - hp[1] - sm[1] + hm[1]) / (2 * hd) - vy) / vc);   //  angle's roundoff cancels
       const ha = 0.05, rel = (tt) => { const a = wr.state(tt), b = World.bodyState(g.w, wr.hostBody, tt); return [a[0] - b[0], a[1] - b[1]]; };
       const p = rel(t + ha), q = rel(t), m = rel(t - ha), k = mu / wr.a ** 3;
       eAcc = Math.max(eAcc, Math.hypot((p[0] - 2 * q[0] + m[0]) / ha ** 2 + k * q[0], (p[1] - 2 * q[1] + m[1]) / ha ** 2 + k * q[1]) / (mu / wr.a ** 2));
@@ -136,7 +136,8 @@ safely('rails', () => {
   const tu = Wrecks.byId(g, 'tuesday'), dor = g.w.byId.dorito;
   let eL4 = 0;
   for (const t of [0, 777, 5e4, 3e6]) {
-    const a = tu.state(t), b = World.bodyState(g.w, dor, t), ang = Math.atan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1]);
+    const m = World.bodyState(g.w, g.w.byId.mochi, t), a = tu.state(t).map((v, i) => v - m[i]), b = World.bodyState(g.w, dor, t).map((v, i) => i < 4 ? v - m[i] : v);   // relative to Mochi
+    const ang = Math.atan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1]);
     eL4 = Math.max(eL4, Math.abs(-ang - Math.PI / 3), Math.abs(Math.hypot(a[0], a[1]) - dor.a));
   }
   check("The Plucky Tuesday sits 60° ahead of Dorito, on Dorito's orbit", eL4 < 1e-9, `max err ${eL4.toExponential(1)}`);
@@ -188,17 +189,20 @@ safely('honest rails', () => {
     const e = pebble(g.w, P, pro, t0, 12 * np.period, (x, y, t, r) => r > 0.5 * np.a && r < 2 * np.a);
     broke.push(!e);
   }
-  check(`Big Potato at ${np.a} m: forward orbits break up (backward ones above survive)`, broke.every(Boolean), `prograde broken: ${broke.filter(Boolean).length}/${broke.length}`);
+  //  v3: Potato was a moon of Ceres and prograde orbits at 220 m broke up. Now it has its own 1.9 km Hill sphere,
+  //  so 220 m (0.12 Hill) is quiet both ways: the wreck flies backwards against traffic, nothing more (the fact says just that)
+  check(`Big Potato at ${np.a} m: deep in its Hill sphere now, forward orbits hold too`, broke.every((b) => !b) && !/break|tide/i.test(np.fact(np, g.w)),
+        `prograde broken: ${broke.filter(Boolean).length}/${broke.length}, Hill ${P.hill.toFixed(0)} m`);
 
   const tu = Wrecks.byId(g, 'tuesday'), lead = (w, x, y, t) => {               // degrees ahead of Dorito
     const d = World.bodyState(w, w.byId.dorito, t); return Math.atan2(d[0] * y - d[1] * x, d[0] * x + d[1] * y) * 180 / Math.PI;
   };
-  const w2 = World.create({ ...CONFIG, bodies: CONFIG.bodies.filter((b) => b.id === 'ceres' || b.id === 'dorito'), rubble: [] }, 7);
+  const w2 = World.create({ ...CONFIG, bodies: CONFIG.bodies.filter((b) => b.id === 'mochi' || b.id === 'dorito'), rubble: [] }, 7);
   let lib = [99, -99];
-  pebble(w2, w2.byId.ceres, tu.state(0), 0, 20 * tu.period, (x, y, t) => { const a = lead(w2, x, y, t); lib = [Math.min(lib[0], a), Math.max(lib[1], a)]; });
+  pebble(w2, w2.byId.mochi, tu.state(0), 0, 20 * tu.period, (x, y, t) => { const a = lead(w2, x, y, t); lib = [Math.min(lib[0], a), Math.max(lib[1], a)]; });
   check("Tuesday: without Kiwi, Dorito's L4 holds a pebble for 20 laps", lib[0] > 35 && lib[1] < 85, `librates ${lib[0].toFixed(0)}°..${lib[1].toFixed(0)}° ahead of Dorito`);
   let lostAt = null;
-  pebble(g.w, g.w.byId.ceres, tu.state(0), 0, 3 * tu.period, (x, y, t) => { if (lostAt == null && Math.abs(lead(g.w, x, y, t) - 60) > 25) lostAt = t; });
+  pebble(g.w, g.w.byId.mochi, tu.state(0), 0, 3 * tu.period, (x, y, t) => { if (lostAt == null && Math.abs(lead(g.w, x, y, t) - 60) > 25) lostAt = t; });
   check('...with Kiwi it is kicked loose within 3 laps (so the autopilot puffs it back)', lostAt != null && tu.keeper,
         lostAt != null ? `left L4 after ${lostAt.toFixed(0)} s` : 'stayed');
 });
@@ -231,7 +235,7 @@ safely('nav names', () => {
   const nav = () => Game.navTargets(g).filter((n) => n.kind === 'wreck');
   const tu = () => nav().find((n) => n.id === 'wreck:tuesday');
   check('all 11 wrecks are nav targets', nav().length === 11 && nav().every((n) => fin(n.state(g.t)) && n.r > 0));
-  check('far wreck shows as "Unknown signal (Ceres orbit)"', tu().name === 'Unknown signal (Ceres orbit)' && !Wrecks.isSeen(g, 'tuesday'), tu().name);
+  check('far wreck shows as "Unknown signal (Mochi orbit)"', tu().name === 'Unknown signal (Mochi orbit)' && !Wrecks.isSeen(g, 'tuesday'), tu().name);
   check('crashed unknown says where: "Unknown signal (on Glimmer)"', nav().find((n) => n.id === 'wreck:finders').name === 'Unknown signal (on Glimmer)');
   park(g, 'tuesday', Wrecks.SEE_R - 30); H.run(g, 1, {});
   check('flying within 400 m reveals its name', Wrecks.isSeen(g, 'tuesday') && tu().name === 'The Plucky Tuesday' &&
@@ -245,6 +249,34 @@ safely('nav names', () => {
   const gs = fresh('pad'); gs.navId = 'wreck:longexp'; H.run(gs, 2, {});
   const h3 = mod.hint(gs);
   check('targeting an unseen one: "fly within 400 m to identify it"', h3 && /Unknown signal on|Unknown signal Glimmer|identify/.test(h3.text), h3 && h3.text);
+});
+
+
+// ---------------- 4b. big warps: a 1024x frame (51 s at 20 fps) never jumps past the "ahead" cap ----------------
+safely('big-warp approach', () => {
+  const out = [];
+  for (const v of [15, 30]) {
+    const g = fresh('orbit'), wr = Wrecks.byId(g, 'longexp'), D = 1400, th = 2.2, [x0, y0] = wr.state(g.t);
+    const sx = x0 + D * Math.cos(th), sy = y0 + D * Math.sin(th);
+    let T = D / v, [ax, ay] = wr.state(g.t + T), vx = (ax - sx) / T, vy = (ay - sy) / T;
+    for (let it = 0; it < 6; it++) {                                  // aim by shooting: correct the velocity by the predicted miss
+      const P = Physics.predict({ ...g.sh, x: sx, y: sy, vx, vy }, g.t, g.w, T * 1.3, 4000).pts;
+      let b = null; for (const [px, py, t] of P) { const [wx, wy] = wr.state(t), d = Math.hypot(px - wx, py - wy); if (!b || d < b.d) b = { d, ex: wx - px, ey: wy - py, t }; }
+      vx += b.ex / (b.t - g.t); vy += b.ey / (b.t - g.t);
+    }
+    Object.assign(g.sh, { x: sx, y: sy, vx, vy, omega: 0 }); g.everFlew = true; Game.refresh(g);
+    let lead = null, reached = false;
+    for (let f = 0; f < 4000 && g.status === 'flying' && !reached; f++) {
+      g.warpIdx = CONFIG.sim.warps.length - 1;
+      Game.update(g, H.input(), 1 / 20);
+      const [wx, wy, wvx, wvy] = wr.state(g.t), d = Math.hypot(g.sh.x - wx, g.sh.y - wy);
+      if (lead === null && g.warp <= 4) lead = (d - wr.hitR - g.S.radius) / Math.hypot(g.sh.vx - wvx, g.sh.vy - wvy);
+      reached = d < wr.hitR + g.S.radius * 0.8 + 0.5;
+    }
+    out.push({ v, lead, reached });
+  }
+  check('coasting into a derelict at max warp (20 fps): capped to 4x ~20 s out, then bumps it', out.every((o) => o.reached && o.lead > 15),
+        out.map((o) => `${o.v} m/s: ${o.lead === null ? 'never capped' : o.lead.toFixed(1) + ' s out'}${o.reached ? '' : ', missed'}`).join(', '));
 });
 
 
@@ -350,7 +382,7 @@ safely('overflow', () => {
   check('...and 10 s later it is still loitering by the wreck', far.length && Math.max(...far) < 30 && fin(far), `max ${Math.max(...far).toFixed(1)} m`);
   check('overflow hangs on tethers (kinematic: rides the rail, not the tides)', ps.every((p) => p.kinematic && p.tether));
 
-  Game.circularAround(g, g.w.byId.ceres, 5200, 1.0); Game.setWarp(g, 64);
+  Game.circularAround(g, g.w.byId.mochi, 3000, 1.0); Game.setWarp(g, 64);              // 3 km: far, still inside Mochi's 4 km Hill sphere
   H.run(g, 600, {});
   const s2 = wr.state(g.t), off = loot(g, 'longexp').map((p) => Math.hypot(p.x - s2[0], p.y - s2[1]) - wr.r);
   check('10 min at 64x, ship far away: every crate still hangs by the wreck', g.warp === 64 && off.length === ps.length && off.every((d) => d > 0.5 && d < 3) && fin(off),
@@ -388,14 +420,16 @@ safely('popups and puffs', () => {
 safely('coaching', () => {
   const later = (g, id) => { g.navId = 'wreck:' + id; H.run(g, 1, {}); st(g).tgt.t0 -= 60; H.run(g, 1, {}); return mod.hint(g); };
   const g1 = fresh('orbit'), h1 = later(g1, 'tuesday');
-  check('low Ceres orbit -> Tuesday: "burn prograde to raise your orbit"', h1 && /Burn prograde/.test(h1.text) && h1.pri === 39, h1 && h1.text);
-  const g2 = fresh('potato'), h2 = later(g2, 'notpirates');
+  check('low Mochi orbit -> Tuesday: "burn prograde to raise your orbit"', h1 && /Burn prograde/.test(h1.text) && h1.pri === 39, h1 && h1.text);
+  const g2 = fresh('potato'), npw = Wrecks.byId(g2, 'notpirates'), [nx, ny] = npw.state(g2.t), [px, py] = World.bodyState(g2.w, g2.w.byId.potato, g2.t);
+  Game.circularAround(g2, g2.w.byId.potato, 100, Math.atan2(ny - py, nx - px) + Math.PI);      // prograde, across Potato from the wreck
+  const h2 = later(g2, 'notpirates');
   check('prograde round Big Potato -> backwards wreck: "the other way"', h2 && /other way/.test(h2.text), h2 && h2.text);
   const g3 = fresh('orbit'), h3 = later(g3, 'lettuce');
-  check('Ceres orbit -> wreck round Kiwi: "get to Kiwi first"', h3 && /Get to Kiwi first/.test(h3.text), h3 && h3.text);
+  check('Mochi orbit -> wreck round Kiwi: "get to Kiwi first"', h3 && /Get to Kiwi first/.test(h3.text), h3 && h3.text);
   const g4 = fresh('orbit'), h4 = later(g4, 'couch');
   check('crashed target: land near it', h4 && /lies on Big Potato/.test(h4.text), h4 && h4.text);
-  const g5 = fresh('orbit'); Game.circularAround(g5, g5.w.byId.ceres, 380, Wrecks.byId(g5, 'esa4').ph + 1.4); H.run(g5, 1, {});
+  const g5 = fresh('orbit'); Game.circularAround(g5, g5.w.byId.mochi, 380, Wrecks.byId(g5, 'esa4').ph + 1.4); H.run(g5, 1, {});
   const h5 = later(g5, 'esa4');
   check('same orbit as ESA #4, ahead of it: "higher orbits are slower"', h5 && /behind\. Higher orbits are slower/.test(h5.text), h5 && h5.text);
   const texts = [];
@@ -486,8 +520,8 @@ safely('blueprints', () => {
 
 // ---------------- 11. no EVA module: a landed ship drills a crashed wreck open ----------------
 safely('drill', () => {
-  const g = fresh('pad'), m = st(g), wr = Wrecks.byId(g, 'lithobraker'), ceres = g.w.byId.ceres;
-  Game.landAt(g, ceres, wr.th + 16 / ceres.R); g.everFlew = true; H.run(g, 2, {});
+  const g = fresh('pad'), m = st(g), wr = Wrecks.byId(g, 'lithobraker'), mochi = g.w.byId.mochi;
+  Game.landAt(g, mochi, wr.th + 16 / mochi.R); g.everFlew = true; H.run(g, 2, {});
   const pr = prompt(g, /^Drill The Lithobraker open$/);
   check('landed 16 m away: [F] Drill The Lithobraker open', !!pr && /drill/.test(mod.hint(g).text), g.prompts.map((p) => p.text).join(' | '));
   Game.addCargo(g, 'ice', g.S.cargoCap - 3);
@@ -499,8 +533,9 @@ safely('drill', () => {
   const inHold = minus(g.cargo, c0), spilled = lootCount(g, 'lithobraker');
   const all = { ...inHold }; for (const k in spilled) all[k] = (all[k] || 0) + spilled[k];
   check('full hold: the rest falls out beside the hull, on the ground', sameBag(all, Wrecks.roll(g, wr).items) && units(spilled) > 0 && loot(g, 'lithobraker').every((p) => {
-    const a = Math.hypot(p.x, p.y) - World.surfaceR(ceres, Math.atan2(p.y, p.x)); return a > -0.5 && a < 1.5; }), `hold ${JSON.stringify(inHold)}, ground ${JSON.stringify(spilled)}`);
-  const g2 = fresh('pad'); Game.landAt(g2, ceres, wr.th + 16 / ceres.R); g2.everFlew = true; H.run(g2, 2, {});
+    const [mx, my] = World.bodyState(g.w, mochi, g.t), lx = p.x - mx, ly = p.y - my;
+    const a = Math.hypot(lx, ly) - World.surfaceR(mochi, Math.atan2(ly, lx)); return a > -0.5 && a < 1.5; }), `hold ${JSON.stringify(inHold)}, ground ${JSON.stringify(spilled)}`);
+  const g2 = fresh('pad'); Game.landAt(g2, mochi, wr.th + 16 / mochi.R); g2.everFlew = true; H.run(g2, 2, {});
   H.run(g2, 1, { pressed: ['KeyF'] }); H.run(g2, 90, { keys: ['KeyW'] });
   check('lifting off stops the drill', !st(g2).job && g2.status === 'flying' && !Wrecks.isSalvaged(g2, 'lithobraker'));
 });
@@ -563,14 +598,15 @@ safely('save/load', () => {
 });
 
 
-// ---------------- 14. far from everything, 64x warp ----------------
+// ---------------- 14. far from everything, max warp ----------------
 safely('far + warp', () => {
-  const g = fresh('orbit'), ceres = g.w.byId.ceres, r = 5200;
-  Game.circularAround(g, ceres, r, 1.0); g.everFlew = true; Game.setWarp(g, 64);
-  for (let i = 0; i < 400; i++) H.run(g, 1, {});
-  const L = Wrecks.list(g);
-  check('64x for ~7 min sim far out: no cap, all finite', g.warp === 64 && mod.warpLimit(g) === null && fin(L.map((w) => w.state(g.t))) && fin([g.sh.x, g.sh.y]),
-        `${g.warp}x, t ${g.t.toFixed(0)} s, ${Math.hypot(g.sh.x, g.sh.y).toFixed(0)} m out`);
+  const g = fresh('orbit'), mochi = g.w.byId.mochi, WMAX = CONFIG.sim.warps[CONFIG.sim.warps.length - 1];
+  Game.circularAround(g, g.w.byId.ember, 28500, 1.0); g.everFlew = true; g.navId = null; Game.setWarp(g, WMAX);   // the open belt, between swarms and lanes
+  let capped = 0;
+  for (let i = 0; i < 400; i++) { H.run(g, 1, {}); if (mod.warpLimit(g)) capped++; }
+  const L = Wrecks.list(g), [mx, my] = World.bodyState(g.w, mochi, g.t);
+  check(`${WMAX}x for hours of sim far out: no wreck cap, all finite`, g.warp === WMAX && capped === 0 && fin(L.map((w) => w.state(g.t))) && fin([g.sh.x, g.sh.y]),
+        `${g.warp}x, t ${g.t.toFixed(0)} s, ${Math.hypot(g.sh.x - mx, g.sh.y - my).toFixed(0)} m from Mochi`);
   check('hint / prompts / nav quiet out here', !mod.hint(g) && !(mod.interactions(g) || []).length && Game.navTargets(g).filter((n) => n.kind === 'wreck').every((n) => fin(n.state(g.t))));
   check('rails stay exact at t = 1e7 s', Wrecks.list(g).filter((w) => w.orbital).every((w) => {
     const s = w.state(1e7), h = World.bodyState(g.w, w.hostBody, 1e7); return Math.abs(Math.hypot(s[0] - h[0], s[1] - h[1]) - w.a) < 1e-6; }));
@@ -670,8 +706,8 @@ function evaRun() {
     check('[real EVA] docked at the Hub, Tab to a wreck: its line beats the dock chatter', g.status === 'docked' && /Unknown signal \(on Glimmer\)/.test(h0), `${g.status}: ${h0}`);
     g.navId = null;
 
-    const ceres = g.w.byId.ceres, wr = Wrecks.byId(g, 'lithobraker');
-    Game.release(g, 0); Game.landAt(g, ceres, wr.th + 32 / ceres.R); g.everFlew = true; H.run(g, 2, {});
+    const mochi = g.w.byId.mochi, wr = Wrecks.byId(g, 'lithobraker');
+    Game.release(g, 0); Game.landAt(g, mochi, wr.th + 32 / mochi.R); g.everFlew = true; H.run(g, 2, {});
     const h1 = Game.hint(g);
     check('[real EVA] landed 32 m off: "Press E to step out, walk over"', g.status === 'landed' && /Press E to step out/.test(h1), h1);
     H.run(g, 1, { pressed: ['KeyE'] });
@@ -718,7 +754,7 @@ function allRun() {
       if (g.mode === 'eva') { g.astro.on = false; g.mode = 'ship'; }
     }
     check('[all modules] every wreck salvaged once, no errors', Wrecks.list(g).every((w) => Wrecks.isSalvaged(g, w.id)) && !bad && !g.err, g.err || `${bad} bad`);
-    Game.circularAround(g, g.w.byId.ceres, 1300, 2.0); g.status = 'flying'; Game.setWarp(g, 64);
+    Game.circularAround(g, g.w.byId.mochi, 1300, 2.0); g.status = 'flying'; Game.setWarp(g, 64);
     H.run(g, 400, {});
     check('[all modules] then 64x for a while: no errors, finite', !g.err && fin([g.sh.x, g.sh.y]), g.err || `t ${g.t.toFixed(0)} s, warp ${g.warp}x`);
   });

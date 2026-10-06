@@ -35,7 +35,9 @@ const Terrain = (() => {
   function of(b) { return b.ter || (b.ter = build(b)); }
 
   function build(b) {
-    const rand = Wd.rng(9973 * (b.idx + 1) + (b.wseed || 7) * 131);
+    if (b.star) return { b, N: 0, NC: 0, half: 0, grid: new Uint8Array(0), wear: new Uint8Array(0), gems: [], has: new Uint8Array(0),
+                         dirty: new Set(), cache: new Map(), back: INK_RGB, back2: INK_RGB };   // a star has no ground: nothing to land on or dig
+    const rand = Wd.rng(9973 * ((b.tidx ?? b.idx) + 1) + (b.wseed || 7) * 131);
     const rMax = b.R * (1 + b.shape) + 1, rMin = b.R * (1 - b.shape) - 1;
     const N = Math.ceil(2 * rMax / CELL / CHUNK) * CHUNK, half = N * CELL / 2, NC = N / CHUNK;
     const grid = new Uint8Array(N * N), wear = new Uint8Array(N * N);

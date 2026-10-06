@@ -25,8 +25,8 @@ const Shop = (() => {
   };
   const MET = [            // id, label, format, better (+1 more is better, -1 less, 0 neutral), tooltip
     ['dv', 'Δv, full tank', (v) => `${v.toFixed(0)} m/s`, 1, 'Delta-v: how much speed change one tank buys you. More Δv = longer trips. (Full tank, empty hold.)'],
-    ['twr', 'Lift on Ceres', (v) => `${v.toFixed(2)}×`, 1, 'Thrust-to-weight ratio on Ceres with a full tank. Below 1.00× the engine cannot lift you off the ground.'],
-    ['isp', 'Engine Isp', (v) => `${v.toFixed(0)} s`, 1, 'Specific impulse = fuel efficiency, in real-world seconds (this belt is a 1:24 model, so ve × 24 ÷ 9.81).'],
+    ['twr', 'Lift on Mochi', (v) => `${v.toFixed(2)}×`, 1, 'Thrust-to-weight ratio on Mochi with a full tank. Below 1.00× the engine cannot lift you off the ground.'],
+    ['isp', 'Engine Isp', (v) => `${v.toFixed(0)} s`, 1, `Specific impulse = fuel efficiency, in real-world seconds (exhaust speeds here are a 1:${CONFIG.ISP_SCALE} model, so ve × ${CONFIG.ISP_SCALE} ÷ 9.81).`],
     ['thrust', 'Thrust', (v) => `${v.toFixed(1)} kN`, 1, 'Engine push in kilonewtons. More thrust = faster burns and easier lift-off.'],
     ['tankVol', 'Tank size', (v) => `${v.toFixed(1)} m³`, 1, 'Tank volume. Tonnes of fuel = volume × fuel density.'],
     ['fuelT', 'Fuel when full', (v) => `${v.toFixed(2)} t`, 0, 'Mass of fuel in a full tank (volume × density).'],
@@ -195,7 +195,7 @@ const Shop = (() => {
       const label = full ? `${frac < 1 ? `${frac * 100}%` : 'Full'} ✓` : cost <= cash ? `${frac < 1 ? `Fill to ${frac * 100}%` : 'Fill up'} · ${money(cost)}`
                          : cash > 0 ? `Fill what ${money(cash)} buys` : 'Broke';
       return `<button class="po-btn" data-act="refuel" data-frac="${frac}" ${full || cash < 1 ? 'disabled' : ''}>${label}
-        <small class="${lift < 1 ? 'down' : ''}">lift on Ceres ${lift.toFixed(2)}×</small></button>`;
+        <small class="${lift < 1 ? 'down' : ''}">lift on Mochi ${lift.toFixed(2)}×</small></button>`;
     };
     const svc = (title, frac, col, info, price, btns) => `<div class="po-svc"><div class="po-svc-l"><h4>${title}</h4>
       <div class="po-meter po-big"><i style="width:${(100 * clamp01(frac)).toFixed(1)}%;background:${col}"></i></div>
@@ -222,12 +222,12 @@ const Shop = (() => {
     const total = ['fuel', 'ion', 'rcs', 'hull'].reduce((s, w) => s + ec.quote(g, ST, w), 0);
     html += `<div class="po-row-end">${total > 0 ? `<button class="po-btn po-go po-lg" data-act="all" ${cash < 1 ? 'disabled' : ''}>Do it all: fuel, RCS & repairs · ${money(total)}</button>`
                                                  : '<span class="po-ok po-lg">✓ Everything is topped up. Off you go!</span>'}</div>`;
-    if (lowLift()) html += `<p class="po-warn">Heads up: with a full tank this ship is too heavy to lift off Ceres (${liftAt(S.fuel).toFixed(2)}×).
+    if (lowLift()) html += `<p class="po-warn">Heads up: with a full tank this ship is too heavy to lift off Mochi (${liftAt(S.fuel).toFixed(2)}×).
       Fill partway for surface trips, or fit a punchier engine. Holding W on the ground burns fuel until you are light enough.</p>`;
     return html;
   }
 
-  const liftAt = (fuelT) => { const S = G.S, m = S.dry + fuelT + (G.sh.xe || 0) + (G.sh.cargoKg || 0) / 1000; return S.thrust / (m * G.w.byId.ceres.g); };
+  const liftAt = (fuelT) => { const S = G.S, m = S.dry + fuelT + (G.sh.xe || 0) + (G.sh.cargoKg || 0) / 1000; return S.thrust / (m * G.w.byId.mochi.g); };
   const lowLift = () => liftAt(G.S.fuel) < 1;
 
 
@@ -249,7 +249,7 @@ const Shop = (() => {
     };
     let html = '';
     if (!rows.length) {
-      html += `<div class="po-empty"><b>Your hold is empty.</b> Go dig something up! Ice on Ceres, iron and amber on Kiwi and Dorito,
+      html += `<div class="po-empty"><b>Your hold is empty.</b> Go dig something up! Ice on Mochi, iron and amber on Kiwi and Dorito,
         nickel and platinum on Big Potato, void opals on Glimmer.</div>`;
     } else {
       html += `<table class="po-table"><thead><tr><th>Item</th><th>In hold</th><th>Price here</th><th>Worth</th><th></th></tr></thead><tbody>`;
@@ -401,7 +401,7 @@ const Shop = (() => {
     if (!rows.length) return '';
     return `<table class="po-cmp">${rows.map(([id, label, f, better, tip]) => {
       const d = (b[id] - a[id]) * better, cls = better === 0 ? '' : d > 0 ? 'up' : 'down';
-      const warn = id === 'twr' && b.twr < 1 ? ' <span class="po-flag" title="Too heavy to lift off Ceres with a full tank">can’t lift off!</span>' : '';
+      const warn = id === 'twr' && b.twr < 1 ? ' <span class="po-flag" title="Too heavy to lift off Mochi with a full tank">can’t lift off!</span>' : '';
       return `<tr><td><abbr title="${esc(tip)}">${label}</abbr></td><td class="po-was">${f(a[id])}</td><td class="po-arrow">→</td>
         <td class="${cls}"><b>${f(b[id])}</b>${warn}</td></tr>`;
     }).join('')}</table>`;
@@ -437,7 +437,7 @@ const Shop = (() => {
 
     html += `<div><h3 class="po-h">Can I lift off?</h3><table class="po-table"><thead><tr><th>Rock</th><th>Gravity</th>
       <th><abbr title="Thrust-to-weight with what is aboard now, in the deepest valley">Now</abbr></th><th><abbr title="Thrust-to-weight with full tanks, in the deepest valley">Full</abbr></th></tr></thead><tbody>
-      ${g.w.bodies.map((b) => { const gv = b.mu / (b.Rc || b.R) ** 2, now = S.thrust / (mNow * gv), full = S.thrust / (mFull * gv);
+      ${g.w.bodies.filter((b) => !b.star).map((b) => { const gv = b.mu / (b.Rc || b.R) ** 2, now = S.thrust / (mNow * gv), full = S.thrust / (mFull * gv);
         return `<tr><td>${esc(b.name)}</td><td>${b.g.toFixed(1)}–${gv.toFixed(1)} m/s²</td><td class="${liftCls(now)}">${now.toFixed(2)}×</td><td class="${liftCls(full)}">${full.toFixed(2)}×</td></tr>`; }).join('')}
       </tbody></table><p class="po-dim">Lumpy rocks pull hardest in their deepest valleys, so these are worst cases. Above 1.2× is comfy, 1.0-1.2× is sluggish, below 1.0× you cannot take off (hold W to burn fuel off until you can).</p></div></div>`;
 
@@ -445,7 +445,7 @@ const Shop = (() => {
     html += `<div class="po-eq"><h3 class="po-h">The rocket equation (Tsiolkovsky says hi)</h3>
       <p><b>Δv = v<sub>e</sub> × ln(m<sub>full</sub> ÷ m<sub>empty</sub>)</b> = ${S.ve} m/s × ln(${m0.toFixed(2)} t ÷ ${m1.toFixed(2)} t)
       = <b>${(S.ve * Math.log(m0 / Math.max(1e-9, m1))).toFixed(0)} m/s</b></p>
-      <p class="po-dim">v<sub>e</sub> is the exhaust speed in this 1:24 model belt; real Isp = v<sub>e</sub> × 24 ÷ 9.81 = ${M.isp.toFixed(0)} s.
+      <p class="po-dim">v<sub>e</sub> is the exhaust speed in this 1:${CONFIG.ISP_SCALE} model belt; real Isp = v<sub>e</sub> × ${CONFIG.ISP_SCALE} ÷ 9.81 = ${M.isp.toFixed(0)} s.
       Dense fuel packs more tonnes into a tank, high Isp makes each tonne count. Hauling cargo raises m on both sides, so Δv drops.</p></div>`;
     return html;
   }

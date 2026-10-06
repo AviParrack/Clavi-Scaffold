@@ -81,13 +81,16 @@ const Physics = (() => {
 
   // ---------------- trajectory preview (engines off) ----------------
   //  returns { pts: [[x, y, t], ...], impact: null | { body, t, x, y } }
-  //  impact = centre comes within the body outline + pad
+  //  impact = centre comes within the body outline + pad (a star: within its kill radius), tested along each
+  //  segment between points (closest approach of the straight relative motion), so a long step cannot skip a small rock
 
   function predict(sh, t0, w, horizon, nSteps, pad = 0) {
     let x = sh.x, y = sh.y, vx = sh.vx, vy = sh.vy, t = t0;
     const dt = horizon / nSteps, pts = [[x, y, t]];
-    let [gx, gy] = Wd.gravity(w, x, y, t);
+    let [gx, gy] = Wd.gravity(w, x, y, t), st0 = Wd.states(w, t);
+    const reach = w.bodies.map((b) => b.killR || b.R * (1 + b.shape) + pad);
     for (let i = 0; i < nSteps; i++) {
+      const x0 = x, y0 = y;
       vx += 0.5 * dt * gx; vy += 0.5 * dt * gy;
       x += dt * vx;        y += dt * vy;
       t += dt;
@@ -96,11 +99,29 @@ const Physics = (() => {
       pts.push([x, y, t]);
       const st = Wd.states(w, t);
       for (const b of w.bodies) {
-        const dx = x - st[b.idx][0], dy = y - st[b.idx][1], r = Math.hypot(dx, dy);
-        if (r < b.R * (1 + b.shape) + pad && r < Wd.surfaceR(b, Math.atan2(dy, dx)) + pad) return { pts, impact: { body: b, t, x, y } };
+        const k = b.idx, ax = x0 - st0[k][0], ay = y0 - st0[k][1], bx = x - st[k][0], by = y - st[k][1];
+        const far = reach[k] + Math.abs(bx - ax) + Math.abs(by - ay);
+        if (bx * bx + by * by > far * far) continue;                    // the whole step stays out of reach (cheap)
+        const hit = segmentHit(b, ax, ay, bx, by, pad);
+        if (hit >= 0) return { pts, impact: { body: b, t: t - dt + hit * dt, x: x0 + hit * (x - x0), y: y0 + hit * (y - y0) } };
       }
+      st0 = st;
     }
     return { pts, impact: null };
+  }
+
+  // relative positions a -> b along one straight step: the fraction 0..1 where it first comes within reach of the
+  //  origin (0 if it starts inside), or -1 if it never does.  opt. inside(cx, cy): extra test at the closest point
+  function segEntry(ax, ay, bx, by, reach, inside) {
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy, ad = ax * dx + ay * dy;
+    const s = L2 > 0 ? Math.max(0, Math.min(1, -ad / L2)) : 1, cx = ax + s * dx, cy = ay + s * dy;
+    if (Math.hypot(cx, cy) >= reach || (inside && !inside(cx, cy))) return -1;
+    const c = ax * ax + ay * ay - reach * reach;
+    return c <= 0 ? 0 : Math.max(0, Math.min(s, (-ad - Math.sqrt(Math.max(0, ad * ad - L2 * c))) / L2));
+  }
+  function segmentHit(b, ax, ay, bx, by, pad) {
+    if (b.killR) return segEntry(ax, ay, bx, by, b.killR);
+    return segEntry(ax, ay, bx, by, b.R * (1 + b.shape) + pad, (cx, cy) => Math.hypot(cx, cy) < Wd.surfaceR(b, Math.atan2(cy, cx)) + pad);
   }
 
   // ---------------- two-body elements relative to a body ----------------
@@ -121,7 +142,7 @@ const Physics = (() => {
              vx, vy, x, y };
   }
 
-  return { newShip, mass, deltaV, ionDeltaV, fullMass, step, predict, orbitRel };
+  return { newShip, mass, deltaV, ionDeltaV, fullMass, step, predict, segEntry, orbitRel };
 })();
 
 if (typeof module !== 'undefined') module.exports = Physics;

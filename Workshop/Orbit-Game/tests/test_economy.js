@@ -16,19 +16,20 @@ function check(name, ok, info = '') {
 const fresh = (spawn = 'pad') => Game.create(7, spawn, { fresh: true });
 const near = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol * Math.max(1, Math.abs(b));
 const finite = (o) => Object.values(o).every((v) => typeof v !== 'number' || isFinite(v));
-const HUB = { id: 'hub', name: 'Ceres Hub', kind: 'hub', keeper: 'Mo', buy: {}, tabs: ['services', 'sell', 'ship', 'suit', 'weapons'], fuelMult: 1 };
+const HUB = { id: 'hub', name: 'Mochi Hub', kind: 'hub', keeper: 'Mo', buy: {}, tabs: ['services', 'sell', 'ship', 'suit', 'weapons'], fuelMult: 1 };
 const portAt = (g, r = 420) => {
-  const c = g.w.byId.ceres;
-  return (t) => { const n = Math.sqrt(c.mu / r ** 3), th = n * t; return [r * Math.cos(th), r * Math.sin(th), -r * n * Math.sin(th), r * n * Math.cos(th)]; };
+  const c = g.w.byId.mochi;
+  return (t) => { const n = Math.sqrt(c.mu / r ** 3), th = n * t, [mx, my, mvx, mvy] = World.bodyState(g.w, c, t);   // Mochi rides the belt
+    return [mx + r * Math.cos(th), my + r * Math.sin(th), mvx - r * n * Math.sin(th), mvy + r * n * Math.cos(th)]; };
 };
 const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: Math.PI / 2 });
 
 
 // ---------------- 0. registry & stock ship ----------------
 {
-  const g = fresh(), dv = Physics.deltaV(g.sh, g.S), twr = g.S.thrust / (Physics.mass(g.sh, g.S) * g.w.byId.ceres.g);
+  const g = fresh(), dv = Physics.deltaV(g.sh, g.S), twr = g.S.thrust / (Physics.mass(g.sh, g.S) * g.w.byId.mochi.g);
   check('economy + shop registered, Econ defined', typeof Econ !== 'undefined' && Game.mods.some((m) => m.id === 'economy') && Game.mods.some((m) => m.id === 'shop'));
-  check('stock Prospector matches the spec (131 m/s, TWR 1.46)', near(dv, 131.3, 2e-3) && near(twr, 1.458, 3e-3) && g.S.cargoCap === 300 && g.money === 300,
+  check('stock Prospector matches the spec (394 m/s = 3x v3, TWR 1.46)', near(dv, 3 * 131.3, 2e-3) && near(twr, 1.458, 3e-3) && g.S.cargoCap === 300 && g.money === 300,
         `dv ${dv.toFixed(1)} m/s, TWR ${twr.toFixed(2)}, hold ${g.S.cargoCap} kg, $${g.money}`);
   check('jobs added: sell 40, upgrade 50, orion 80, rich 99', ['sell', 'upgrade', 'orion', 'rich'].every((id) => Game.GOALS.some((x) => x.id === id)),
         Game.GOALS.map((x) => `${x.order}:${x.id}`).join(' '));
@@ -41,12 +42,12 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
 
 // ---------------- 1. the engine x fuel x tank table ----------------
 {
-  const g = fresh(), tanks = [null, 'tank1', 'tank2', 'tank3', 'tank4'], gC = g.w.byId.ceres.g;
+  const g = fresh(), tanks = [null, 'tank1', 'tank2', 'tank3', 'tank4'], gC = g.w.byId.mochi.g;
   const cell = (eid, f, tank) => Econ.metrics(g, Econ.previewS(g, (m) => {
     m.owned[eid] = true; m.engine = eid; m.fuelOf[eid] = f;
     for (let i = 1; i < tanks.length; i++) if (tanks[i] && tanks.indexOf(tank) >= i) m.owned[tanks[i]] = true;
   }));
-  console.log('\nINFO  delta-v [m/s] / TWR on Ceres, full tank, empty hold     tank volume ->');
+  console.log('\nINFO  delta-v [m/s] / TWR on Mochi, full tank, empty hold     tank volume ->');
   console.log(`INFO  ${'engine'.padEnd(11)} ${'fuel'.padEnd(16)} ${'Isp'.padStart(5)}   ` + [1.4, 2.4, 4.0, 6.5, 9.0].map((v) => `${v.toFixed(1)} m³`.padStart(12)).join(''));
   const T = {};
   for (const [eid, e] of Object.entries(Econ.ENGINES)) for (const f of Object.keys(e.fuels)) {
@@ -58,16 +59,16 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
   for (const x of Object.keys(Econ.ION_FUELS)) {
     const S = Econ.previewS(g, (m) => { m.owned.whisper = true; m.ionFuel = x; }), M = Econ.metrics(g, S);
     console.log(`INFO  ${'Whisper ion'.padEnd(11)} ${Econ.ION_FUELS[x].name.padEnd(16)} ${M.ionIsp.toFixed(0).padStart(4)}s   ion dv ${M.iondv.toFixed(0)} m/s on a stock ship, ` +
-                `ion TWR on Ceres ${(S.ionThrust / (M.full * gC)).toFixed(3)}`);
+                `ion TWR on Mochi ${(S.ionThrust / (M.full * gC)).toFixed(3)}`);
   }
   console.log('');
   const stock = T['sparrow/methalox'][0];
-  check('Brick lifts off Ceres hard (TWR > 2.5, stock tank)', T['brick/kerolox'][0].twr > 2.5 && T['brick/hypergolic'][0].twr > 2.5,
+  check('Brick lifts off Mochi hard (TWR > 2.5, stock tank)', T['brick/kerolox'][0].twr > 2.5 && T['brick/hypergolic'][0].twr > 2.5,
         `kerolox ${T['brick/kerolox'][0].twr.toFixed(2)}, hypergolic ${T['brick/hypergolic'][0].twr.toFixed(2)}`);
   check('NERVA + big tank: delta-v > 2x stock', T['nerva/lh2'][4].dv > 2 * stock.dv && T['nerva/ammonia'][4].dv > 2 * stock.dv,
         `LH2 ${T['nerva/lh2'][4].dv.toFixed(0)}, ammonia ${T['nerva/ammonia'][4].dv.toFixed(0)} vs 2 x ${stock.dv.toFixed(0)} m/s`);
   const ionS = Econ.previewS(g, (m) => { m.owned.whisper = true; }), ionM = Econ.metrics(g, ionS);
-  check('ion drive alone cannot lift off Ceres', ionS.ionThrust / (ionM.full * gC) < 1 && ionM.iondv > 100, `TWR ${(ionS.ionThrust / (ionM.full * gC)).toFixed(3)}, ion dv ${ionM.iondv.toFixed(0)} m/s`);
+  check('ion drive alone cannot lift off Mochi', ionS.ionThrust / (ionM.full * gC) < 1 && ionM.iondv > 100, `TWR ${(ionS.ionThrust / (ionM.full * gC)).toFixed(3)}, ion dv ${ionM.iondv.toFixed(0)} m/s`);
   check('bigger tanks always add delta-v (every engine & fuel)', Object.values(T).every((row) => row.every((M, i) => !i || M.dv > row[i - 1].dv)));
   check('bigger tanks always cost lift (honest mass)', Object.values(T).every((row) => row.every((M, i) => !i || M.twr < row[i - 1].twr)));
   check('Isp shown = ve x 24 / 9.81 (methalox 367 s, LH2 930 s)', Math.round(stock.isp) === 367 && Math.round(T['nerva/lh2'][0].isp) === 930);
@@ -123,11 +124,11 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
   Econ.openShop(g, HUB);
   const r = Econ.buy(g, 'brick', HUB);
   const S = g.S, cost = 2200 + Math.ceil(1.82 * Econ.FUELS.hypergolic.price) - 100;      // first purchase also pays the $100 job
-  check('buying Brick equips it on its furthest fuel (hypergolic) and fills up', r.ok && S.engine === 'brick' && S.thrust === 16 && S.ve === 130 &&
+  check('buying Brick equips it on its furthest fuel (hypergolic) and fills up', r.ok && S.engine === 'brick' && S.thrust === 16 && S.ve === 390 &&
         S.fuelId === 'hypergolic' && near(S.fuel, 1.4 * 1.3) && near(g.sh.fuel, S.fuel) && g.money === 20000 - cost,
         `${S.engineName} ${S.thrust} kN ve ${S.ve} on ${S.fuelType}, fuel ${g.sh.fuel.toFixed(2)} t, $${g.money}`);
   const m0 = g.money, f = Econ.setFuel(g, 'kerolox', HUB);
-  check('switch to kerolox: vents, refills, ve 125', f.ok && f.drained && g.S.ve === 125 && near(g.sh.fuel, 1.4 * 1.2) && g.money === m0 - Math.ceil(1.68 * 22),
+  check('switch to kerolox: vents, refills, ve 375', f.ok && f.drained && g.S.ve === 375 && near(g.sh.fuel, 1.4 * 1.2) && g.money === m0 - Math.ceil(1.68 * 22),
         `paid $${m0 - g.money}`);
   check('best fuel: Kestrel on a stock tank starts on methalox, NERVA on a 4 m³ tank on hydrogen',
         Econ.bestFuel(g, 'kestrel') === 'methalox' && Econ.metrics(g, Econ.previewS(g, (m) => { m.owned.tank2 = true; })) &&
@@ -144,10 +145,10 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
   check('same fuel on both engines: swap keeps the fuel', near(g.sh.fuel, 1.0) && g.money === m2, `${g.sh.fuel.toFixed(2)} t kept`);
   check('cannot equip an engine you do not own', !Econ.equip(g, 'nerva', HUB).ok && g.S.engine === 'sparrow');
   Econ.buy(g, 'whisper', HUB);
-  check('ion drive fitted: S.ionThrust / ionVe / ionTank, X works', g.S.ionThrust === 0.25 && g.S.ionVe === 1300 && near(g.S.ionTank, 0.4), `tank ${g.S.ionTank} t`);
+  check('ion drive fitted: S.ionThrust / ionVe / ionTank, X works', g.S.ionThrust === 0.25 && g.S.ionVe === 3900 && near(g.S.ionTank, 0.4), `tank ${g.S.ionTank} t`);
   Econ.refuel(g, HUB);
   const x0 = g.money, sx = Econ.setIonFuel(g, 'krypton', HUB);
-  check('switching ion fuel to krypton vents & refills the ion tank', sx.ok && g.S.ionVe === 1500 && near(g.sh.xe, 0.25 * 0.9) && x0 - g.money === Math.ceil(0.225 * 160));
+  check('switching ion fuel to krypton vents & refills the ion tank', sx.ok && g.S.ionVe === 4500 && near(g.sh.xe, 0.25 * 0.9) && x0 - g.money === Math.ceil(0.225 * 160));
   Econ.closeShop(g);
   H.run(g, 1, { pressed: ['KeyX'] });
   check('X does nothing while docked', g.ionOn === false);
@@ -229,15 +230,16 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
   H.run(gd, 1, { pressed: ['KeyN'] });
   check('not while docked', gd.status === 'docked' && Econ.state(gd).orion === 1);
 
-  const gw = fresh('orbit'); gw.everFlew = true; Object.assign(gw.sh, { x: 0, y: 1300, vx: 0, vy: 0 });
+  const gw = fresh('orbit'), [mwx, mwy, mwvx, mwvy] = World.bodyState(gw.w, gw.w.byId.mochi, gw.t); gw.everFlew = true;
+  Object.assign(gw.sh, { x: mwx, y: mwy + 1300, vx: mwvx, vy: mwvy });
   Econ.state(gw).orion = 1; Game.recalc(gw); gw.warpIdx = CONFIG.sim.warps.length - 1;
   H.run(gw, 3, {});
   const warpBefore = gw.warp;
   H.run(gw, 3, { pressed: ['KeyN'] });
-  check('fired at 64x warp: kick lands, warp drops to 1x, no NaN', warpBefore === 64 && gw.warp === 1 && Econ.state(gw).orion === 0 && finite(gw.sh), `warp ${warpBefore} -> ${gw.warp}`);
+  check('fired at max warp: kick lands, warp drops to 1x, no NaN', warpBefore === CONFIG.sim.warps[CONFIG.sim.warps.length - 1] && gw.warp === 1 && Econ.state(gw).orion === 0 && finite(gw.sh), `warp ${warpBefore} -> ${gw.warp}`);
 }
 {
-  const g = fresh('pad'), b = g.w.byId.ceres, T = Terrain.of(b);
+  const g = fresh('pad'), b = g.w.byId.mochi, T = Terrain.of(b);
   const solid0 = T.grid.reduce((s, c) => s + (c >= Terrain.REG ? 1 : 0), 0);
   Econ.state(g).orion = 1; Game.recalc(g);
   H.run(g, 1, { pressed: ['KeyN'] });
@@ -324,11 +326,11 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
   const m = Econ.state(g2);
   check('save/load: engine, fuels, Orion count, tank level, money', m.engine === 'kestrel' && Econ.fuelOf(g2) === 'methalox' && m.ionFuel === 'krypton' &&
         m.orion === 2 && near(g2.sh.fuel, 1.234) && g2.money === g.money && g2.cargo.ice === 40, `$${g2.money}, fuel ${g2.sh.fuel}`);
-  store['pocket-orbit-v3'] = JSON.stringify({ v: 3, money: 5, mods: { economy: { owned: ['warp9', 'tank1', null], engine: 'nerva', fuelOf: { sparrow: 'plutonium' }, orion: 99, stats: 'x' } } });
+  store['pocket-orbit-v4'] = JSON.stringify({ v: 4, money: 5, mods: { economy: { owned: ['warp9', 'tank1', null], engine: 'nerva', fuelOf: { sparrow: 'plutonium' }, orion: 99, stats: 'x' } } });
   const g3 = Game.create(7, 'pad');
   check('garbage save: ignored safely', g3.S.engine === 'sparrow' && g3.S.fuelId === 'methalox' && Econ.state(g3).orion === 3 && g3.S.tankVol === 2.4 && finite(g3.S),
         `${g3.S.engine}, orion ${Econ.state(g3).orion}`);
-  store['pocket-orbit-v3'] = '{"v":3,"money":5,"mods":{"economy":{"owned":["toString","__proto__","constructor"],"engine":"toString","fuelOf":{"toString":"x","__proto__":{"a":1}},"ionFuel":"constructor"}}}';
+  store['pocket-orbit-v4'] = '{"v":4,"money":5,"mods":{"economy":{"owned":["toString","__proto__","constructor"],"engine":"toString","fuelOf":{"toString":"x","__proto__":{"a":1}},"ionFuel":"constructor"}}}';
   const g4 = Game.create(7, 'pad');
   check('prototype-key save ("toString", "__proto__"): no crash, stock ship', g4.S.engine === 'sparrow' && g4.S.fuelId === 'methalox' && finite(g4.S) &&
         Econ.canBuy(g4, 'toString', HUB).why === 'unknown' && !Econ.equip(g4, 'constructor').ok && Econ.sellPrice(g4, 'toString') === 0);
@@ -354,7 +356,7 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
   H.run(gp, 2, {});
   const p = gp.prompts.find((x) => x.key === 'KeyF');
   H.run(gp, 1, { pressed: ['KeyF'] });
-  check('no stations module: F on the Ceres pad opens the pad depot', p && gp.ui === 'shop' && Econ.state(gp).station.name === 'Ceres Pad Depot');
+  check('no stations module: F on the Mochi pad opens the pad depot', p && gp.ui === 'shop' && Econ.state(gp).station.name === 'Mochi Pad Depot');
   check('...the whole shop (no Hub upstairs), not the kiosk', Econ.padDepot().tabs.length > 2 && Econ.state(gp).station.tabs.join() === Econ.ALL_TABS.join(), Econ.state(gp).station.tabs.join());
   H.run(gp, 1, { pressed: ['Escape'] });
   check('...and Esc closes it', !gp.ui);
@@ -385,11 +387,11 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
   const gh = fresh('pad');
   Econ.install(gh, 'tank4'); gh.sh.fuel = gh.S.fuel;
   H.run(gh, 2, {});
-  const twr = Econ.twrOn(gh, gh.w.byId.ceres);
+  const twr = Econ.twrOn(gh, gh.w.byId.mochi);
   check('too heavy on the pad -> lift-off hint', twr < 1 && /Too heavy/.test(Game.hint(gh)), `TWR ${twr.toFixed(2)}: ${Game.hint(gh)}`);
   const f0 = gh.sh.fuel;
-  let i = 0; for (; i < 60 * 300 && gh.status === 'landed'; i++) H.run(gh, 1, { keys: ['KeyW'] });
-  check('holding W burns fuel on the pad until it lifts off', gh.status === 'flying' && gh.sh.fuel < f0 && Econ.twrOn(gh, gh.w.byId.ceres) >= 0.99,
+  let i = 0; for (; i < 60 * 900 && gh.status === 'landed'; i++) H.run(gh, 1, { keys: ['KeyW'] });
+  check('holding W burns fuel on the pad until it lifts off', gh.status === 'flying' && gh.sh.fuel < f0 && Econ.twrOn(gh, gh.w.byId.mochi) >= 0.99,
         `lifted after ${(i / 60).toFixed(1)} s, fuel ${f0.toFixed(2)} -> ${gh.sh.fuel.toFixed(2)} t`);
   const ge = fresh('pad'); ge.sh.fuel = 0; H.run(ge, 2, {});
   check('out of fuel on the ground -> tow hint', /Out of fuel/.test(Game.hint(ge)), Game.hint(ge));

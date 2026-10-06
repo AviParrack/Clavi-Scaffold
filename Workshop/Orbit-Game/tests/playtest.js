@@ -1,7 +1,7 @@
 // ======================================================================
 //  HEADLESS PLAYTEST v3  —  real key presses and clicks through the loop:
-//  start docked at Ceres Hub, shop, undock, warp; launch from the pad to
-//  orbit; step out on Ceres, laser ore, board; zap bugs on Kiwi; dock and
+//  start docked at Mochi Hub, shop, undock, warp; launch from the pad to
+//  orbit; step out on Mochi, laser ore, board; zap bugs on Kiwi; dock and
 //  sell; buy an upgrade; Orion pulse; salvage a wreck; pirates.
 //  run:  python3 tools/bundle.py && NODE_PATH=$(npm root -g) node tests/playtest.js [outdir]
 // ======================================================================
@@ -27,11 +27,11 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   const go = async (q) => { await page.goto(FILE + q); await page.waitForTimeout(700); };
   const ev = (fn, arg) => page.evaluate(fn, arg);
   const st = () => ev(() => {
-    const g = ORBIT.game, c = g.w.byId.ceres, o = ORBIT.Physics.orbitRel(g.sh, c, g.t, g.w);
+    const g = ORBIT.game, c = g.w.byId.mochi, o = ORBIT.Physics.orbitRel(g.sh, c, g.t, g.w);   // Mochi-relative: Mochi rides the belt
     return { t: g.t, status: g.status, mode: g.mode, ui: g.ui, ref: g.ref.id, alt: o.alt, ap: o.ap, pe: o.pe, vr: o.vr,
              hull: g.sh.hull, fuel: g.sh.fuel, money: g.money, warp: g.warp, err: g.err,
              cargo: ORBIT.Game.kgOf(g.cargo), pack: ORBIT.Game.kgOf(g.pack), done: Object.keys(g.done),
-             ang: g.sh.ang, omega: g.sh.omega, up: Math.atan2(g.sh.y, g.sh.x), pro: Math.atan2(g.sh.vy, g.sh.vx),
+             ang: g.sh.ang, omega: g.sh.omega, up: Math.atan2(o.y, o.x), pro: Math.atan2(o.vy, o.vx),
              prompts: g.prompts.map((p) => p.text), impact: !!(g.pred && g.pred.impact) };
   });
   const shot = async (name) => { await page.screenshot({ path: path.join(OUT, name + '.png') }); console.log(`  shot ${name}`); };
@@ -50,11 +50,13 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   }
   // put the mouse on a world point (screen coords come from the live camera)
   const mouseAt = async (x, y) => { const [sx, sy] = await ev(([x, y]) => ORBIT.Render.toScreen(x, y), [x, y]); await page.mouse.move(sx, sy); };
+  // aim at a spot fixed on a body (local lx, ly): every rock rides a rail now, so the world point moves
+  const mouseOn = async (id, lx, ly) => { const [sx, sy] = await ev(([id, lx, ly]) => { const g = ORBIT.game, [bx, by] = ORBIT.World.bodyState(g.w, g.w.byId[id], g.t); return ORBIT.Render.toScreen(bx + lx, by + ly); }, [id, lx, ly]); await page.mouse.move(sx, sy); };
 
-  // -------- 1. fresh game: docked at Ceres Hub, shop, undock, warp --------
+  // -------- 1. fresh game: docked at Mochi Hub, shop, undock, warp --------
   await go('?fresh=1');
   let s = await st();
-  check('a new game starts docked at Ceres Hub', s.status === 'docked' && s.prompts.some((p) => /shop/i.test(p)), JSON.stringify(s.prompts));
+  check('a new game starts docked at Mochi Hub', s.status === 'docked' && s.prompts.some((p) => /shop/i.test(p)), JSON.stringify(s.prompts));
   await shot('01_start_hub');
   await page.keyboard.press('KeyF'); await page.waitForTimeout(600);
   check('F opens the shop and pauses time', (await st()).ui === 'shop');
@@ -91,10 +93,10 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   await page.keyboard.up('KeyW');
   for (let i = 0; i < 20; i++) await tap('KeyS', 30);
   s = await st();
-  check('reached Ceres orbit with RCS steering', s.pe > 30 && !s.impact, `Pe ${s.pe.toFixed(0)} Ap ${s.ap.toFixed(0)} fuel ${s.fuel.toFixed(2)}`);
+  check('reached Mochi orbit with RCS steering', s.pe > 30 && !s.impact, `Pe ${s.pe.toFixed(0)} Ap ${s.ap.toFixed(0)} fuel ${s.fuel.toFixed(2)}`);
   await shot('08_orbit');
 
-  // -------- 3. on foot on Ceres: step out, laser ore, board --------
+  // -------- 3. on foot on Mochi: step out, laser ore, board --------
   await go('?fresh=1&spawn=pad');
   await page.keyboard.press('KeyE'); await page.waitForTimeout(700);
   s = await st();
@@ -107,10 +109,11 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
       const x = A.x + dx * -nb.uy + dy * nb.ux, y = A.y + dx * nb.ux + dy * nb.uy, m = ORBIT.Terrain.mat(T, x - nb.bx, y - nb.by);
       if (m > 2 && m < 6 && (!best || Math.hypot(dx, dy) < best.d)) best = { x, y, d: Math.hypot(dx, dy), m };
     }
-    return best || { x: A.x - nb.ux * 2.5, y: A.y - nb.uy * 2.5, m: 2 };
+    const pick = best || { x: A.x - nb.ux * 2.5, y: A.y - nb.uy * 2.5, m: 2 };
+    return { ...pick, id: nb.b.id, lx: pick.x - nb.bx, ly: pick.y - nb.by };
   });
-  await mouseAt(dig.x, dig.y); await page.mouse.down();
-  for (let i = 0; i < 16; i++) { await page.waitForTimeout(500); const d = await ev(() => [ORBIT.game.astro.x, ORBIT.game.astro.y]); if (i % 4 === 0) await mouseAt(dig.x, dig.y); if (i === 6) await shot('10_laser'); }
+  await mouseOn(dig.id, dig.lx, dig.ly); await page.mouse.down();
+  for (let i = 0; i < 50 && !(await st()).pack; i++) { await page.waitForTimeout(500); if (i % 4 === 0) await mouseOn(dig.id, dig.lx, dig.ly); if (i === 6) await shot('10_laser'); }   // it digs through the regolith first
   await page.mouse.up();
   s = await st();
   check('the mining laser fills the backpack', s.pack > 0, `pack ${s.pack} kg (mat ${dig.m})`);
@@ -134,10 +137,10 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   let squished = false;
   await page.mouse.down();
   for (let i = 0; i < 40 && !squished; i++) {
-    const bug = await ev(() => { const g = ORBIT.game, A = g.astro; let b = null;
+    const bug = await ev(() => { const g = ORBIT.game, A = g.astro; let b = null;     // screen point computed in-page: no lag while Kiwi races along
       for (const t of ORBIT.Game.targets(g)) if (t.team === 'bug' && (!b || Math.hypot(t.x - A.x, t.y - A.y) < Math.hypot(b.x - A.x, b.y - A.y))) b = t;
-      return b && { x: b.x, y: b.y, d: Math.hypot(b.x - A.x, b.y - A.y) }; });
-    if (bug && bug.d < 6.5) await mouseAt(bug.x, bug.y);
+      return b && { s: ORBIT.Render.toScreen(b.x, b.y), d: Math.hypot(b.x - A.x, b.y - A.y) }; });
+    if (bug && bug.d < 6.5) await page.mouse.move(bug.s[0], bug.s[1]);
     await page.waitForTimeout(250);
     if (i === 12) await shot('12_kiwi_bugs');
     squished = (await st()).done.includes('bug');
@@ -187,11 +190,12 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   check('N fires an Orion pulse (dv = J/m)', dv > 15, `dv ${dv.toFixed(1)} m/s, mass ${v0[2].toFixed(2)} t`);
   await page.waitForTimeout(250); await shot('16_orion');
 
-  // -------- 7. salvage a wreck (ESA4, low Ceres orbit) --------
+  // -------- 7. salvage a wreck (ESA4, low Mochi orbit) --------
   await go('?fresh=1&spawn=orbit');
   await ev(() => {
-    const g = ORBIT.game, wr = Wrecks.byId(g, 'esa4') || Wrecks.list(g)[0], [x, y, vx, vy] = wr.state(g.t), r = Math.hypot(x, y);
-    Object.assign(g.sh, { x: x + x / r * (wr.r + 8), y: y + y / r * (wr.r + 8), vx, vy, omega: 0 });
+    const g = ORBIT.game, wr = Wrecks.byId(g, 'esa4') || Wrecks.list(g)[0], [x, y, vx, vy] = wr.state(g.t);
+    const [mx, my] = ORBIT.World.bodyState(g.w, g.w.byId.mochi, g.t), r = Math.hypot(x - mx, y - my);
+    Object.assign(g.sh, { x: x + (x - mx) / r * (wr.r + 8), y: y + (y - my) / r * (wr.r + 8), vx, vy, omega: 0 });
     g.navId = null;
   });
   await page.waitForTimeout(300);

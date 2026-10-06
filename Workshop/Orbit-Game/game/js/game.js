@@ -8,9 +8,12 @@
 const Game = (() => {
 
   const SIM = CONFIG.sim, ITEMS = CONFIG.items;
-  const SAVE_KEY = 'pocket-orbit-v3';
+  const SAVE_KEY = 'pocket-orbit-v4';                  // v3 saves (the old Ceres map) are simply ignored
   const CHUNK_KG = 5;                                   // dug ore pops out in chunks of this many kg
   const ZERO = { main: 0, ion: 0, rot: 0, kill: false, fwd: 0, left: 0 };
+  const FRAME_MAX = 1 / 20;                             // a slower frame lets sim time slip: one frame covers at most FRAME_MAX x warp
+  const WARN_T = 0.95 * SIM.impactWarnT;                // big-warp frames stop this far short of a warning, so the next frame catches it
+  const ROCK_LOOK = SIM.impactWarnT + FRAME_MAX * SIM.warps[SIM.warps.length - 1] + 5;   // rocks on a hit course are tracked this far ahead [s]
 
 
   // ======================================================================
@@ -18,7 +21,7 @@ const Game = (() => {
   // ======================================================================
 
   const mods = [];
-  const api = { strict: false, quiet: false };          // strict: hook errors throw (tests); else they show on screen
+  const api = { strict: false, quiet: false, cullRocks: true };   // strict: hook errors throw (tests); cullRocks: false = every rock, every step (tests)
 
   // ?mods=eva,economy (browser) or ORBIT_ONLY = 'eva,economy' (Node harness) loads only those modules
   const ONLY = ((typeof ORBIT_ONLY !== 'undefined' && ORBIT_ONLY) ||
@@ -74,12 +77,40 @@ const Game = (() => {
     g.landedOn = b; g.status = 'landed';
   }
 
-  addSpawn('pad',     'Ceres launch pad',       (g) => landAt(g, g.w.byId.ceres, Math.PI / 2));
-  addSpawn('orbit',   'low Ceres orbit',        (g) => circularAround(g, g.w.byId.ceres, 360, Math.PI / 2));
-  addSpawn('belt',    'inside the rubble belt', (g) => circularAround(g, g.w.byId.ceres, 550, Math.PI / 2));
+  addSpawn('pad',     'Mochi launch pad',       (g) => landAt(g, g.w.byId.mochi, Math.PI / 2));
+  addSpawn('orbit',   'low Mochi orbit',        (g) => circularAround(g, g.w.byId.mochi, 360, Math.PI / 2));
+  addSpawn('belt',    'inside Mochi\'s rubble ring', (g) => circularAround(g, g.w.byId.mochi, 550, Math.PI / 2));
   addSpawn('kiwi',    'orbiting Kiwi',          (g) => circularAround(g, g.w.byId.kiwi, 88, g.w.byId.kiwi.phase));
+  addSpawn('pretzel', 'orbiting Pretzel',       (g) => circularAround(g, g.w.byId.pretzel, 75, g.w.byId.pretzel.phase));
   addSpawn('potato',  'orbiting Big Potato',    (g) => circularAround(g, g.w.byId.potato, 100, g.w.byId.potato.phase));
   addSpawn('glimmer', 'orbiting Glimmer',       (g) => circularAround(g, g.w.byId.glimmer, 55, g.w.byId.glimmer.phase));
+  addSpawn('swarm',   'inside a rubble swarm',  (g) => inSwarm(g, calmSwarm(g)));
+
+  // the swarm furthest round the belt from Mochi right now: near a Mochi pass its pull (a quarter of Ember's)
+  //  flings a coasting ship (or a rock taken off its rail) out of the swarm, which the rails themselves ignore
+  function calmSwarm(g) {
+    const m = g.w.byId.mochi, [mx, my] = m ? World.bodyState(g.w, m, g.t) : [1, 0];
+    let best = g.w.swarms[0], bc = Infinity;
+    for (const sw of g.w.swarms) {
+      const [x, y] = World.swarmState(g.w, sw, g.t), c = (x * mx + y * my) / (Math.hypot(x, y) * Math.hypot(mx, my));
+      if (c < bc) { bc = c; best = sw; }
+    }
+    return best;
+  }
+
+  // co-moving with a swarm's centre (a circular rail at its shared a), at the clearest of a few spots near the middle
+  function inSwarm(g, sw) {
+    const [sx, sy] = World.swarmState(g.w, sw, g.t), [hx, hy] = World.bodyState(g.w, sw.host, g.t), th0 = Math.atan2(sy - hy, sx - hx);
+    let best = null;
+    for (let k = 0; k < 25; k++) {
+      const th = th0 + ((k % 5) - 2) * 40 / sw.a, r = sw.a + (Math.floor(k / 5) - 2) * 25;
+      const x = hx + r * Math.cos(th), y = hy + r * Math.sin(th);
+      let gap = Infinity;
+      for (const rk of sw.rocks) { const [rx, ry] = World.rockState(g.w, rk, g.t); gap = Math.min(gap, Math.hypot(x - rx, y - ry) - rk.r); }
+      if (!best || gap > best.gap) best = { gap, r, th };
+    }
+    circularAround(g, sw.host, best.r, best.th);
+  }
 
   function place(g, id) {
     if (!SPAWNS[id]) id = 'pad';
@@ -101,12 +132,12 @@ const Game = (() => {
       landedOn: null, land: null, attach: null, everFlew: false,
       warpIdx: 0, warp: 1, warpMax: SIM.warps[SIM.warps.length - 1], warpWhy: '', paused: false, ui: null,
       fired: { main: 0, ion: 0, rot: 0, trans: 0 }, ionOn: false,
-      pred: null, ref: w.byId.ceres, orb: null, nearDist: Infinity, navId: null, approach: null,
+      pred: null, ref: w.byId.mochi || w.root, frame: null, orb: null, nearDist: Infinity, navId: null, approach: null,
       money: 300, cargo: {}, pack: {},
       astro: { on: false, x: 0, y: 0, vx: 0, vy: 0, ang: Math.PI / 2, hp: 100, hpMax: 100, r: 0.6 },
       pickups: [], particles: [], popups: [], toasts: [], events: [], trail: [], prompts: [],
       done: {}, mod: {}, err: null, shake: 0, deadAt: 0, crashMsg: '', towAsk: -9,
-      maxCeresR: 0, stepsLastFrame: 0, digBuf: {}, gain: null, lastSave: 0,
+      stepsLastFrame: 0, stepDt: SIM.dt, rockCand: null, starWarned: false, digBuf: {}, gain: null, lastSave: 0,
       noSave: !!opts.noSave,                                         // ?fresh=1 / ?mods= runs never overwrite the real save
     };
     each(g, 'init');
@@ -183,28 +214,33 @@ const Game = (() => {
     each(g, 'shipCtrl', ctrl, inp);
     if (g.status === 'docked' && (ctrl.main || ctrl.fwd || ctrl.left || ctrl.ion)) release(g);
 
-    // -------- warp --------
+    // -------- warp: n steps of h seconds (h = SIM.dt unless a big warp far from everything allows longer) --------
     const paused = g.paused || !!g.ui;
-    applyWarpCaps(g, ctrl);
+    applyWarpCaps(g, ctrl, frameDt);
     g.warp = Math.min(SIM.warps[g.warpIdx], g.warpMax);
-    const nMax = Math.round(SIM.warps[SIM.warps.length - 1] / 60 / SIM.dt);       // a slow frame lets sim time slip instead of piling up steps
-    const n = paused ? 0 : Math.max(1, Math.min(nMax, Math.round(Math.min(frameDt, 1 / 20) * g.warp / SIM.dt)));
-    const simDt = n * SIM.dt;
+    const want = paused ? 0 : Math.min(frameDt, FRAME_MAX) * g.warp;               // a slow frame lets sim time slip instead of piling up steps
+    let n = paused ? 0 : Math.max(1, Math.min(SIM.maxSteps, Math.round(want / SIM.dt))), h = SIM.dt;
+    const cull = rockCull(g, want);
+    if (want > SIM.maxSteps * SIM.dt) {
+      const hMax = stepSize(g, ctrl, cull);
+      if (hMax > SIM.dt) { n = Math.min(SIM.maxSteps, Math.ceil(want / hMax - 1e-9)); h = Math.max(SIM.dt, Math.min(hMax, want / n)); }
+    }
+    const simDt = n * h;
     each(g, 'frame', inp, frameDt, simDt);
 
-    // -------- fixed physics steps --------
+    // -------- physics steps --------
     const fired = { main: 0, ion: 0, rot: 0, trans: 0 }, stepMods = mods.filter((m) => m.step);
     for (let i = 0; i < n; i++) {
-      if (g.status === 'docked') { g.t += SIM.dt; holdAttach(g); }
+      if (g.status === 'docked') { g.t += h; holdAttach(g); }
       else if (g.status !== 'dead') {
-        const f = Physics.step(g.sh, ctrl, g.t, SIM.dt, g.w, g.S);
+        const f = Physics.step(g.sh, ctrl, g.t, h, g.w, g.S);
         for (const k in fired) fired[k] = Math.max(fired[k], f[k]);
-        g.t += SIM.dt;
-        if (g.status === 'landed') holdLanded(g, i); else contacts(g);
-      } else g.t += SIM.dt;
-      for (const m of stepMods) call(g, m, 'step', SIM.dt);
+        g.t += h;
+        if (g.status === 'landed') holdLanded(g, i); else contacts(g, cullValid(g, cull));
+      } else g.t += h;
+      for (const m of stepMods) call(g, m, 'step', h);
     }
-    g.fired = fired; g.stepsLastFrame = n;
+    g.fired = fired; g.stepsLastFrame = n; g.stepDt = h; g.rockCand = cull.rocks;
     if (g.ionOn && g.sh.xe <= 0) { g.ionOn = false; toast(g, 'ION TANK EMPTY', '#ff9f1c'); }
     const rcsF = g.sh.rcs / Math.max(1e-9, g.S.rcs);
     const rcsLvl = rcsF <= 0 ? 2 : rcsF < 0.2 ? 1 : 0;                            // warn once at 20 %, once more at empty
@@ -224,6 +260,54 @@ const Game = (() => {
     if (n) { refresh(g); checkGoals(g); }
     g.prompts = gatherPrompts(g);
     if (g.real - g.lastSave > 30) save(g);
+  }
+
+  // ---------------- big-warp step size and the rock cull ----------------
+
+  // longest safe physics step [s]: SIM.dt while anything fires, walks or is dead; else a small fraction of every
+  //  body's dynamical time sqrt(r^3 / mu) and of the time to close the gap to every surface and candidate rock
+  function stepSize(g, ctrl, cull) {
+    if (g.mode !== 'ship' || g.status === 'dead' || ctrl.main || ctrl.ion || ctrl.rot || ctrl.kill || ctrl.fwd || ctrl.left) return SIM.dt;
+    const sh = g.sh, st = World.states(g.w, g.t), fly = g.status === 'flying';
+    let h = SIM.dtMax;
+    const gapT = (gap, dx, dy, d, vx, vy) => { const vc = -(vx * dx + vy * dy) / d; if (vc > 0) h = Math.min(h, SIM.gapFrac * Math.max(1, gap) / vc); };
+    for (const b of g.w.bodies) {
+      const s = st[b.idx], dx = sh.x - s[0], dy = sh.y - s[1], r = Math.hypot(dx, dy) || 1e-9;
+      h = Math.min(h, SIM.dynFrac * Math.sqrt(r * r * r / b.mu));
+      if (fly) gapT(r - (b.killR || b.R * (1 + b.shape)) - g.S.radius, dx, dy, r, sh.vx - s[2], sh.vy - s[3]);
+    }
+    if (fly) for (const rk of cull.rocks) {
+      if (rk.gone) continue;
+      const [rx, ry, rvx, rvy] = World.rockState(g.w, rk, g.t), dx = sh.x - rx, dy = sh.y - ry, d = Math.hypot(dx, dy) || 1e-9;
+      const ux = sh.vx - rvx, uy = sh.vy - rvy, u = Math.hypot(ux, uy) || 1e-9, gap = d - rk.r - g.S.radius;
+      gapT(gap, dx, dy, d, ux, uy);
+      if (ux * dx + uy * dy < 0 && gap < u * cull.T + 0.5 * cull.aB * cull.T * cull.T)   // closing, and reachable this frame:
+        h = Math.min(h, (rk.r * 0.9 + g.S.radius * 0.8) / u);                            //  no step may jump across its hit circle
+    }
+    return Math.max(SIM.dt, h);
+  }
+
+  // rocks the ship could touch this frame: a rock moves at most rk.vmax T, the ship at most D (checked every
+  //  step by cullValid: if it ever goes further, or anything bounces it, the step falls back to every rock)
+  function rockCull(g, T) {
+    const sh = g.sh, S = g.S, w = g.w, out = { x: sh.x, y: sh.y, D: 0, T, aB: 0, rocks: w.rocks, all: true };
+    if (g.status === 'dead' || g.status === 'docked') return out;
+    const [gx, gy] = World.gravity(w, sh.x, sh.y, g.t), aB = 2 * Math.hypot(gx, gy) + 1 + S.thrust / Physics.mass(sh, S) + 2 * S.transAccel;
+    out.D = Math.hypot(sh.vx, sh.vy) * T + 0.5 * aB * T * T + 1; out.aB = aB;
+    if (!api.cullRocks) return out;
+    out.v0 = [sh.vx, sh.vy]; out.rocks = []; out.all = false;
+    for (const rk of w.rocks) {
+      if (rk.gone) continue;
+      const [rx, ry] = World.rockState(w, rk, g.t), reach = rk.r + S.radius + out.D + rk.vmax * T + 1;
+      if (Math.abs(sh.x - rx) < reach && Math.abs(sh.y - ry) < reach && Math.hypot(sh.x - rx, sh.y - ry) < reach) out.rocks.push(rk);
+    }
+    return out;
+  }
+  function cullValid(g, c) {
+    if (c.all) return c.rocks;
+    const sh = g.sh;
+    if (Math.hypot(sh.x - c.x, sh.y - c.y) > c.D) { c.all = true; c.rocks = g.w.rocks; }
+    return c.rocks;
   }
 
   function readShipCtrl(g, inp) {
@@ -295,15 +379,18 @@ const Game = (() => {
   }
   function setWarp(g, x) { const i = SIM.warps.indexOf(x); if (i >= 0) g.warpIdx = i; }
 
-  function applyWarpCaps(g, ctrl) {
-    const caps = [];
+  function applyWarpCaps(g, ctrl, frameDt = 1 / 60) {
+    const caps = [], fly = g.status === 'flying';
     if (ctrl.main || ctrl.rot || ctrl.kill || ctrl.fwd || ctrl.left) caps.push({ max: 1, why: 'thrusters firing', reset: true });
     if (ctrl.ion) caps.push({ max: g.S.warpBurnMax, why: 'ion drive burning' });
-    if (g.status === 'flying' && (g.nearDist < 8 || g.rockTTC < 20)) caps.push({ max: SIM.nearWarp, why: 'close to rocks' });
+    if (fly && (g.nearDist < 8 || g.rockTTC < 20)) caps.push({ max: SIM.nearWarp, why: 'close to rocks' });
     if (g.rockTTC < 5) caps.push({ max: 1, why: 'rock ahead', reset: true, toast: 'ROCK AHEAD' });
-    if (g.status === 'flying' && g.pred && g.pred.impact && g.pred.impact.t - g.t < SIM.impactWarnT)
+    if (fly && g.pred && g.pred.impact && g.pred.impact.t - g.t < SIM.impactWarnT)
       caps.push({ max: 1, why: 'impact ahead', reset: true, toast: 'IMPACT AHEAD' });
-    for (const m of mods) { const c = call(g, m, 'warpLimit'); if (c) caps.push(c); }
+    const modCaps = [];
+    for (const m of mods) { const c = call(g, m, 'warpLimit'); if (c) modCaps.push(c); }
+    caps.push(...modCaps.filter((c) => c.max != null));
+    if (fly) caps.push(...lookAheadCaps(g, Math.min(frameDt, FRAME_MAX), modCaps));
     let max = SIM.warps[SIM.warps.length - 1], why = '';
     for (const c of caps) {
       if (c.max < max) { max = c.max; why = c.why; }
@@ -313,6 +400,22 @@ const Game = (() => {
       }
     }
     g.warpMax = max; g.warpWhy = why;
+  }
+
+  // a 1024x frame covers up to 51 s: never let one frame jump past the point where a warning should fire
+  //  (the impact and rock caps above), nor past what the path preview has looked at
+  //  a module cap { within: s, why } means: this frame may cover at most s seconds of sim time
+  function lookAheadCaps(g, fd, modCaps) {
+    const caps = [], cap = (tLeft, why) => {
+      const fit = SIM.warps.filter((x) => x * fd <= tLeft);
+      caps.push({ max: fit.length ? fit[fit.length - 1] : 1, why });
+    };
+    const P = g.pred && g.pred.pts;
+    if (g.pred && g.pred.impact) cap(g.pred.impact.t - g.t - WARN_T, 'impact ahead');
+    else if (P && P.length) cap(P[P.length - 1][2] - g.t - SIM.impactWarnT, 'looking ahead');
+    if (g.rockTTC < Infinity) cap(g.rockTTC - (g.rockTTC > 20 ? WARN_T : 0.95 * 5), 'rock ahead');   // the 4x and 1x rock caps
+    for (const c of modCaps) if (c.within != null) cap(c.within, c.why);
+    return caps;
   }
 
 
@@ -351,10 +454,11 @@ const Game = (() => {
     if (a.onRelease) a.onRelease(g);
   }
 
-  function contacts(g) {
+  function contacts(g, rocks = g.w.rocks) {
     const sh = g.sh, S = g.S, w = g.w, st = World.states(w, g.t);
     for (const b of w.bodies) {
       const [bx, by, bvx, bvy] = st[b.idx], lx = sh.x - bx, ly = sh.y - by, d = Math.hypot(lx, ly);
+      if (b.killR) { if (d < b.killR) sizzle(g, b); continue; }
       if (d > b.R * (1 + b.shape) + S.radius + 1) continue;
       const hit = Terrain.collideCircle(Terrain.of(b), lx, ly, S.radius);
       if (!hit) continue;
@@ -379,9 +483,10 @@ const Game = (() => {
       return;
     }
     const hostD = {};                                                         // distance to each rubble host, once per step
-    for (const rk of w.rocks) {
+    for (const rk of rocks) {
+      if (rk.gone) continue;
       const hi = rk.host.idx, dh = hostD[hi] ?? (hostD[hi] = Math.hypot(sh.x - st[hi][0], sh.y - st[hi][1]));
-      if (Math.abs(dh - rk.a) > rk.r + S.radius) continue;                     // cheap band test
+      if (Math.abs(dh - rk.a) > rk.r + rk.ae + S.radius) continue;             // cheap band test (an epicycle wanders ±a e)
       const [rx, ry, rvx, rvy] = World.rockState(w, rk, g.t);
       const dx = sh.x - rx, dy = sh.y - ry, d = Math.hypot(dx, dy), hitR = rk.r * 0.9 + S.radius * 0.8;
       if (d >= hitR) continue;
@@ -426,12 +531,18 @@ const Game = (() => {
   }
   function healShip(g, amt) { g.sh.hull = Math.min(g.S.hull, g.sh.hull + amt); }
 
-  function die(g, why) {
+  // flying into a star: no ground to hit, just heat (SIM.starKill radii)
+  function sizzle(g, b) {
+    die(g, `SIZZLE: flew into ${b.name}`, 'SIZZLE!');
+    burst(g, 'flash', g.sh.x, g.sh.y, 3, { col: '#ffd36b', size: 40, life: 1.2 });
+  }
+
+  function die(g, why, word = 'KABOOM!') {
     if (g.status === 'dead') return;
     g.sh.hull = Math.max(0, g.sh.hull); g.crashMsg = why; g.deadAt = g.real;
     g.landedOn = null; g.land = null; g.attach = null; g.ionOn = false;
     setStatus(g, 'dead', why);
-    popup(g, 'KABOOM!', '#ff6b6b', g.sh.x, g.sh.y); g.shake = 1;
+    popup(g, word, '#ff6b6b', g.sh.x, g.sh.y); g.shake = 1;
     burst(g, 'boom', g.sh.x, g.sh.y, 70, { vx: g.sh.vx * 0.3, vy: g.sh.vy * 0.3, speed: 14 });
     each(g, 'died', why);
     save(g);
@@ -466,6 +577,7 @@ const Game = (() => {
     if (opt.terrain !== false) {
       const st = World.states(g.w, g.t);
       for (const b of g.w.bodies) {
+        if (b.star) continue;
         const bx = st[b.idx][0], by = st[b.idx][1], reach = b.R * (1 + b.shape) + 1;
         const tc = Math.max(0, Math.min(len, (bx - x) * dx + (by - y) * dy));
         if (Math.hypot(x + dx * tc - bx, y + dy * tc - by) > reach) continue;
@@ -572,37 +684,9 @@ const Game = (() => {
 
   function tickPickups(g, simDt) {
     if (!g.pickups.length) return;
-    const nSub = Math.min(60, Math.max(1, Math.ceil(simDt * 60))), h = simDt / nSub, A = g.astro, sh = g.sh, S = g.S;
-    const shipR = S.radius + 1.2 + (S.tractor || 0);
+    const A = g.astro, sh = g.sh, S = g.S, shipR = S.radius + 1.2 + (S.tractor || 0);
     let packFull = false;
-    // substep s ends at ts: the moons move during a warp frame, so each substep sees them where they really are then
-    for (let s = 0; s < nSub; s++) {
-      const ts = g.t - simDt + (s + 1) * h;
-      for (const p of g.pickups) {
-        if (p.kinematic || p.rest) continue;                       // kinematic: a module moves it (EVA chunks riding the beam home)
-        let [ax, ay] = World.gravity(g.w, p.x, p.y, ts);
-        if (A.on) {
-          const dx = A.x - p.x, dy = A.y - p.y, d = Math.hypot(dx, dy);
-          if (d < 3.2 && d > 0.05) { ax += dx / d * 14 + (A.vx - p.vx) * 3; ay += dy / d * 14 + (A.vy - p.vy) * 3; }
-        }
-        if (S.tractor && g.status !== 'dead') {
-          const dx = sh.x - p.x, dy = sh.y - p.y, d = Math.hypot(dx, dy);
-          if (d < shipR + 6 && d > 0.05) { ax += dx / d * 8 + (sh.vx - p.vx) * 2; ay += dy / d * 8 + (sh.vy - p.vy) * 2; }
-        }
-        p.vx += ax * h; p.vy += ay * h; p.x += p.vx * h; p.y += p.vy * h;
-        const nb = nearestBody(g, p.x, p.y, ts);
-        if (nb.alt > 2) continue;
-        const hit = Terrain.collideCircle(Terrain.of(nb.b), nb.lx, nb.ly, 0.3);
-        if (!hit) continue;
-        p.x += hit.nx * hit.depth; p.y += hit.ny * hit.depth;
-        const rvx = p.vx - nb.bvx, rvy = p.vy - nb.bvy, vn = rvx * hit.nx + rvy * hit.ny;
-        if (vn < 0) {
-          const tx = rvx - vn * hit.nx, ty = rvy - vn * hit.ny;
-          p.vx = nb.bvx + tx * 0.6 - vn * 0.25 * hit.nx; p.vy = nb.bvy + ty * 0.6 - vn * 0.25 * hit.ny;
-        }
-        if (Math.hypot(p.vx - nb.bvx, p.vy - nb.bvy) < 0.12) p.rest = { b: nb.b, lx: p.x - nb.bx, ly: p.y - nb.by };
-      }
-    }
+    for (const p of g.pickups) if (!p.kinematic && !p.rest) flyPickup(g, p, g.t - simDt, simDt, shipR);   // kinematic: a module moves it
     for (const p of g.pickups) {
       p.age += simDt;
       if (p.rest && !p.kinematic) {                                  // resting on a moon: ride along with it
@@ -628,6 +712,41 @@ const Game = (() => {
       g.gain = null;
     }
   }
+  // one loose pickup through T sim seconds from t0: substeps of 1/60 s near the ground (so a 1024x frame cannot
+  //  drop it through the floor), longer up high (a fraction of the time to reach the ground); the moons move
+  //  during a warp frame, so each substep sees them where they really are at its end
+  function flyPickup(g, p, t0, T, shipR) {
+    const A = g.astro, sh = g.sh, S = g.S, hMax = Math.max(0.5, T / 60);           // up high: at most ~60 substeps a frame, as in v3
+    let t = 0, nb = nearestBody(g, p.x, p.y, t0);
+    for (let k = 0; t < T - 1e-9 && !p.rest && k < 5000; k++) {
+      const v = Math.hypot(p.vx - nb.bvx, p.vy - nb.bvy);
+      const h = Math.min(T - t, Math.max(1 / 60, Math.min(hMax, 0.2 * (nb.alt - 2) / (v + 0.5))));
+      t += h;
+      const ts = t0 + t;
+      let [ax, ay] = World.gravity(g.w, p.x, p.y, ts);
+      if (A.on) {
+        const dx = A.x - p.x, dy = A.y - p.y, d = Math.hypot(dx, dy);
+        if (d < 3.2 && d > 0.05) { ax += dx / d * 14 + (A.vx - p.vx) * 3; ay += dy / d * 14 + (A.vy - p.vy) * 3; }
+      }
+      if (S.tractor && g.status !== 'dead') {
+        const dx = sh.x - p.x, dy = sh.y - p.y, d = Math.hypot(dx, dy);
+        if (d < shipR + 6 && d > 0.05) { ax += dx / d * 8 + (sh.vx - p.vx) * 2; ay += dy / d * 8 + (sh.vy - p.vy) * 2; }
+      }
+      p.vx += ax * h; p.vy += ay * h; p.x += p.vx * h; p.y += p.vy * h;
+      nb = nearestBody(g, p.x, p.y, ts);
+      if (nb.alt > 2) continue;
+      const hit = Terrain.collideCircle(Terrain.of(nb.b), nb.lx, nb.ly, 0.3);
+      if (!hit) continue;
+      p.x += hit.nx * hit.depth; p.y += hit.ny * hit.depth;
+      const rvx = p.vx - nb.bvx, rvy = p.vy - nb.bvy, vn = rvx * hit.nx + rvy * hit.ny;
+      if (vn < 0) {
+        const tx = rvx - vn * hit.nx, ty = rvy - vn * hit.ny;
+        p.vx = nb.bvx + tx * 0.6 - vn * 0.25 * hit.nx; p.vy = nb.bvy + ty * 0.6 - vn * 0.25 * hit.ny;
+      }
+      if (Math.hypot(p.vx - nb.bvx, p.vy - nb.bvy) < 0.12) p.rest = { b: nb.b, lx: p.x - nb.bx, ly: p.y - nb.by };
+    }
+  }
+
   function gain(g, item, n) {
     const at = g.astro.on ? g.astro : g.sh;
     if (!g.gain) g.gain = { items: {}, t0: g.real, x: at.x, y: at.y };
@@ -643,29 +762,42 @@ const Game = (() => {
     const { sh, w, t } = g;
     g.ref = World.refBody(w, sh.x, sh.y, t);
     g.orb = Physics.orbitRel(sh, g.ref, t, w);
+    const belt = !g.ref.par;                                                    // out between the asteroids: Ember is the reference
     if (g.status !== 'flying') g.pred = null;
+    else if (belt) g.pred = Physics.predict(sh, t, w, SIM.predictBelt, SIM.predictBeltSteps, g.S.radius * 0.8);
     else {
       const T = g.orb.E < 0 ? g.orb.T * 0.98 : SIM.predictMax * 0.6;
       g.pred = Physics.predict(sh, t, w, Math.min(SIM.predictMax, Math.max(SIM.predictMin, T)), SIM.predictSteps, g.S.radius * 0.8);
     }
-    let near = Infinity;
+    let near = Infinity, star = Infinity, sun = null;
     const st = World.states(w, t);
     for (const b of w.bodies) {
-      const dx = sh.x - st[b.idx][0], dy = sh.y - st[b.idx][1];
-      near = Math.min(near, Math.hypot(dx, dy) - World.surfaceR(b, Math.atan2(dy, dx)) - g.S.radius);
+      const dx = sh.x - st[b.idx][0], dy = sh.y - st[b.idx][1], gap = Math.hypot(dx, dy) - World.surfaceR(b, Math.atan2(dy, dx)) - g.S.radius;
+      if (b.star && Math.hypot(dx, dy) / b.R < star) { star = Math.hypot(dx, dy) / b.R; sun = b; }
+      near = Math.min(near, gap);
     }
+    g.starR = star;                                                             // distance to the nearest star, in its radii
+    if (g.status === 'flying' && star < SIM.starWarn && !g.starWarned) { g.starWarned = true; toast(g, `${sun.name.toUpperCase()} IS HOT: TURN BACK!`, '#ff9f1c', 'star'); }
+    else if (star > 1.2 * SIM.starWarn) g.starWarned = false;
+    g.frame = frameFor(g);
     let ttc = Infinity, ttcGap = Infinity;                                      // the preview ignores rubble: time to the first closing rock
     for (const rk of w.rocks) {
+      if (rk.gone) continue;
       const [rx, ry, rvx, rvy] = World.rockState(w, rk, t), dx = sh.x - rx, dy = sh.y - ry, d = Math.hypot(dx, dy) || 1e-9, gap = d - rk.r - g.S.radius;
       near = Math.min(near, gap);
       const ux = sh.vx - rvx, uy = sh.vy - rvy, vr = (ux * dx + uy * dy) / d;
       if (!(vr < -0.05 && gap / -vr < ttc)) continue;
-      const tc = -(dx * ux + dy * uy) / (ux * ux + uy * uy);                    // straight-line closest approach: will it actually hit?
-      if (Math.hypot(dx + ux * tc, dy + uy * tc) > rk.r + g.S.radius + 3) continue;
-      ttc = Math.max(0, gap) / -vr; ttcGap = gap;
+      const tc = -(dx * ux + dy * uy) / (ux * ux + uy * uy), reach = rk.r + g.S.radius + 3;   // straight-line closest approach: will it hit?
+      if (Math.hypot(dx + ux * tc, dy + uy * tc) > reach) continue;
+      let tHit = Math.max(0, gap) / -vr;
+      if (tHit > 2 && g.pred) {                                                 // further out the path curves: let the preview confirm it
+        const tp = pathTouch(g, (tt) => World.rockState(w, rk, tt), reach, t + 1.5 * tHit + 5);
+        if (tp === null) continue;
+        if (tp !== undefined) tHit = tp - t;
+      }
+      if (tHit < ttc) { ttc = tHit; ttcGap = gap; }
     }
-    g.nearDist = near; g.rockTTC = g.status === 'flying' && ttcGap < 400 ? ttc : Infinity;
-    g.maxCeresR = Math.max(g.maxCeresR, Math.hypot(sh.x - st[0][0], sh.y - st[0][1]));
+    g.nearDist = near; g.rockTTC = g.status === 'flying' && (ttcGap < 400 || ttc < ROCK_LOOK) ? ttc : Infinity;
 
     // -------- nav target: closest approach along the predicted path --------
     g.approach = null;
@@ -686,10 +818,53 @@ const Game = (() => {
     }
   }
 
+  // along the path preview: when the ship first comes within reach of a moving thing (state(t) -> [x, y, ...]: a rock, a wreck)
+  //  -> sim time, null (not before tEnd) or undefined (no preview, or it ends first)
+  function pathTouch(g, state, reach, tEnd) {
+    const P = g.pred && g.pred.pts, n = P ? P.length - 1 : 0;
+    if (n < 1) return undefined;
+    const stride = Math.max(1, Math.floor(0.5 / (P[1][2] - P[0][2])));          // chords of ~0.5 s: plenty for a rock
+    let i0 = 0, r0 = state(P[0][2]);
+    while (i0 < n && P[i0][2] < tEnd) {
+      const i1 = Math.min(n, i0 + stride), r1 = state(P[i1][2]);
+      const f = Physics.segEntry(P[i0][0] - r0[0], P[i0][1] - r0[1], P[i1][0] - r1[0], P[i1][1] - r1[1], reach);
+      if (f >= 0) return P[i0][2] + f * (P[i1][2] - P[i0][2]);
+      i0 = i1; r0 = r1;
+    }
+    return P[i0][2] >= tEnd ? null : undefined;
+  }
+
+
   function navTargets(g) {
-    const list = g.w.bodies.map((b) => ({ id: 'body:' + b.id, name: b.name, col: b.color[2], r: b.R, kind: 'body',
+    const list = g.w.bodies.map((b) => ({ id: 'body:' + b.id, name: b.name, col: b.color[2], r: b.R, kind: 'body', body: b,
                                           state: (t) => World.bodyState(g.w, b, t) }));
-    return list.concat(gather(g, 'navTargets'));
+    const swarms = g.w.swarms.map((sw) => ({ id: 'swarm:' + sw.id, name: sw.name, col: '#c9b8e8', r: 0, kind: 'swarm',
+                                             state: (t) => World.swarmState(g.w, sw, t) }));
+    return list.concat(gather(g, 'navTargets'), swarms);
+  }
+
+  // the frame the path preview is drawn in: the reference body, or out in the belt (reference = the star)
+  //  the nav target, else the nearest asteroid (so you see your closest approach, not a 6500 s lap of Ember)
+  function frameFor(g) {
+    const ref = g.ref;
+    if (ref.par) return { id: 'body:' + ref.id, name: ref.name, body: ref, state: (t) => World.bodyState(g.w, ref, t) };
+    const tg = navTarget(g);
+    if (tg) {                                                              // a moon, station or wreck laps its host every few minutes:
+      const [tx, ty] = tg.state(g.t);                                      //  draw in its lane body's frame, or the path corkscrews
+      let lb = tg.body || World.refBody(g.w, tx, ty, g.t);
+      while (lb.par && lb.par !== g.w.root) lb = lb.par;
+      if (!lb.par || lb === tg.body) return { id: tg.id, name: tg.name, body: tg.body || null, state: tg.state };
+      return { id: 'body:' + lb.id, name: lb.name, body: lb, state: (t) => World.bodyState(g.w, lb, t) };
+    }
+    const st = World.states(g.w, g.t);
+    let best = null, bd = Infinity;
+    for (const b of g.w.bodies) {
+      if (b.par !== g.w.root) continue;                                    // lane bodies only: a moon's own loops would scribble the path
+      const d = Math.hypot(g.sh.x - st[b.idx][0], g.sh.y - st[b.idx][1]) - b.R;
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best ? { id: 'body:' + best.id, name: best.name, body: best, state: (t) => World.bodyState(g.w, best, t) }
+                : { id: 'body:' + ref.id, name: ref.name, body: ref, state: (t) => World.bodyState(g.w, ref, t) };
   }
   const navTarget = (g) => (g.navId ? navTargets(g).find((n) => n.id === g.navId) || null : null);
   function cycleNav(g) {
@@ -718,13 +893,15 @@ const Game = (() => {
   function addGoals(list) { for (const gl of list) if (!GOALS.some((x) => x.id === gl.id)) GOALS.push(gl); GOALS.sort((a, b) => a.order - b.order); }
 
   addGoals([
-    { id: 'land_ceres', order: 20, reward: 50,  text: 'Fly down and land on Ceres',
-      test: (g) => g.status === 'landed' && g.landedOn.id === 'ceres' && g.everFlew },
+    { id: 'land_mochi', order: 20, reward: 50,  text: 'Fly down and land on Mochi',
+      test: (g) => g.status === 'landed' && g.landedOn.id === 'mochi' && g.everFlew },
+    { id: 'pretzel',    order: 55, reward: 150, text: 'Hop over to Pretzel and land (Tab targets it)',
+      test: (g) => g.status === 'landed' && g.landedOn.id === 'pretzel' },
     { id: 'kiwi',       order: 60, reward: 150, text: 'Land on Kiwi (the green one)',
       test: (g) => g.status === 'landed' && g.landedOn.id === 'kiwi' },
     { id: 'seed',       order: 62, reward: 200, text: 'Land on Seed, Kiwi\'s tiny moon',
       test: (g) => g.status === 'landed' && g.landedOn.id === 'seed' },
-    { id: 'glimmer',    order: 90, reward: 600, text: 'Land on Glimmer, past the outer ring',
+    { id: 'glimmer',    order: 90, reward: 600, text: 'Land on Glimmer, down in the inner lane',
       test: (g) => g.status === 'landed' && g.landedOn.id === 'glimmer' },
   ]);
 
@@ -756,14 +933,14 @@ const Game = (() => {
   function save(g) {
     g.lastSave = g.real;
     if (g.dev || g.noSave || typeof localStorage === 'undefined') return false;
-    const data = { v: 3, seed: g.seed, money: g.money, done: g.done, cargo: g.cargo, pack: g.pack,
+    const data = { v: 4, seed: g.seed, money: g.money, done: g.done, cargo: g.cargo, pack: g.pack,
                    ship: { fuel: g.sh.fuel, xe: g.sh.xe, rcs: g.sh.rcs, hull: g.sh.hull },
                    flight: flightState(g), ter: terrainState(g), mods: {} };
     for (const m of mods) { const s = call(g, m, 'save'); if (s !== undefined) data.mods[m.id] = s; }
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); return true; } catch (e) { return false; }
   }
   function readSave() {
-    try { const s = typeof localStorage !== 'undefined' && localStorage.getItem(SAVE_KEY); return s ? JSON.parse(s) : null; }
+    try { const s = typeof localStorage !== 'undefined' && localStorage.getItem(SAVE_KEY), d = s ? JSON.parse(s) : null; return d && d.v === 4 ? d : null; }
     catch (e) { return null; }
   }
   function applySave(g, d, phase) {
@@ -894,9 +1071,11 @@ const Game = (() => {
     if (g.status === 'dead') return `Kaboom (${g.crashMsg}). Press R to get towed back to base. Upgrades are kept, cargo is lost.`;
     const cands = [];
     if (g.pred && g.pred.impact && g.status === 'flying' && g.everFlew) {
-      const dt = g.pred.impact.t - g.t;
-      cands.push({ pri: 80, text: `Path hits ${g.pred.impact.body.name} in ${dt.toFixed(0)} s. ${dt > 8 ? 'To land, point the nose at the ⊗ BRAKE marker and burn until under 2.5 m/s. To miss it, burn sideways.' : 'Brake now: nose on ⊗ BRAKE, hold W!'}` });
+      const dt = g.pred.impact.t - g.t, b = g.pred.impact.body;
+      cands.push({ pri: 80, text: b.star ? `Path dives into ${b.name} in ${fmtT(dt)}. Nothing lands on a star: nose on the BURN marker (prograde) and hold W to swing past it!`
+        : `Path hits ${b.name} in ${dt.toFixed(0)} s. ${dt > 8 ? 'To land, point the nose at the ⊗ BRAKE marker and burn until under 2.5 m/s. To miss it, burn sideways.' : 'Brake now: nose on ⊗ BRAKE, hold W!'}` });
     }
+    if (g.starR < SIM.starWarn && g.status === 'flying') cands.push({ pri: 85, text: `Too close to the star: ${g.starR.toFixed(1)} radii out, and paint blisters at ${SIM.starKill}. Burn away from it!` });
     if (g.rockTTC < 8 && g.mode === 'ship') cands.push({ pri: 82, text: `Rock ahead: contact in ${g.rockTTC.toFixed(0)} s. Dodge with the arrow keys or a short sideways burn.` });
     if (g.sh.rcs <= 0 && g.mode === 'ship' && g.status !== 'dead') cands.push({ pri: 75, text: 'RCS empty: only the slow reaction wheel turns you, and the arrow keys do nothing. Dock or use a pad depot to restock.' });
     if (Math.abs(g.sh.omega) > 1.2 && g.mode === 'ship' && g.status !== 'dead') cands.push({ pri: 70, text: 'You are spinning fast. Tap the opposite way, or hold S to stop it.' });
@@ -911,6 +1090,7 @@ const Game = (() => {
     return cands[0].text;
   }
   const fmtDist = (m) => !isFinite(m) ? '∞' : Math.abs(m) >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(0)} m`;
+  const fmtT = (t) => !isFinite(t) ? '—' : t >= 60 ? `${Math.floor(t / 60)} min ${String(Math.floor(t % 60)).padStart(2, '0')} s` : `${t.toFixed(0)} s`;
 
 
   return Object.assign(api, {
@@ -918,9 +1098,9 @@ const Game = (() => {
     create, update, recalc, respawn, place, landAt, circularAround, addSpawn, SPAWNS, SPAWN_ORDER, defaultSpawn,
     dock, release, impulse, hurtShip, hurtAstro, healShip, die, targets, dealDamage, raycast,
     nearestBody, dig, addCargo, removeCargo, addPack, unloadPack, kgOf, spawnPickup,
-    refresh, navTargets, navTarget, cycleNav, warpStep, setWarp, toggleIon,
+    refresh, navTargets, navTarget, cycleNav, warpStep, setWarp, toggleIon, pathTouch,
     GOALS, addGoals, goal, save, wipeSave, readSave,
-    burst, popup, toast, setStatus, log, hint, fmtDist, ITEMS, CHUNK_KG,
+    burst, popup, toast, setStatus, log, hint, fmtDist, ITEMS, CHUNK_KG, LOOK_T: ROCK_LOOK,
   });
 })();
 

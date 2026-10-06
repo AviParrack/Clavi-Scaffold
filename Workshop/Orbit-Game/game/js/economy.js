@@ -24,20 +24,20 @@ const Econ = (() => {
     ammonia:    { name: 'Ammonia',         short: 'ammonia',    dens: 0.8,  price: 20, desc: 'Denser than hydrogen, less Isp. Smells like a gym bag.' },
   });
   const ION_FUELS = dict({
-    xenon:   { name: 'Xenon',   short: 'xenon',   dens: 1.6, price: 600, ve: 1300, desc: 'Heavy noble gas: packs dense, costs a fortune.' },
-    krypton: { name: 'Krypton', short: 'krypton', dens: 0.9, price: 160, ve: 1500, desc: 'Cheaper and higher Isp, but the tank holds less.' },
+    xenon:   { name: 'Xenon',   short: 'xenon',   dens: 1.6, price: 600, ve: 3900, desc: 'Heavy noble gas: packs dense, costs a fortune.' },
+    krypton: { name: 'Krypton', short: 'krypton', dens: 0.9, price: 160, ve: 4500, desc: 'Cheaper and higher Isp, but the tank holds less.' },
   });
   const BASE_VOL = SHIP0.fuel / FUELS[SHIP0.fuelType].dens;      // stock tank volume [m^3] (1.4)
 
-  // ---------------- engines: thrust [kN], extra mass [t], ve per fuel [m/s] ----------------
+  // ---------------- engines: thrust [kN], extra mass [t], ve per fuel [m/s] (game ve: x ISP_SCALE = the real thing) ----------------
   const ENGINES = dict({
-    sparrow: { name: 'Sparrow', price: 0, thrust: 7, mass: 0, fuels: { methalox: 150, kerolox: 138 },
+    sparrow: { name: 'Sparrow', price: 0, thrust: 7, mass: 0, fuels: { methalox: 450, kerolox: 414 },
                desc: 'Trusty stock engine. Smells faintly of toast.' },
-    brick:   { name: 'Brick', price: 2200, thrust: 16, mass: 0.35, fuels: { kerolox: 125, hypergolic: 130 },
+    brick:   { name: 'Brick', price: 2200, thrust: 16, mass: 0.35, fuels: { kerolox: 375, hypergolic: 390 },
                desc: 'Aerodynamics of a fridge, push of an angry fridge. Lifts anything off anything.' },
-    kestrel: { name: 'Kestrel', price: 4500, thrust: 8, mass: 0.12, fuels: { hydrolox: 190, methalox: 158 },
+    kestrel: { name: 'Kestrel', price: 4500, thrust: 8, mass: 0.12, fuels: { hydrolox: 570, methalox: 474 },
                desc: 'Light, efficient hydrolox sipper. Shines with a bigger tank.' },
-    nerva:   { name: 'NERVA-chan', price: 9500, thrust: 6, mass: 0.55, fuels: { lh2: 380, ammonia: 215 },
+    nerva:   { name: 'NERVA-chan', price: 9500, thrust: 6, mass: 0.55, fuels: { lh2: 1140, ammonia: 645 },
                desc: 'A tiny nuclear reactor that believes in you. Huge Isp, gentle push: a deep-space cruiser.' },
   });
   const ION = { id: 'whisper', name: 'Whisper ion drive', price: 8000, thrust: 0.25, mass: 0.25, vol: 0.25,
@@ -48,7 +48,7 @@ const Econ = (() => {
     { id: 'tank', tab: 'ship', name: 'Fuel tank', stock: `Stock tank (${BASE_VOL} m³)`, tiers: [
       { id: 'tank1', name: 'Stretch tank',  price: 450,  mass: 0.05, set: { tankVol: 2.4 }, desc: 'We cut the tank in half and added more tank.' },
       { id: 'tank2', name: 'Barrel tank',   price: 1200, mass: 0.12, set: { tankVol: 4.0 }, desc: 'Like the stretch tank, but it went to the gym.' },
-      { id: 'tank3', name: 'Whale tank',    price: 2600, mass: 0.22, set: { tankVol: 6.5 }, desc: 'Big. Full of dense fuel it is too heavy to lift off Ceres with a small engine.' },
+      { id: 'tank3', name: 'Whale tank',    price: 2600, mass: 0.22, set: { tankVol: 6.5 }, desc: 'Big. Full of dense fuel it is too heavy to lift off Mochi with a small engine.' },
       { id: 'tank4', name: 'Zeppelin tank', price: 4800, mass: 0.32, set: { tankVol: 9.0 }, desc: 'For people who measure fuel in units of "yes". Fill it partway for surface work.' } ] },
     { id: 'hull', tab: 'ship', name: 'Hull plating', stock: 'Stock hull', tiers: [
       { id: 'hull1', name: 'Riveted plating', price: 350,  mass: 0.06, set: { hull: 150 }, desc: 'Extra rivets. Every rivet is a tiny hug.' },
@@ -118,12 +118,12 @@ const Econ = (() => {
   const BY_ID = dict(Object.fromEntries(CATALOG.map((c) => [c.id, c])));
 
   // default stations (used for HOLD VALUE prices, and as a pad depot when no stations module is running)
-  const HUB = { id: 'hub', name: 'Ceres Hub', kind: 'hub', keeper: 'Mo', buy: {}, tabs: ALL_TABS, fuelMult: 1,
-                blurb: 'Welcome to Ceres Hub! Fair prices, fresh air, and only a little bit of gravity.' };
-  const PAD_DEPOT = { id: 'pad-depot', name: 'Ceres Pad Depot', kind: 'hub', keeper: 'Pip', buy: {}, tabs: ALL_TABS, fuelMult: 1.1,
+  const HUB = { id: 'hub', name: 'Mochi Hub', kind: 'hub', keeper: 'Mo', buy: {}, tabs: ALL_TABS, fuelMult: 1,
+                blurb: 'Welcome to Mochi Hub! Fair prices, fresh air, and only a little bit of gravity.' };
+  const PAD_DEPOT = { id: 'pad-depot', name: 'Mochi Pad Depot', kind: 'hub', keeper: 'Pip', buy: {}, tabs: ALL_TABS, fuelMult: 1.1,
                       blurb: 'No station in orbit today, so the shop came to the pad. Ice is cold, prices are hot.' };
-  // with Ceres Hub in orbit the pad keeps a kiosk: fuel, RCS, repairs and a till, a bit dearer than the Hub (parts stay upstairs)
-  const PAD_KIOSK = { id: 'pad-depot', name: 'Ceres Pad Depot', kind: 'outpost', keeper: 'Pip', buy: { '*': 0.8 }, tabs: ['services', 'sell'],
+  // with Mochi Hub in orbit the pad keeps a kiosk: fuel, RCS, repairs and a till, a bit dearer than the Hub (parts stay upstairs)
+  const PAD_KIOSK = { id: 'pad-depot', name: 'Mochi Pad Depot', kind: 'outpost', keeper: 'Pip', buy: { '*': 0.8 }, tabs: ['services', 'sell'],
                       fuelMult: 1.2, repairMult: 1.2,
                       blurb: 'A fuel pump, a till and a kettle. The Hub upstairs pays more and sells parts; I am just closer.' };
   const padDepot = () => (stationsOn() ? PAD_KIOSK : PAD_DEPOT);
@@ -224,7 +224,7 @@ const Econ = (() => {
 
   // headline numbers for a stats object: full tank, empty hold (what you would fly out of the shop with)
   function metrics(g, S) {
-    const gC = (g.w.byId.ceres || { g: 2 }).g, mFull = S.dry + S.fuel + (S.ionTank || 0);
+    const gC = (g.w.byId.mochi || { g: 2 }).g, mFull = S.dry + S.fuel + (S.ionTank || 0);
     const dvOf = (ve, prop) => (ve > 0 && prop > 0 && mFull > prop ? ve * Math.log(mFull / (mFull - prop)) : 0);
     return {
       dv: dvOf(S.ve, S.fuel), twr: S.thrust / (mFull * gC), isp: isp(S.ve), thrust: S.thrust, fuelT: S.fuel, tankVol: S.tankVol || BASE_VOL,
@@ -336,7 +336,7 @@ const Econ = (() => {
     return c.name;
   }
 
-  // free install from a wreck blueprint (engines are not swapped mid-flight; equip them at Ceres Hub)
+  // free install from a wreck blueprint (engines are not swapped mid-flight; equip them at Mochi Hub)
   function grant(g, id) {
     const name = install(g, id);
     if (name) { st(g).stats.blueprints++; Game.log(g, `blueprint installed: ${name}`); Game.save(g); }
@@ -355,7 +355,7 @@ const Econ = (() => {
     return pool[pool.length - 1];
   }
 
-  // a new engine starts on the fuel that goes furthest with your tank while still lifting off Ceres (else the liftiest)
+  // a new engine starts on the fuel that goes furthest with your tank while still lifting off Mochi (else the liftiest)
   function bestFuel(g, eid) {
     if (!ENGINES[eid]) return null;
     let far = null, lift = null;
@@ -367,7 +367,7 @@ const Econ = (() => {
     return (far || lift).f;
   }
 
-  // swap to an owned engine (free at Ceres Hub). Keeps the fuel when the new engine burns it, else drains and refills.
+  // swap to an owned engine (free at Mochi Hub). Keeps the fuel when the new engine burns it, else drains and refills.
   function equip(g, eid, station = st(g).station) {
     const m = st(g);
     if (!ENGINES[eid] || !owns(g, eid)) return { ok: false, msg: 'Not owned' };
@@ -528,7 +528,7 @@ const Econ = (() => {
   function firePulse(g) {
     const m = st(g), sh = g.sh;
     if (g.mode !== 'ship' || g.status === 'dead' || g.ui || g.paused) return false;
-    if (m.orion <= 0) { Game.toast(g, `NO ORION UNITS (${stationsOn() ? "CERES HUB AND RUST'S SELL THEM" : 'THE PAD DEPOT SELLS THEM'})`, '#ff9f1c', 'orion'); return false; }
+    if (m.orion <= 0) { Game.toast(g, `NO ORION UNITS (${stationsOn() ? "MOCHI HUB AND RUST'S SELL THEM" : 'THE PAD DEPOT SELLS THEM'})`, '#ff9f1c', 'orion'); return false; }
     if (g.status === 'docked') { Game.toast(g, 'NOT WHILE DOCKED! THE STATION LIKES ITS WINDOWS', '#ff9f1c', 'orion'); return false; }
     if (g.real - m.lastPulse < ORION.cooldown) return false;
 
@@ -650,10 +650,10 @@ const Econ = (() => {
     return null;
   }
 
-  // ---------------- pad depot: a shop on the Ceres pad (the whole shop without stations, a kiosk with them) ----------------
+  // ---------------- pad depot: a shop on the Mochi pad (the whole shop without stations, a kiosk with them) ----------------
 
   function padDepotNear(g) {
-    if (g.status !== 'landed' || !g.landedOn || g.landedOn.id !== 'ceres' || !g.land) return false;
+    if (g.status !== 'landed' || !g.landedOn || g.landedOn.id !== 'mochi' || !g.land) return false;
     const a = Math.atan2(g.land.ly, g.land.lx);
     return Math.abs(((a - Math.PI / 2 + 3 * Math.PI) % (2 * Math.PI)) - Math.PI) * g.landedOn.R < 25;
   }

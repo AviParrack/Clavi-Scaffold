@@ -1,9 +1,14 @@
 // ======================================================================
-//  HEADLESS PLAYTEST v3  —  real key presses and clicks through the loop:
+//  HEADLESS PLAYTEST v4  —  real key presses and clicks through the loop:
 //  start docked at Mochi Hub, shop, undock, warp; launch from the pad to
 //  orbit; step out on Mochi, laser ore, board; zap bugs on Kiwi; dock and
 //  sell; buy an upgrade; Orion pulse; salvage a wreck; pirates.
+//  v4 (contract §7.3, each SKIPs when its module or API is missing): the
+//  Debug Duck's Max everything; a tethered EVA from orbit; grapple, crack
+//  and sell a swarm rock; Mumble before and after the translator; the
+//  tunnels spawn; landing at Frostbite Flats.
 //  run:  python3 tools/bundle.py && NODE_PATH=$(npm root -g) node tests/playtest.js [outdir]
+//        PLAYTEST_URL=http://localhost:8000/index.html runs it against a live server instead of the bundle
 // ======================================================================
 
 const { chromium } = require('playwright');
@@ -11,10 +16,11 @@ const path = require('path');
 const fs = require('fs');
 
 const OUT = process.argv[2] || path.join(__dirname, '..', 'shots');
-const FILE = 'file://' + path.join(__dirname, '..', 'dist', 'pocket-orbit.html');
+const FILE = process.env.PLAYTEST_URL || 'file://' + path.join(__dirname, '..', 'dist', 'pocket-orbit.html');
 fs.mkdirSync(OUT, { recursive: true });
-let nPass = 0, nFail = 0;
+let nPass = 0, nFail = 0, nSkip = 0;
 const check = (name, ok, info = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}  ${info}`); ok ? nPass++ : nFail++; };
+const skip = (name, why) => { console.log(`SKIP  ${name}  ${why}`); nSkip++; };
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 (async () => {
@@ -41,6 +47,19 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
     if (!(await b.count())) return false;
     await b.click(); await page.waitForTimeout(250); return true;
   };
+  const clickSel = async (sel) => {                               // click a shop button by selector
+    const b = page.locator(sel).first();
+    if (!(await b.count())) return false;
+    await b.click(); await page.waitForTimeout(250); return true;
+  };
+  // a v4 section: SKIP when its module or API is missing, FAIL (not crash) when it throws
+  const section = async (name, needs, body) => {
+    let ok = false;
+    try { ok = await ev(needs); } catch (e) { ok = false; }
+    if (!ok) { skip(name, 'module or API missing'); return; }
+    try { await body(); } catch (e) { check(name, false, `threw: ${e.message.split('\n')[0]}`); }
+  };
+  const shipGap = () => ev(() => Math.hypot(ORBIT.game.astro.x - ORBIT.game.sh.x, ORBIT.game.astro.y - ORBIT.game.sh.y));
   // steer with RCS only: one decision per call
   async function steerTo(target) {
     const s = await st(), err = wrap(target - s.ang), want = Math.max(-1.2, Math.min(1.2, 2.5 * err));
@@ -233,10 +252,163 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   check('Space fires the gun and hits the pirate', hurt);
   await shot('20_dogfight_after');
 
+  // -------- 9. v4 §7.3-1: dev mode, the Debug Duck anywhere (O), Max everything, U, ?build=beast --------
+  await go('?dev=1&fresh=1&spawn=orbit');
+  await section('dev: Max everything', () => typeof Econ !== 'undefined' && !!Econ && !!ORBIT.game.mod.economy && !!Econ.isInf && !!Econ.grantAll && !!Econ.CHARGES, async () => {
+    await page.keyboard.press('KeyO'); await page.waitForTimeout(500);
+    check('dev: O opens the Debug Duck shop anywhere', (await st()).ui === 'shop');
+    const viaUi = (await clickSel('#ui button[data-act="tab"][data-id="dev"]')) && (await clickSel('#ui button[data-act="dev"][data-id="max"]'));
+    if (!viaUi) await ev(() => Econ.grantAll(ORBIT.game));
+    await shot('21_dev_max');
+    await page.keyboard.press('Escape'); await page.waitForTimeout(300);
+    const mx = await ev(() => { const g = ORBIT.game, ch = Econ.charges(g);
+      return { frame: g.S.frameId, engine: g.S.engine, inf: Econ.isInf(g), full: Object.entries(Econ.CHARGES).every(([id, c]) => (ch[id] || 0) >= c.max) }; });
+    check('dev: Max everything flies the Leviathan on the Sunflower', mx.frame === 'leviathan' && mx.engine === 'sunflower', `${mx.frame} / ${mx.engine}${viaUi ? '' : ' (no Dev tab button: via Econ.grantAll)'}`);
+    check('dev: money is ∞ and the crack charges are full', mx.inf && mx.full, JSON.stringify(mx));
+    await page.keyboard.down('KeyW'); await page.waitForTimeout(700); await shot('22_fusion_burn'); await page.keyboard.up('KeyW');
+    const f0 = await ev(() => { const g = ORBIT.game; g.sh.fuel *= 0.3; return g.sh.fuel / g.S.fuel; });
+    await page.keyboard.press('KeyU'); await page.waitForTimeout(200);
+    const f1 = await ev(() => ORBIT.game.sh.fuel / ORBIT.game.S.fuel);
+    check('dev: U tops everything up', f0 < 0.5 && f1 > 0.999, `fuel ${(100 * f0).toFixed(0)}% -> ${(100 * f1).toFixed(0)}%`);
+    await go('?dev=1&fresh=1&build=beast&spawn=orbit');
+    const b = await ev(() => [ORBIT.game.S.frameId, ORBIT.game.S.engine]);
+    check('?dev=1&build=beast gives the same ship', b[0] === 'leviathan' && b[1] === 'sunflower', b.join(' / '));
+  });
+
+  // -------- 10. v4 §7.3-2: a tethered EVA from orbit --------
+  await go('?dev=1&fresh=1&spawn=orbit');
+  await section('tethered EVA from orbit', () => typeof EVA !== 'undefined' && !!EVA && !!ORBIT.game.mod.eva && typeof EVA.isTethered === 'function' && typeof EVA.canBoard === 'function', async () => {
+    await page.keyboard.press('KeyE'); await page.waitForTimeout(700);
+    const te = await ev(() => { const g = ORBIT.game; return { mode: g.mode, tethered: EVA.isTethered(g), warp: g.warp }; });
+    check('E in orbit steps out on a tether, at 1x', te.mode === 'eva' && te.tethered && te.warp === 1, JSON.stringify(te));
+    const lim = await ev(() => (ORBIT.game.S.tetherLen ?? 30) + ORBIT.game.S.radius);
+    let dMax = 0;
+    await page.keyboard.down('KeyD');
+    for (let i = 0; i < 25; i++) { await page.waitForTimeout(120); dMax = Math.max(dMax, await shipGap()); }
+    await page.keyboard.up('KeyD');
+    await shot('23_tether');
+    check('the tether holds (centre distance <= tetherLen + hull radius)', dMax <= lim + 0.05, `max ${dMax.toFixed(2)} m of ${lim.toFixed(2)} m`);
+    await page.keyboard.down('KeyQ');
+    for (let i = 0; i < 80 && !(await ev(() => EVA.canBoard(ORBIT.game))); i++) await page.waitForTimeout(150);
+    await page.keyboard.up('KeyQ');
+    await page.keyboard.press('KeyE'); await page.waitForTimeout(500);
+    s = await st();
+    check('Q reels you in and E boards', s.mode === 'ship', `${s.mode}, ${(await shipGap()).toFixed(1)} m`);
+  });
+
+  // -------- 11. v4 §7.3-3: grapple a swarm rock, crack it, tow a fragment to the Crusher and sell it --------
+  await go('?dev=1&fresh=1&build=hauler&spawn=swarm&inf=0');
+  await section('grapple, crack and sell a rock', () => typeof Haul !== 'undefined' && !!Haul && !!ORBIT.game.mod.haul && !!Haul.devRock && !!Haul.towInfo && !!Haul.sellPoints
+    && typeof Econ !== 'undefined' && !!ORBIT.game.mod.economy && (ORBIT.game.S.towMax ?? 0) > 0, async () => {
+    await page.keyboard.press('KeyU'); await page.waitForTimeout(200);
+    await ev(() => { const g = ORBIT.game; g.sh.omega = 0; Haul.devRock(g, 'gravel', 3); });
+    await page.waitForTimeout(300);
+    await page.keyboard.press('KeyG'); await page.waitForTimeout(1200);
+    const h = await ev(() => ({ tow: Haul.towInfo(ORBIT.game), toasts: ORBIT.game.toasts.map((t) => t.text) }));
+    check('G latches a rock: the toast names type, mass and value', !!h.tow && h.toasts.some((t) => /HOOKED/i.test(t) && /\d+(\.\d)? t/.test(t) && /\$/.test(t)), h.toasts.join(' | '));
+    if (!h.tow) return;
+    await ev(() => { const g = ORBIT.game, t = Haul.towInfo(g); g.sh.ang = Math.atan2(g.sh.y - t.y, g.sh.x - t.x); g.sh.omega = 0; });
+    let taut = 0;
+    await page.keyboard.down('KeyW');
+    for (let i = 0; i < 20; i++) { await page.waitForTimeout(100); taut = Math.max(taut, await ev(() => { const t = Haul.towInfo(ORBIT.game); return t ? t.tension : 0; })); }
+    await page.keyboard.up('KeyW');
+    check('burning away pulls the rope taut', taut > 0, `max tension ${taut.toFixed(0)} N`);
+    await shot('24_tow');
+    const n0 = await ev(() => Haul.free(ORBIT.game).length);
+    await page.keyboard.press('KeyB'); await page.waitForTimeout(250);
+    check('B plants a charge and cuts the rope', !(await ev(() => Haul.towInfo(ORBIT.game))));
+    await ev(() => { const g = ORBIT.game, a = g.sh.ang; g.sh.x += Math.cos(a) * 60; g.sh.y += Math.sin(a) * 60; });   // get clear
+    let n1 = n0;
+    for (let i = 0; i < 80 && n1 === n0; i++) { await page.waitForTimeout(150); n1 = await ev(() => Haul.free(ORBIT.game).length); }
+    await page.waitForTimeout(400);
+    s = await st();
+    check('the fuse blows it into 2-5 fragments (crack job)', n1 - n0 + 1 >= 2 && n1 - n0 + 1 <= 5 && s.done.includes('crack'), `${n1 - n0 + 1} fragments`);
+    await shot('25_cracked');
+    // hook the biggest fragment from 6 m, then put ship and rock 15 m off the Crusher at its velocity
+    await ev(() => { const g = ORBIT.game, fr = Haul.free(g).slice().sort((a, b) => b.m - a.m)[0], d = fr.r + g.S.radius + 6;
+      Object.assign(g.sh, { x: fr.x - d, y: fr.y, vx: fr.vx, vy: fr.vy, ang: 0, omega: 0 }); });
+    await page.waitForTimeout(200);
+    await page.keyboard.press('KeyG'); await page.waitForTimeout(1200);
+    const hooked = await ev(() => !!Haul.towInfo(ORBIT.game));
+    check('G hooks a fragment', hooked);
+    if (!hooked) return;
+    const pay = await ev(() => {
+      const g = ORBIT.game, sp = Haul.sellPoints(g)[0], t = Haul.towInfo(g), rk = Haul.free(g).find((r) => r.id === t.id), r = Math.hypot(sp.x, sp.y), ux = sp.x / r, uy = sp.y / r;
+      const dr = sp.r + rk.r + 15, ds = dr + rk.r + g.S.radius + Math.min(t.len, 8);
+      Object.assign(rk, { x: sp.x + ux * dr, y: sp.y + uy * dr, vx: sp.vx, vy: sp.vy });
+      Object.assign(g.sh, { x: sp.x + ux * ds, y: sp.y + uy * ds, vx: sp.vx, vy: sp.vy, omega: 0 });
+      return g.money;
+    });
+    await page.waitForTimeout(400);
+    s = await st();
+    const offer = s.prompts.find((p) => /^Sell .* for \$/.test(p)) || '';
+    check('at the Crusher and slow: F offers to sell the rock', !!offer, JSON.stringify(s.prompts));
+    await shot('26_crusher');
+    const done0 = s.done;
+    await page.keyboard.press('KeyF'); await page.waitForTimeout(400);
+    s = await st();
+    const shown = +(offer.match(/\$([\d,]+)/) || [0, '0'])[1].replace(/,/g, ''), jobs = s.done.filter((id) => !done0.includes(id));
+    const paid = await ev((ids) => ids.reduce((a, id) => a + ((ORBIT.Game.GOALS.find((x) => x.id === id) || {}).reward || 0), 0), jobs);
+    check('F sells: money goes up by the shown value (haul job)', Math.abs(s.money - pay - shown - paid) <= 1 && s.done.includes('haul'),
+      `$${pay} -> $${s.money}: offer $${shown} + jobs ${jobs.join(',') || 'none'} $${paid}`);
+  });
+
+  // -------- 12. v4 §7.3-4: Mumble, before and after the translator --------
+  await go('?dev=1&fresh=1&spawn=pad');
+  await section('Mumble and the translator', () => typeof Npcs !== 'undefined' && !!Npcs && !!ORBIT.game.mod.npcs && !!Npcs.readable && !!Npcs.talking && Npcs.list(ORBIT.game).some((n) => n.id === 'mumble'), async () => {
+    await page.keyboard.press('KeyE'); await page.waitForTimeout(700);
+    const near = async () => ev(() => { const g = ORBIT.game, n = Npcs.list(g).find((q) => q.id === 'mumble'), [ux, uy] = n.up || [0, 1];   // right beside Mumble
+      Object.assign(g.astro, { x: n.x - uy * 0.5 + ux * 0.2, y: n.y + ux * 0.5 + uy * 0.2, vx: n.vx || 0, vy: n.vy || 0 }); });
+    await near(); await page.waitForTimeout(300);
+    await page.keyboard.press('KeyF'); await page.waitForTimeout(900);
+    s = await st();
+    const before = await ev(() => ({ talk: Npcs.talking(ORBIT.game, 'mumble'), read: Npcs.readable(ORBIT.game, 'murk', 'hello') }));
+    check('F talks to Mumble in Murk glyphs (meet job)', before.talk && !before.read && s.done.includes('meet'), JSON.stringify(before));
+    await shot('27_mumble_glyphs');
+    await page.keyboard.press('KeyL'); await page.keyboard.press('KeyL'); await page.waitForTimeout(200);
+    await near(); await page.waitForTimeout(1500);
+    await page.keyboard.press('KeyF'); await page.waitForTimeout(1500);
+    const after = await ev(() => ({ talk: Npcs.talking(ORBIT.game, 'mumble'), read: Npcs.readable(ORBIT.game, 'murk', 'hello'), lvl: Npcs.translator(ORBIT.game) }));
+    check('with the translator Mumble reads in English', after.talk && after.read, JSON.stringify(after));
+    await shot('28_mumble_english');
+  });
+
+  // -------- 13. v4 §7.3-5: the tunnels --------
+  await go('?fresh=1&spawn=tunnels');
+  await section('the tunnels spawn', () => typeof Mochi !== 'undefined' && !!Mochi && !!ORBIT.game.mod.mochi && !!Mochi.zoneAt && !!ORBIT.Game.SPAWNS.tunnels, async () => {
+    const z = await ev(() => { const g = ORBIT.game, z = Mochi.zoneAt(g, g.astro.x, g.astro.y); return { mode: g.mode, zone: z && z.name, hp: g.astro.hp }; });
+    await page.waitForTimeout(1500);
+    const hp = await ev(() => ORBIT.game.astro.hp);
+    check('?spawn=tunnels: on foot in a named zone, safe', z.mode === 'eva' && !!z.zone && hp >= z.hp, JSON.stringify(z));
+    await shot('29_tunnels');
+  });
+
+  // -------- 14. v4 §7.3-6: land at Frostbite Flats and trade --------
+  await go('?fresh=1&spawn=orbit');
+  await section('land at Frostbite Flats', () => typeof Mochi !== 'undefined' && !!Mochi && !!ORBIT.game.mod.mochi && !!Mochi.outposts && Mochi.outposts(ORBIT.game).some((o) => /frostbite/i.test(o.name)), async () => {
+    const hull0 = await ev(() => {
+      const g = ORBIT.game, o = Mochi.outposts(g).find((q) => /frostbite/i.test(q.name)), b = g.w.byId[o.body], [bx, by, bvx, bvy] = ORBIT.World.bodyState(g.w, b, g.t);
+      const r = Math.hypot(o.lx, o.ly), ux = o.lx / r, uy = o.ly / r, up = g.S.radius + 0.3;   // Mochi pulls ~1.8 m/s²: start low and slow
+      Object.assign(g.sh, { x: bx + o.lx + ux * up, y: by + o.ly + uy * up, vx: bvx - ux * 0.2, vy: bvy - uy * 0.2, ang: Math.atan2(uy, ux), omega: 0 });
+      g.navId = null; return g.sh.hull;
+    });
+    for (let i = 0; i < 30 && (await st()).status !== 'landed'; i++) await page.waitForTimeout(200);
+    await page.waitForTimeout(400);
+    s = await st();
+    check('lands on the Frostbite Flats plinth with no damage', s.status === 'landed' && s.hull >= hull0, `${s.status}, hull ${hull0} -> ${s.hull}`);
+    await shot('30_frostbite');
+    const offer = s.prompts.find((p) => /frostbite|okra/i.test(p));
+    await page.keyboard.press('KeyF'); await page.waitForTimeout(600);
+    const shop = await ev(() => ({ ui: ORBIT.game.ui, name: /frostbite/i.test(document.getElementById('ui').textContent) }));
+    check('F opens the Frostbite Flats shop', !!offer && shop.ui === 'shop' && shop.name, `${JSON.stringify(s.prompts)} ${JSON.stringify(shop)}`);
+    await shot('31_frostbite_shop');
+    await page.keyboard.press('Escape');
+  });
+
   s = await st();
   check('no module error on screen', !s.err, s.err || '');
   check('no page errors', errors.length === 0, errors.join(' | '));
-  console.log(`\n${nPass} passed, ${nFail} failed`);
+  console.log(`\n${nPass} passed, ${nFail} failed, ${nSkip} skipped`);
   await browser.close();
   process.exit(nFail ? 1 : 0);
 })();

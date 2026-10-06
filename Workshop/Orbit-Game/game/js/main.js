@@ -4,22 +4,31 @@
 //  ?dev=1 or #dev       dev mode: $50k, no save, T cycles spawn points
 //  ?spawn=hub|outpost|rusts|pad|orbit|belt|kiwi|pretzel|potato|glimmer|swarm  (or #kiwi etc.)
 //  ?fresh=1             ignore the saved game
+//  ?build=beast         dev: start from a build preset (dinky tow brick mule hauler barge beast; econ), or #build-beast
+//  ?inf=0|1             dev: unlimited money off / on (econ)        ?xlate=0..3   translator level (npcs)
 // ======================================================================
 
 (() => {
 
-  const params = new URLSearchParams(location.search), hash = location.hash.slice(1);
+  const params = new URLSearchParams(location.search), hash = location.hash.slice(1), hashBuild = /^build-([\w-]+)$/.exec(hash);
   const DEBUG = params.get('debug') === '1' || hash === 'debug';
-  const DEV = params.get('dev') === '1' || hash === 'dev';
+  const DEV = params.get('dev') === '1' || hash === 'dev' || !!hashBuild;
   const SEED = parseInt(params.get('seed') || '7', 10);
   const spawn = params.get('spawn') || (Game.SPAWNS[hash] ? hash : null);
   const fresh = params.get('fresh') === '1';
+
+  const opts = { dev: DEV, fresh, noSave: fresh || params.has('mods') };       // presets for econ (build, inf) and npcs (xlate)
+  const build = params.get('build') || (hashBuild && hashBuild[1]);
+  if (build) opts.build = build;
+  if (params.has('inf')) opts.inf = !/^(0|false|off|no)$/i.test(params.get('inf'));
+  const xlate = parseFloat(params.get('xlate'));
+  if (Number.isFinite(xlate)) opts.xlate = Math.max(0, Math.min(3, Math.floor(xlate)));
 
   const canvas = document.getElementById('game');
   Render.init(canvas, SEED);
   window.addEventListener('resize', () => Render.resize(canvas));
 
-  let g = Game.create(SEED, spawn, { dev: DEV, fresh, noSave: fresh || params.has('mods') });
+  let g = Game.create(SEED, spawn, opts);
   window.ORBIT = { get game() { return g; }, set game(v) { g = v; }, CONFIG, Physics, World, Terrain, Game, Render };   // console handle
 
   let lastErr = null;

@@ -850,7 +850,7 @@ const Npcs = (() => {
   // ---------------- orbiloon: a jelly bell that wears its own little orbit ----------------
   function drawOrbi(c, lk, st) {
     const { t, L, lw } = st, pal = palOf(PALS.orbiloon, lk.pal, 'sky'), yc = 1.45 + 0.08 * Math.sin(t * Math.PI + (lk.off || 0)), R = 0.62;
-    const pf = (t % 1.2) / 1.2;                                    // hover puff: honest cold-gas burps
+    const pf = (((t % 1.2) + 1.2) % 1.2) / 1.2;                                    // hover puff: honest cold-gas burps
     c.beginPath(); c.ellipse(0, yc - R * 0.35 - 0.2 - pf * 0.7, 0.08 + pf * 0.25, 0.04 + pf * 0.08, 0, 0, 2 * Math.PI); c.strokeStyle = `rgba(255,255,255,${0.7 * (1 - pf)})`; c.lineWidth = 0.03; c.stroke();
     for (let i = 0; i < 5; i++) {
       const x0 = -0.4 + i * 0.2, sw = Math.sin(t * 1.6 + i * 1.3) * 0.15, len = 0.95 + (i % 2) * 0.25;

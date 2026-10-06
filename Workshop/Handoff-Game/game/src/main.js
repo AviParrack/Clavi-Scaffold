@@ -22,6 +22,7 @@ import { modelCard } from './ui/derive.js';
 import { initAudio, setMuted, isMuted } from './ui/audio.js';
 import { runTraining } from './train/index.js';
 import { BALANCE as B } from './config/balance.js';
+import { TD_TRAIN_SKILL } from './config/training.js';
 
 const params = new URLSearchParams(location.search);
 const DEBUG = params.get('debug') === '1';
@@ -64,6 +65,9 @@ const api = {
   setDev(on) { DEV = on; store.set('dev', on); if (on) setupDev(); },
   act: null,
   newGame, endGame,
+  startPractice, stopPractice,
+  get practiceLive() { return !!practice; },
+  get practiceAtResults() { return practice?.handle.phase === 'results'; },   // its card is up: Esc there is CONTINUE
   isMuted,
   toggleMute() { setMuted(!isMuted()); store.set('muted', isMuted()); view.toast(isMuted() ? 'muted' : 'sound on'); },
   onGesture: initAudio,
@@ -77,22 +81,25 @@ api.act = createAct(api);
 setMuted(store.get('muted', false));
 
 // ---------- start / restart ----------
+// mode: 'campaign' (deploy, report, the training minigame) or 'td' (tower defense: training resolves itself at par)
 // tutorial: null = ask api.tutorialWanted (a player's first game), true / false = force it (debug hooks)
-function newGame(difficulty = 'medium', { tutorial: tut = null } = {}) {
+function newGame(difficulty = 'medium', { tutorial: tut = null, mode = 'campaign' } = {}) {
   const seed = params.has('seed') ? Number(params.get('seed')) : Math.floor(Math.random() * 1e9);
   const withTutorial = (tut ?? api.tutorialWanted) && !DEV;          // dev mode never runs the tutorial
-  st = Sim.createState({ seed, difficulty, tutorial: withTutorial });
+  stopPractice();
+  document.activeElement?.blur?.();             // the menu button that started it: an Enter at the card must not click it again
+  st = Sim.createState({ seed, difficulty, tutorial: withTutorial, mode });
   st.debug = DEBUG;
   resetView(view);
   stopTraining();
   if (DEV) devStart(st);
   tutorial.start(api, withTutorial);
   acc = 0;
-  store.set('settings', { difficulty });
-  console.log(`[handoff] new game seed=${seed} difficulty=${difficulty}${DEBUG ? ` (true: ${st.trueDifficulty})` : ''} tutorial=${withTutorial}`);
+  store.set('settings', { difficulty, mode: st.mode });
+  console.log(`[handoff] new game ${st.mode} seed=${seed} difficulty=${difficulty}${DEBUG ? ` (true: ${st.trueDifficulty})` : ''} tutorial=${withTutorial}`);
   return st;
 }
-function endGame() { stopTraining(); st = null; resetView(view); }
+function endGame() { stopTraining(); st = null; resetView(view); console.log('[handoff] back to the main menu'); }
 
 // dev mode's opening: every lane open, all unlocked, every lane at max slots, and a bank (press $ for more)
 function devStart(st) {
@@ -116,9 +123,16 @@ let trainRun = null;                            // { g, game, handle } while the
 
 function tickTraining(t) {
   if (!st || st.phase !== 'training' || st.over) { if (trainRun) stopTraining(); return; }
+  if (st.mode === 'td') { autoTrain(); return; }
   if (trainRun?.game === st && trainRun.g === st.gen) { if (trainRun.stub != null) tickStub(t); return; }
   stopTraining();
   startTraining(t);
+}
+
+// tower defense: no minigame. The stub at the human policy's skill decides s, and the next card says so (overlays.js)
+function autoTrain() {
+  const r = Sim.trainingStub(st, TD_TRAIN_SKILL);
+  if (api.act.submitTraining(r)) console.log(`[handoff] tower defense: training G${st.gen} auto-resolved at par, s ${r.s.toFixed(2)}`);
 }
 
 function startTraining(t) {
@@ -161,7 +175,40 @@ function stopTraining() {
   trainCanvas.classList.remove('on');
   run?.handle?.cancel();
 }
-const trainingLive = () => !!trainRun?.handle;
+
+// =================== TRAINING mode (main menu 3): the minigame on its own, no game state ===================
+// overlays.js picks { g, seed, debt } and reads the handle's promise for the result. Esc there calls stopPractice().
+
+let practice = null;                            // { cfg, handle } while a run is on
+
+function startPractice(pick) {
+  stopPractice();
+  document.activeElement?.blur?.();             // TRAIN / AGAIN: Enter on the results card must not click it again
+  const cfg = { traits: [], difficulty: 'medium', ...pick, practice: true };     // practice: the card trains no model
+  const handle = runTraining(cfg, { canvas: trainCanvas, k: () => k, debug: api.debug, muted: () => isMuted() });
+  practice = { cfg, handle };
+  trainCanvas.classList.add('on');
+  console.log(`[handoff] training mode: G${cfg.g} seed ${cfg.seed} debt ${cfg.debt}`);
+  handle.promise.then(() => {
+    if (practice?.handle !== handle) return;
+    practice = null;
+    trainCanvas.classList.remove('on');
+    setScale(k);                                // src/train set it every frame: the board's caches follow k
+  });
+  return handle;
+}
+
+function stopPractice() {
+  const run = practice;
+  practice = null;
+  if (!run) return;
+  trainCanvas.classList.remove('on');
+  setScale(k);
+  run.handle.cancel();
+  console.log('[handoff] training mode: run cancelled');
+}
+
+const trainingLive = () => !!trainRun?.handle || !!practice;
 
 // =================== scale: fit the board in the window ===================
 // fit = CSS px per logical px, k = device px per logical px. The canvas backing store is W·k × H·k device px.
@@ -352,12 +399,13 @@ function debugHooks() {
     Sim.step(st, SIM_DT);
     return true;
   };
-  const summary = () => st && { t: +st.t.toFixed(2), gen: st.gen, over: !!st.over, phase: st.phase,
+  const summary = () => st && { t: +st.t.toFixed(2), gen: st.gen, mode: st.mode, over: !!st.over, phase: st.phase,
     choice: st.pendingChoice?.eventId ?? null, research: st.research.banked.length, retrain: !!st.pendingRetrain,
     alarm: st.alarm ? +st.alarm.left.toFixed(1) : null, money: Math.round(st.money) };
 
   const hooks = {
     get st() { return st; }, Sim, Rules, Layout, view, act: api.act, hits, fontsReady, perf,
+    // opts: { tutorial, mode: 'campaign' | 'td' }
     newGame: (d, opts) => { newGame(d, opts); return summary(); },
     // ---------- phases (what DEPLOY and TRAIN do) ----------
     deploy() { if (st.phase === 'card') api.act.ack(); return summary(); },
@@ -368,8 +416,9 @@ function debugHooks() {
       return summary();
     },
     skipTutorial() { tutorial.skip(api, false); },
-    // the live training run's handle (src/train: _ctl.freeze / tick / skipCountdown / advance / draw), or null
-    get training() { return trainRun?.handle ?? null; },
+    // the live training run's handle (src/train: _ctl.freeze / tick / skipCountdown / advance / draw), or null.
+    // TRAINING mode's run (no game) too
+    get training() { return trainRun?.handle ?? practice?.handle ?? null; },
 
     // ---------- time ----------
     hold(on = true) { view.hold = on; },               // the loop keeps drawing but stops stepping the sim

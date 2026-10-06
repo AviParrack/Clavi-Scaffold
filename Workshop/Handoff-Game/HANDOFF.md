@@ -1,6 +1,6 @@
 # HANDOFF game: state of play
 
-*Updated 2026-10-05: v3 is built (every stream plus a QA pass). The v2 notes below are history; where they disagree, v3 wins.*
+*Updated 2026-10-06: v4 on top of v3 (no default Kill Switch, the stack-wipe fix, the main menu, a review-fix pass). The v2 notes below are history; where they disagree, v3/v4 win.*
 
 ## v3: where it is (2026-10-05)
 
@@ -8,27 +8,32 @@ Built from [design/DESIGN-v3.md](design/DESIGN-v3.md) rev 2 after Avi found v2 t
 
 **Landed**
 - 🟢 **Sim:** phases card → play → report → training → card; research as a stream (one card per work stream, bank of 2, free reroll); contract lanes `ext2` G3 / `ext3` G5 / `int2` G6 (kit, OPEN LANE or 90 s, 60 s ramp, Government quota); flags ship, a finite Kill Switch, lab-wide levels, κ collusion; retrain (20 s dark); EGRESS ANOMALY + PULL THE PLUG; the rival as slack seconds; chip text from `config/content/tasks/gN.js`.
-- 🟢 **Balance:** `balance 400` passes all 18 targets and the shock (human 68 / 36 / 14 %, smart 93 / 80 / 52 %). The Kill Switch is a costly last resort: −1.3 rep per Consumer refusal, break-even 14 % (DESIGN-v3 §2.9 #19). Rerun on 2026-10-05: `balance 400` and `parity 400` both pass. The [balance walkthrough](https://claude.ai/code/artifact/0de3f0d5-86b1-4519-bd3d-ecbb7f53e149) (Claude Doc) now shows these real-game numbers.
+- 🟢 **Balance (v4: no default Kill Switch):** both G1 rails start empty and a contract kit is Probe + TM; the Kill Switch ($300) is bought, and a flag no responder takes ships. Knobs: start money $3100, lane grant $2300·π, regen 0.31 (DESIGN-v3 §2.9 #20). `balance 400` passes all 18 targets and the shock (human 66 / 36 / 13 %, smart 94 / 84 / 59 %; on Medium noAuditor 18 %, noDefer 17 %, noKill 2 %); `parity 400` passes (widest gap 5). Kill Switch break-even 14.2 % on Consumer. The shock now opens a new lane at the deadline (genT 90, as sim.js) and ramps it in, as the game does: Medium 5th percentile G2 → G3 99 s, G4 → G5 121 s (bar 90 s). The [balance walkthrough](https://claude.ai/code/artifact/0de3f0d5-86b1-4519-bd3d-ecbb7f53e149) (Claude Doc) still shows the v3 (#19) numbers.
 - 🟢 **Training:** `src/train/` on `#train` (standalone: `train.html`); its result sets the next model's Δm.
-- 🟢 **UI:** model card scene, report, lane tabs with lamps and auto-focus, research panel, floating mount facts, stamps, §3g juice, the 10-step tutorial (its plate waits for its own codec lines), 1× forced at every card and while a lane ramps. **Content:** `config/content/v3-text.js`, Big Boss, 101 new attack texts.
+- 🟢 **UI:** model card scene, report, lane tabs with lamps (red-tab alerts; auto-focus removed in v4), research panel, floating mount facts, stamps, §3g juice, the 10-step tutorial (its plate waits for its own codec lines), 1× forced at every card and while a lane ramps. **Content:** `config/content/v3-text.js`, Big Boss, 101 new attack texts.
+- 🟢 **v4 stack-wipe fix** (Avi: "an incident deletes the probes and monitors"): the sim never cleared a slot; auto-focus swapped the track to the red lane's thinner stack, and right-click sold even while placing. Now only the player moves a track, the rail's head names the lane, a lane in trouble out of view burns its tab red and names itself on the prompt. Right-click cancels first; with nothing open it only arms SELL? (red frame, a prompt note), and a second right-click on the same mount within 1.5 s sells (`view.js rightClickSells`). The RETRAIN card now sits between the rails and EGRESS ANOMALY in the right column, so neither hides a mount, and both drop a click in their first 0.6 s (`overlays.js CARD_GRACE`; keys are instant). `test/ui-stack.mjs` guards it.
+- 🟢 **v4 main menu** (`overlays.js` START, words in `config/content/menu-text.js`): CAMPAIGN · TOWER DEFENSE · TRAINING, then a difficulty (or the training picker). `createState({ mode })` sets `st.mode` ('campaign' | 'td'); in tower defense main.js resolves training with `Sim.trainingStub(st, TD_TRAIN_SKILL)` (0.5, `config/training.js`) and the card, report, ops log and scorecard say so. TRAINING mode runs `runTraining` on `#train` with no game state (`api.startPractice` / `stopPractice`, `config.practice` drops the next-model lines from the results card). Best scores per mode: `handoff.best` (campaign, the v3 key), `best.td`, `trainBest`. PLAY AGAIN keeps mode and difficulty; the pause plate's MAIN MENU needs a second click within 3 s. A started game or run blurs the clicked menu button, and a double-click's second click on a menu button is dropped.
 
 **Run / test** (from `game/`; serve it with `python3 -m http.server`). `#dev` opens everything; `?debug=1` gives debug keys and `window.__handoff` (the published artifact passes only a `#hash`).
 - `node test/headless.mjs` (quick, ~35 s, runs train.mjs and content-check too) · `… balance 400` (~17 min) · `… parity 400` · `… shock` · `… forbid` · `… test` lists the tests.
 - `node test/train.mjs` (+ `ui`, or `<policy> <seed> <g>`) · `train.html#g=5,seed=12,debt=0.01,go` · `node test/content-check.mjs [strict]`.
-- UI, with `NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt NODE_USE_ENV_PROXY=1`: `node test/ui-play.mjs <out>` (a real-time Medium run, ~8 min) · `node test/ui-shot.mjs <out> [scene…]` (48 scenes; no args lists them).
+- UI, with `NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt NODE_USE_ENV_PROXY=1`: `node test/ui-play.mjs <out> [seed]` (menu, a real-time Medium campaign, tower defense, training mode, dev, a plain page; ~5 min) · `node test/ui-stack.mjs [out]` (the stack-wipe guard, ~25 s) · `node test/ui-shot.mjs <out> [scene…]` (56 scenes; no args lists them).
 - Publish: `node scripts/publish-files.mjs` prints the `files` map and checks every import; `file_path` = `game/index.html`, `root` = `game/`.
 
 **Gotchas**
 - Never tune at < 400 seeds; targets are on the `human` population. Changing events.js or the first event's time moves human win %.
 - The UI never reads `st.m`, only estimates. The sim never touches the DOM; numbers live in `config/`.
 - No codec call starts at a card, report or training; the report sends the waiting ones to the history. Tutorial lines are never shed.
-- `view.slow` (tutorial) and `view.modal` (research panel) gate stepping in main.js. `view.focus[side]` is the lane a track shows; the deploy fx move it, so tests draw a frame before setting it.
+- `view.slow` (tutorial) and `view.modal` (research panel) gate stepping in main.js. `view.focus[side]` is the lane a track shows; only the player moves it (a tab, Tab / [ ], their own OPEN LANE). A test's `H.Sim.openLane` counts as the player's: draw a frame, then set focus.
 
 **Open** (ranked; the QA report has details)
+- 🚩 Avi to confirm two v4 UI rules: tracks never move on their own (DESIGN-v3 §3b, a red tab instead), and selling by right-click takes two right-clicks (the panel's SELL button is still one click).
 - 🟡 The tutorial takes ~3 minutes before the research step: the plate waits for its codec lines (28 cps). Needs a human playtest; if it drags, cut tutorial text, not the pace.
-- 🟡 Thin margins: the Medium hazard's G6 → G7 step is +11 (bar 12). Deaths moved earlier with the Kill Switch's price: human dies by G2 in 9 % of Medium runs, 19 % of Hard.
+- 🟡 Thin margins: the Medium hazard's G2 → G3 step is +11 (bar 12), and the shock's G2 → G3 is 99 s at the 5th percentile against a 90 s bar (fastest 79 s). Human dies by G2 in 7 % of Medium runs, 20 % of Hard.
+- 🟡 The Kill Switch is optional to place, not to win: with none, human Medium wins 2 %; desks bought instead win 3–6 %. The `human` policy assumes a player buys Consumer's right after the tutorial (step 4 says so). A real no-Kill-Switch style needs something else to take G1's overflow (DESIGN-v3 §8 decision 1).
+- 🟡 A new lane opened at once with only its kit ships every flag: at G2 → G3 on Medium, 1 run in 20 goes from full to empty within 40 s. The asserted shock lets it open at the deadline (§2.9 #20).
 - 🟡 Late desks may not pay: from G4, noAuditor's Medium hazard (13 / 8 / 11 / 9 %) sits below human's (15 / 17 / 12 / 23 %). Selection or Defer? Not split yet (§2.9 #19).
-- 🟡 forbid rework list: ratelimit, canary, interp, resampler, honeypot, egress, leastpriv, weight_security.
+- 🟡 forbid rework list: ratelimit, canary, interp, resampler, honeypot, egress, leastpriv, weight_security (unchanged in the v4 rerun, which now includes the Kill Switch: it matters G1–G5).
 - ⚪ DESIGN-v3 §2.5–2.7 tables are model output; the asserted numbers are the sim's `balance 400`. design/train-check-v3.mjs can retire (test/train.mjs replaces it).
 - ⚪ Training feel untested with people; drawing costs ~22 ms a frame at 1920×1080@2 in headless Chromium.
 

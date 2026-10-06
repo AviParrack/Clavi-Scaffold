@@ -71,10 +71,12 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 
 <script type="module">
 // ===== standalone training page: pick a generation, a debt and a seed; play; see the result; again =====
-// Never touches src/main.js. Hash flags (the published artifact gets no query string): #g=5,seed=12,debt=0.01,go
+// Never touches src/main.js (the game has the same picker: main menu → TRAINING). Hash flags (the published artifact
+// gets no query string): #g=5,seed=12,debt=0.01,go
 import { runTraining } from './src/train/index.js';
 import { cssVars, fontsReady } from './src/ui/theme.js';
 import { FIRST_TRAINED, LAST_TRAINED } from './src/config/training.js';
+import { TRAIN_DEBTS } from './src/config/content/menu-text.js';
 
 const W = 1200, H = 660;
 const $ = id => document.getElementById(id);
@@ -105,7 +107,7 @@ resize();
 cssVars();
 
 // ---------- the picker ----------
-const DEBTS = [[0, 'CLEAN'], [0.005, '0.005 · PAR'], [0.01, '0.010'], [0.02, '0.020'], [0.05, '0.050 · WORST']];
+const DEBTS = TRAIN_DEBTS;                 // the same options as the game's TRAINING mode (main menu 3)
 function buttons(el, items, isOn, onPick) {
   el.innerHTML = '';
   for (const [v, label] of items) {
@@ -132,7 +134,7 @@ window.addEventListener('keydown', e => { if (!pick.hidden && (e.code === 'Enter
 let handle = null;
 function start(cfg = {}) {
   if (handle) handle.cancel();
-  const config = { g: state.g, seed: state.seed, debt: state.debt, traits: [], difficulty: 'medium', ...cfg };
+  const config = { g: state.g, seed: state.seed, debt: state.debt, traits: [], difficulty: 'medium', practice: true, ...cfg };
   console.log(`[train.html] start ${JSON.stringify(config)}`);
   pick.hidden = true;
   if (idleHandle) { idleHandle.cancel(); idleHandle = null; }

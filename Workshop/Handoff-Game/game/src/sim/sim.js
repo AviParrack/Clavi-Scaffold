@@ -1,5 +1,5 @@
 // ===== Sim core: public API =====
-//   createState(opts)  → state                          opts: { seed, difficulty, tutorial }
+//   createState(opts)  → state                          opts: { seed, difficulty, tutorial, mode }
 //   step(state, dt)    → advances time (a no-op outside play, while game over, or while a choice is pending)
 //   actions below      → the only way the UI changes state
 // The renderer only reads state. The sim never touches the DOM.

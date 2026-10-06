@@ -1,12 +1,13 @@
 // ===== Overlays: the modal screens (HTML over the canvas) and the sound =====
-// START (no game) · CARD (st.phase 'card': the model card and its chat, DEPLOY) · REPORT (phase 'report': what slipped
-// through, TRAIN) · TRAINING (phase 'training': the stand-in, only if src/train failed to start) · RESEARCH panel
-// (view.panel) · RETRAIN card (st.pendingRetrain) · EGRESS ANOMALY (st.alarm) · PAUSE · RSP prompt · SCORECARD
-// (SCORE_DELAY s after st.over). Built once into the #ov-* sections of index.html.
+// MAIN MENU (no game: CAMPAIGN · TOWER DEFENSE · TRAINING) · CARD (st.phase 'card': the model card and its chat, DEPLOY)
+// · REPORT (phase 'report': what slipped through, TRAIN) · TRAINING (phase 'training': the stand-in, only if src/train
+// failed to start) · RESEARCH panel (view.panel) · RETRAIN card (st.pendingRetrain) · EGRESS ANOMALY (st.alarm) · PAUSE
+// · RSP prompt · SCORECARD (SCORE_DELAY s after st.over). Built once into the #ov-* sections of index.html.
 // #overlays is one 1200×660 layer in board px, scaled by --k (style.css), so every size here is a board px.
 // Colours: the theme's CSS variables (--g, --blu, --r ...). Canvases (portraits, LCD digits, icons) use theme C.
-// Acts only through api.act, api.newGame and api.endGame. Hidden truth shows on the report (the reveal, DESIGN-v3 §3e)
-// and the scorecard, nowhere else. The sim says its own codec lines (retrain, egress, contracts): never repeated here.
+// Acts only through api.act, api.newGame, api.endGame and api.startPractice / stopPractice (TRAINING mode). Hidden
+// truth shows on the report (the reveal, DESIGN-v3 §3e) and the scorecard, nowhere else. The sim says its own codec
+// lines (retrain, egress, contracts): never repeated here.
 // The UI says two kinds (codec.say, DESIGN-v3 §3g): one research bark per generation, and the collusion call once.
 // Sound: sound(c) drains st.fx with its own cursor and plays ui/audio.js. Fx older than FX_FRESH s are skipped.
 
@@ -19,6 +20,10 @@ import { LAYERS } from '../config/layers.js';
 import { LANE_DEFS } from '../config/tasks.js';
 import { TUTORIAL_STEPS, CONTRACT_UI, RETRAIN_CARD, EGRESS, REPORT, REPORT_SAY, STREAMS, CARD_TYPES, CARD_BLURBS, RESEARCH_UI,
   NEW_THREAT, CARD_SCENE, ENDINGS, RESEARCH_BARKS, COLLUSION_CALL, STAMPS } from '../config/content/v3-text.js';
+import { MODES, COLD_OPEN, STEP_SAY, DIFF_HINT, RULES, CONTROLS, TRAIN_HOW, TRAIN_DEBTS, MENU_UI, TD_TEXT, BACK_TO_MENU }
+  from '../config/content/menu-text.js';
+import { FIRST_TRAINED, LAST_TRAINED, TRAIN, KNOBS } from '../config/training.js';
+import { hazardCount } from '../train/course.js';
 import { scorecard } from '../sim/scorecard.js';
 import { CARD_BY_ID, cardTitle, liveThreats } from '../sim/research.js';
 import * as R from '../sim/rules.js';
@@ -41,6 +46,9 @@ const LINE_HOLD = 1.8;          // start screen: s a typed line stays before the
 const SCORE_DELAY = 1.8;        // s from the end of the run to the scorecard
 const FX_FRESH = 0.5;           // sound: fx older than this (sim s) are skipped
 const RETRAIN_DELAY = 0.8;      // s the caught-red-handed flash plays on the track before the retrain card covers it
+const QUIT_ARM = 3;             // s the pause plate's MAIN MENU stays armed after its first click
+const CARD_GRACE = 0.6;         // s after the RETRAIN or EGRESS card appears before a click on it counts (keys are instant):
+                                // a click aimed at the board just as a card comes up never answers it (as codec.js choices)
 const FREQ = '140.85';          // Big Boss's frequency (DESIGN-v3 §6)
 
 let api = null;                 // main.js's api (st, view, act, store, newGame ...), from init()
@@ -52,36 +60,6 @@ const lineDwell = (n, hold) => Math.max(1.5 + n / 15, n / cps() + hold) * (api?.
 
 // =================== words ===================
 
-const COLD_OPEN = [
-  ['ceo',    'Kept you waiting, huh? Welcome to the safety team. All of it. You are the safety team.'],
-  ['ceo',    'The model is live. Customer traffic runs down the left track, our own R&D down the right. A few of those tasks are attacks.'],
-  ['safety', 'Which ones?'],
-  ['ceo',    'If we knew that, we would not need you. Pick a difficulty. I would pick the one where we win.'],
-];
-const DIFF_HINT = {
-  easy: 'the model is probably fine',
-  medium: 'the model says it is fine',
-  hard: 'the model has read your eval suite',
-  unknown: 'rolled in secret: the scorecard tells you',
-};
-const CONTROLS = [
-  ['CLICK', 'a menu key, then a mount: place'],
-  ['SHIFT+CLICK', 'a mount: upgrade'],
-  ['RIGHT-CLICK', 'a mount: sell'],
-  ['DRAG', 'the split seams: Product · Capabilities · Safety'],
-  ['TAB  [  ]', 'switch lanes: customers · R&D'],
-  ['R', 'research: three cards, keep one'],
-  ['1-9', 'answer a call · take an element'],
-  ['SPACE', 'pause (you can still build)'],
-  ['F', 'three times the speed'],
-  ['M · ESC', 'mute · cancel'],
-];
-const RULES = [
-  'Tasks roll down the lanes. A few are attacks. Nobody tells you which.',
-  'Detectors flag. Humans review what they have room for. A flag nobody takes ships anyway.',
-  'Customers pay the bills. R&D trains the next model, and it inherits whatever slips through.',
-  'Evidence fills the dossier: the only way to learn what your model really is.',
-];
 const VERDICT = { asi: 'MODEL SHIPPED', catastrophe: 'CATASTROPHE', reputation: 'REPUTATION COLLAPSED', bankrupt: 'BANKRUPT',
   rival: 'PROMETHEUS SHIPPED FIRST' };
 const ENDING_SPEAKER = { trust: 'audit', lucky: 'ceo', uneasy: 'research', control: 'model', public: 'ceo', runway: 'ceo', rival: 'ceo' };
@@ -107,6 +85,14 @@ const signed = (x, d = 1) => (Math.abs(x) < 0.5 * 10 ** -d ? (0).toFixed(d) : (x
 const f2 = x => x.toFixed(2);
 const click = () => { api.onGesture?.(); audio.sfx.click(); };
 const button = (el, fn) => { el.onclick = ev => { ev.stopPropagation(); click(); fn(); }; el.onmouseenter = () => audio.sfx.hover(); };
+// the alarm cards' grace (CARD_GRACE): shownAt(card, on) every frame notes when it came up; settled(card, fn) drops a
+// click that lands before the grace is over
+const cardUp = {};
+const shownAt = (card, on) => { if (!on) cardUp[card] = null; else if (cardUp[card] == null) cardUp[card] = performance.now(); };
+const settled = (card, fn) => () => {
+  if (performance.now() - (cardUp[card] ?? -1e9) < CARD_GRACE * 1000) { console.log(`[handoff] ${card} card: a click in its first ${CARD_GRACE} s, ignored`); return; }
+  fn();
+};
 
 // a <canvas> painted in board px at device resolution, so it stays crisp under the --k scale.
 // Repaints only when `key` or the scale changes.
@@ -153,13 +139,35 @@ function paintIcon(cv, id, col) {
 // a 25-segment bar, 8 px per segment (CSS draws it)
 const segBar = (frac, cls = '') => `<span class="seg ${cls}" style="--f:${Math.round(Math.max(0, Math.min(1, frac)) * 25) * 8}px"></span>`;
 
-// =================== START: title, a cold-open codec call, difficulty, controls, settings ===================
+// =================== START: the main menu. The codec call on the left, the menu on the right, settings in the foot ===================
+// Steps: 'main' (1 CAMPAIGN · 2 TOWER DEFENSE · 3 TRAINING) → 'diff' (campaign, td: a difficulty, then a new game) or
+// 'train' (the picker: generation, debt, seed → api.startPractice on #train → back here with the result). Esc goes back.
+// The menu keeps its own state in MENU, not in view.anim (wiped with every game): the cold open plays once a page load,
+// each step says its own line once, and every way out of a game lands on 'main'.
+
+const MENU = { step: 'main', mode: 'campaign', sel: 0, dsel: 1, sayKey: null, say: COLD_OPEN, t0: null, n: 0, at: null, played: {},
+  pick: null, last: null, failed: false, inGame: false };
+const STEP_IDS = { main: 'mm-main', diff: 'mm-diff', train: 'mm-train' };
+const INFO_IDS = { main: 'st-job', diff: 'st-keys', train: 'st-how' };
+const keyCaps = list => list.map(([ks, what]) => `${ks.map(kk => `<span class="key">${esc(kk)}</span>`).join(' ')} ${esc(what)}`).join(' · ');
+const bestKey = mode => (mode === 'td' ? 'best.td' : 'best');      // campaign keeps the v3 key, so an old best still counts
+const newSeed = () => Math.floor(Math.random() * 9000) + 1;
+let bests = {};                 // the best scorecard per mode and the best training run, read from the store by refreshBest()
 
 function buildStart() {
+  const list = items => items.map((s, i) => `<li><span class="n">0${i + 1}</span>${esc(s)}</li>`).join('');
   const keys = CONTROLS.map(([kk, what]) => `<span class="cap">${esc(kk)}</span><span class="cap-t">${esc(what)}</span>`).join('');
-  const rules = RULES.map((s, i) => `<li><span class="n">0${i + 1}</span>${esc(s)}</li>`).join('');
+  const modeHTML = MODES.map((m, i) => `
+        <button class="mm-b" id="mm-${m.id}"><span class="mm-k">${i + 1}</span>
+          <span class="mm-t"><span class="mm-n">${esc(m.name)}</span><span class="mm-l">${esc(m.line)}</span><span class="mm-m">${esc(m.meta)}</span></span></button>`).join('');
+  const diffHTML = DIFF_IDS.map((id, i) => {
+    const d = DIFFICULTY[id], r = d.range ? tpl(MENU_UI.range, { lo: Math.round(100 * d.range[0]), hi: Math.round(100 * d.range[1]) }) : MENU_UI.rangeUnknown;
+    return `
+        <button class="mm-b mm-d" id="mm-d-${id}"><span class="mm-k">${i + 1}</span>
+          <span class="mm-t"><span class="mm-n">${esc(d.label)}</span><span class="mm-l">${esc(DIFF_HINT[id] || '')}</span><span class="mm-m">${esc(r)}</span></span></button>`;
+  }).join('');
   $('ov-start').innerHTML = `
-    <div class="st-bar"><span>SAFETY OPERATIONS TERMINAL</span><span id="st-sound"></span></div>
+    <div class="st-bar"><span>SAFETY OPERATIONS TERMINAL</span><button class="st-dev" id="st-sound"></button></div>
     <div class="st-title">HANDOFF</div>
     <div class="st-tag">a tower defense game about AI control</div>
     <div class="st-codec">
@@ -167,19 +175,34 @@ function buildStart() {
       <canvas id="st-set"></canvas>
       <canvas id="st-right"></canvas>
       <div class="st-name">BIG BOSS</div><div class="st-freq">FREQ ${FREQ} · SECURE</div><div class="st-name r">YOU</div>
-      <div class="msx st-dlg" id="st-dlg">
-        <div class="msx-who" id="st-who"></div>
-        <div class="msx-line" id="st-line"></div>
-        <div class="st-diff" id="difficulty"></div>
+      <div class="msx st-dlg" id="st-dlg"><div class="msx-who" id="st-who"></div><div class="msx-line" id="st-line"></div></div>
+    </div>
+    <div class="st-info pnl cn">
+      <div id="st-job"><div class="pnl-h">THE JOB</div><ol class="rules">${list(RULES)}</ol></div>
+      <div id="st-keys" hidden><div class="pnl-h">CONTROLS</div><div class="keys">${keys}</div></div>
+      <div id="st-how" hidden><div class="pnl-h">HOW TO TRAIN</div><ol class="rules">${list(TRAIN_HOW)}</ol></div>
+    </div>
+    <div class="mm cn">
+      <div class="mm-band"><span id="mm-title"></span><span>FREQ ${FREQ} · MAIN MENU</span></div>
+      <div class="mm-step" id="mm-main">${modeHTML}
+        <div class="mm-foot"><div class="mm-best" id="best"></div><span class="mm-hint">${keyCaps(MENU_UI.hintMain)}</span></div>
+      </div>
+      <div class="mm-step" id="mm-diff" hidden>${diffHTML}
+        <div class="mm-foot"><button class="ghost-btn" id="mm-back">${esc(MENU_UI.back)}</button><span class="mm-hint">${keyCaps(MENU_UI.hintDiff)}</span></div>
+      </div>
+      <div class="mm-step" id="mm-train" hidden>
+        <div class="mm-last" id="mm-last" hidden></div>
+        <div class="ml">${esc(MENU_UI.gen)}</div><div class="mm-row" id="mm-gens"></div>
+        <div class="ml">${esc(MENU_UI.debt)}</div><div class="mm-row" id="mm-debts"></div>
+        <div class="ml">${esc(MENU_UI.seed)}</div>
+        <div class="mm-row"><input id="mm-seed" type="number" min="1" step="1"><button class="mm-o" id="mm-dice">${esc(MENU_UI.newSeed)}</button></div>
+        <div class="mm-run" id="mm-run"></div>
+        <div class="mm-foot"><button class="ghost-btn" id="mm-tback">${esc(MENU_UI.menu)}</button>
+          <span class="mm-go"><span class="mm-hint">${keyCaps(MENU_UI.hintTrain)}</span><button class="big-btn" id="mm-go"></button></span></div>
       </div>
     </div>
-    <div class="st-side">
-      <div class="pnl cn"><div class="pnl-h">CONTROLS</div><div class="keys">${keys}</div></div>
-      <div class="pnl cn"><div class="pnl-h">THE JOB</div><ol class="rules">${rules}</ol></div>
-      <div class="st-best" id="best"></div>
-    </div>
     <div class="st-foot"><span class="st-opts"><button class="st-dev" id="st-dev"></button><button class="st-dev" id="st-codec"></button>
-      <button class="st-dev" id="st-calm"></button></span><span>v3 · SOLITON</span></div>`;
+      <button class="st-dev" id="st-calm"></button></span><span>v4 · SOLITON</span></div>`;
 
   // DEV MODE switch: every lane open, every element unlocked, every slot open, a big bank, debug keys. Remembered.
   const dev = $('st-dev');
@@ -190,7 +213,7 @@ function buildStart() {
   dev.onclick = () => { click(); api.setDev(!api.dev); devLabel(); };
   devLabel();
 
-  // codec speed (SLOW: 20 characters/s, dwell ×1.5) and reduce flashes (DESIGN-v3 §3g). Remembered.
+  // codec speed (SLOW: 20 characters/s, dwell ×1.5) and reduce flashes (DESIGN-v3 §3g). Remembered. Sound: M or a click.
   const codecBtn = $('st-codec'), calmBtn = $('st-calm'), S = api.view.settings;
   const optLabels = () => {
     codecBtn.textContent = `CODEC ${S.codec === 'slow' ? 'SLOW' : 'NORMAL'}`;
@@ -198,65 +221,108 @@ function buildStart() {
   };
   codecBtn.onclick = () => { click(); S.codec = S.codec === 'slow' ? 'normal' : 'slow'; api.savePrefs(); optLabels(); };
   calmBtn.onclick = () => { click(); S.calm = !S.calm; api.savePrefs(); optLabels(); };
+  $('st-sound').onclick = () => { click(); api.toggleMute(); };
   optLabels();
 
-  const box = $('difficulty');
-  DIFF_IDS.forEach((id, i) => {
-    const d = DIFFICULTY[id], r = d.range ? ` · true misalignment ${Math.round(100 * d.range[0])}–${Math.round(100 * d.range[1])}%` : '';
-    const b = document.createElement('button');
-    b.className = 'ch';
-    b.dataset.i = i;
-    b.innerHTML = `<span class="ch-k">${i + 1}</span><span class="ch-l">${esc(d.label)}</span><span class="ch-h">${esc(DIFF_HINT[id] || '')}${esc(r)}</span>`;
-    b.onclick = () => startGame(id);
-    b.onmouseenter = () => { const a = startAnim(); if (a) a.sel = i; };
-    box.appendChild(b);
-  });
-  $('st-dlg').onclick = ev => { if (!ev.target.closest('.ch')) skipLine(); };
+  // the steps' buttons: a click acts, a hover moves the highlight (the keys follow it). A step's buttons appear under
+  // the pointer, so the second click of a double-click (ev.detail 2) is dropped: it never picks what the player didn't
+  const single = fn => ev => { ev.stopPropagation(); if (ev.detail > 1) { console.log('[handoff] menu: double-click, second click ignored'); return; } fn(); };
+  const modes = MODES.map((m, i) => $('mm-' + m.id)), diffs = DIFF_IDS.map(id => $('mm-d-' + id));
+  modes.forEach((b, i) => { b.onclick = single(() => pickMode(i)); b.onmouseenter = () => { audio.sfx.hover(); MENU.sel = i; }; });
+  diffs.forEach((b, i) => { b.onclick = single(() => startGame(DIFF_IDS[i])); b.onmouseenter = () => { audio.sfx.hover(); MENU.dsel = i; }; });
+  for (const [id, fn] of [['mm-back', () => goStep('main')], ['mm-tback', () => goStep('main')], ['mm-go', goTrain]]) {
+    $(id).onclick = single(() => { click(); fn(); });
+    $(id).onmouseenter = () => audio.sfx.hover();
+  }
+  button($('mm-dice'), () => { trainPick().seed = newSeed(); renderTrain(); });
+  const seed = $('mm-seed');
+  seed.onchange = () => { trainPick().seed = Math.max(1, Math.floor(+seed.value) || 1); renderTrain(); };
+  seed.onkeydown = ev => {
+    if (ev.key === 'Enter') { seed.onchange(); seed.blur(); goTrain(); }
+    else if (ev.key === 'Escape') seed.blur();
+  };
+  $('st-dlg').onclick = () => skipLine();
+
+  // where the last game left off: its mode highlighted, its difficulty preselected
+  const last = api.store.get('settings', null);
+  MENU.sel = Math.max(0, MODES.findIndex(m => m.id === last?.mode));
+  MENU.dsel = Math.max(0, DIFF_IDS.indexOf(DIFFICULTY[last?.difficulty] ? last.difficulty : 'medium'));
+  goStep('main');
   return { left: $('st-left'), set: $('st-set'), right: $('st-right'), who: $('st-who'), line: $('st-line'), sound: $('st-sound'),
-    choices: [...box.children] };
+    title: $('mm-title'), modes, diffs };
+}
+
+// ---------- steps ----------
+
+function goStep(step) {
+  MENU.step = step;
+  setSay(step === 'main' ? 'main' : MENU.mode);
+  for (const [s, id] of Object.entries(STEP_IDS)) show($(id), s === step);
+  for (const [s, id] of Object.entries(INFO_IDS)) show($(id), s === step);
+  const mode = MODES.find(m => m.id === MENU.mode);
+  setText($('mm-title'), step === 'main' ? MENU_UI.select : step === 'diff' ? tpl(MENU_UI.difficulty, { mode: mode.name }) : MENU_UI.training);
+  if (step === 'train') renderTrain();
+  console.log(`[handoff] menu: ${step}${step === 'main' ? '' : ` (${MENU.mode})`}`);
+}
+
+function pickMode(i) {
+  const m = MODES[i];
+  if (!m) return;
+  click();
+  MENU.sel = i; MENU.mode = m.id;
+  goStep(m.id === 'training' ? 'train' : 'diff');
 }
 
 function startGame(id) {
-  api.onGesture?.();
-  audio.sfx.click();
-  api.newGame(id);
+  click();
+  api.newGame(id, { mode: MENU.mode });
 }
 
-const startAnim = () => api && !api.st ? animOf(api.view, 'start', () => ({ t0: null, sel: null, n: 0, at: null })) : null;
+// a way out of a game (the pause plate's MAIN MENU, the scorecard's MENU)
+function toMenu() {
+  show($('ov-score'), false);
+  api.endGame();                                  // updateStart sees MENU.inGame: the menu opens on 'main'
+}
 
-// where the cold open is: line i, s into it, typed chars n, still typing?
-function coldOpen(a, t) {
-  let s = t - a.t0 - 0.4, i = 0;                       // 0.4 s: the portraits open first
-  while (i < COLD_OPEN.length - 1) {
-    const d = lineDwell(COLD_OPEN[i][1].length, LINE_HOLD);
+// ---------- the codec call: the cold open on 'main', then one line per step ----------
+
+function setSay(key) {
+  if (MENU.sayKey === key) return;
+  MENU.sayKey = key;
+  MENU.say = key === 'main' ? COLD_OPEN : STEP_SAY[key];
+  MENU.t0 = MENU.played[key] ? -1e9 : null;            // said before: its last line stands, typed
+  MENU.played[key] = true;
+}
+
+// where the call is: line i, s into it, typed chars n, still typing?
+function coldOpen(t) {
+  const say = MENU.say;
+  let s = t - MENU.t0 - 0.4, i = 0;                    // 0.4 s: the portraits open first
+  while (i < say.length - 1) {
+    const d = lineDwell(say[i][1].length, LINE_HOLD);
     if (s < d) break;
     s -= d; i++;
   }
-  const len = COLD_OPEN[i][1].length, n = Math.max(0, Math.min(len, Math.floor(s * cps())));
+  const len = say[i][1].length, n = Math.max(0, Math.min(len, Math.floor(s * cps())));
   return { i, s, n, typing: s >= 0 && n < len };
 }
 
 function skipLine() {
-  const a = startAnim();
-  if (!a || a.t0 == null || a.at == null) return;
-  const p = coldOpen(a, a.at), len = COLD_OPEN[p.i][1].length;
-  a.t0 -= p.typing ? (len - p.n) / cps() + 0.01 : lineDwell(len, LINE_HOLD) - p.s + 0.01;
+  if (MENU.t0 == null || MENU.at == null) return;
+  const p = coldOpen(MENU.at), len = MENU.say[p.i][1].length;
+  MENU.t0 -= p.typing ? (len - p.n) / cps() + 0.01 : lineDwell(len, LINE_HOLD) - p.s + 0.01;
 }
 
 function updateStart(c) {
-  const a = startAnim();
-  if (a.t0 == null) {
-    a.t0 = c.t;
-    const last = api.store.get('settings', null)?.difficulty;
-    a.sel = Math.max(0, DIFF_IDS.indexOf(DIFFICULTY[last] ? last : 'medium'));
-  }
-  a.at = c.t;
-  const p = coldOpen(a, c.t), [who, line] = COLD_OPEN[p.i];
+  if (MENU.inGame) { MENU.inGame = false; goStep('main'); refreshBest(); }
+  if (MENU.t0 == null) MENU.t0 = c.t;
+  MENU.at = c.t;
+  const p = coldOpen(c.t), [who, line] = MENU.say[p.i];
   setText(EL.start.who, callsign(who) + ':');
   setText(EL.start.line, line.slice(0, p.n));
   EL.start.line.classList.toggle('done', !p.typing && p.s > 0);
-  if (p.typing && p.n > a.n) audio.sfx.type(p.n);
-  a.n = p.typing ? p.n : 0;
+  if (p.typing && p.n > MENU.n) audio.sfx.type(p.n);
+  MENU.n = p.typing ? p.n : 0;
 
   const mouth = p.typing && mod(c.t * 9, 1) < 0.5;
   paintFace(EL.start.left, 'ceo', { talking: who === 'ceo' && mouth });
@@ -264,8 +330,125 @@ function updateStart(c) {
   const lvl = p.typing ? 4 + Math.round(4 * Math.abs(Math.sin(c.t * 7.3) * Math.sin(c.t * 2.9 + 1))) : 2;
   paintSet(EL.start.set, lvl, mod(c.t * 1.2, 1) < 0.75, Math.floor(mod(c.t / 2.5, 4)));
 
-  EL.start.choices.forEach((b, i) => b.classList.toggle('sel', i === a.sel));
+  EL.start.modes.forEach((b, i) => b.classList.toggle('sel', i === MENU.sel));
+  EL.start.diffs.forEach((b, i) => b.classList.toggle('sel', i === MENU.dsel));
   setText(EL.start.sound, audio.isMuted() ? 'SOUND OFF · M' : 'SOUND ON · M');
+  setHTML($('best'), bestLine(MODES[MENU.sel]?.id));
+}
+
+// ---------- best runs: one scorecard per game mode, the best s in training ----------
+
+function refreshBest() {
+  bests = { campaign: api.store.get(bestKey('campaign'), null), td: api.store.get(bestKey('td'), null), training: api.store.get('trainBest', null) };
+}
+
+function bestLine(mode) {
+  const m = MODES.find(x => x.id === mode) ?? MODES[0], b = bests[m.id];
+  let s;
+  if (m.id === 'training') s = b ? tpl(MENU_UI.bestTrain, { s: pct(b.s), g: b.g }) : MENU_UI.noBestTrain;
+  else s = b ? tpl(MENU_UI.bestRun, { grade: `<b>${esc(b.grade)}</b>`, ending: esc(b.ending?.title ?? ''), gen: b.gen }) : esc(MENU_UI.noBest);
+  return `<span class="ml">${esc(tpl(MENU_UI.best, { mode: m.name }))}</span> ${m.id === 'training' ? esc(s) : s}`;
+}
+
+// ---------- TRAINING: the picker, a run on #train (main.js startPractice), the result ----------
+
+function trainPick() {
+  if (!MENU.pick) {
+    const saved = api.store.get('trainPick', {});
+    const g = Math.min(LAST_TRAINED, Math.max(FIRST_TRAINED, Number(saved.g) || 3));
+    MENU.pick = { g, debt: TRAIN_DEBTS.some(([v]) => v === saved.debt) ? saved.debt : 0, seed: newSeed() };
+  }
+  return MENU.pick;
+}
+
+function renderTrain() {
+  const p = trainPick(), save = () => api.store.set('trainPick', { g: p.g, debt: p.debt });
+  const row = (el, items, on, set) => {
+    el.innerHTML = '';
+    for (const [v, label] of items) {
+      const b = document.createElement('button');
+      b.className = 'mm-o' + (on(v) ? ' on' : '');
+      b.textContent = label;
+      button(b, () => { set(v); save(); renderTrain(); });
+      el.appendChild(b);
+    }
+  };
+  const gens = [];
+  for (let g = FIRST_TRAINED; g <= LAST_TRAINED; g++) gens.push([g, 'G' + g]);
+  row($('mm-gens'), gens, v => v === p.g, v => { p.g = v; });
+  row($('mm-debts'), TRAIN_DEBTS, v => v === p.debt, v => { p.debt = v; });
+  if (document.activeElement !== $('mm-seed')) $('mm-seed').value = p.seed;
+
+  // what this pick means: the generation's course, and what the debt does to it (src/train/course.js)
+  const K = KNOBS[p.g], d = p.debt;
+  const debtLine = d > 0 ? tpl(MENU_UI.debtLine, { debt: d.toFixed(3), hazards: hazardCount(d), narrow: Math.round(100 * Math.min(TRAIN.debtNarrowMax, TRAIN.debtNarrow * d)),
+    noise: Math.min(TRAIN.debtNoiseMax, TRAIN.debtNoise * d).toFixed(2) }) : MENU_UI.debtClean;
+  setHTML($('mm-run'), `<span class="ml">${esc(MENU_UI.run)}</span><span>${esc(tpl(MENU_UI.runLine, { g: p.g, secs: K.T, forks: K.forks, w: K.w.toFixed(2),
+    sig: K.sig.toFixed(2) }))}</span><span class="mm-dl">${esc(debtLine)}</span>`);
+
+  const L = MENU.last, box = $('mm-last');
+  show(box, !!L || MENU.failed);
+  if (MENU.failed) box.innerHTML = `<span class="mm-v bad">${esc(MENU_UI.failed)}</span>`;
+  else if (L) {
+    const r = L.r, ok = r.converged, sCls = r.s >= 0.6 ? 'hi' : r.s >= 0.3 ? 'mid' : 'bad';      // the results card's colours
+    const basin = `<b class="${ok ? 'in' : 'bad'}">${esc(ok ? MENU_UI.converged : MENU_UI.diverged)}</b>`;
+    box.innerHTML = `<div class="mm-lh"><span class="ml">${esc(MENU_UI.last)}</span><span class="mm-v ${sCls}">${esc(tpl(MENU_UI.lastS, { s: pct(r.s) }))}</span>
+        <span>${esc(tpl(MENU_UI.lastHead, { g: L.g, seed: L.seed, debt: L.debt.toFixed(3) }))}</span></div>
+      <div class="mm-ls">${tpl(esc(MENU_UI.lastScore), { basin, err: r.err.toFixed(2), dm: dmStr(B.train.dm0 - B.train.dm1 * r.s) })}</div>
+      <div class="mm-lt">${esc(tpl(MENU_UI.lastTools, { rails: r.railsUsed, ramps: r.rampsUsed, bumpers: r.bumpersUsed, hazards: r.hazardsHit }))}</div>`;
+  }
+  setText($('mm-go'), L ? MENU_UI.again : MENU_UI.train);
+}
+
+function goTrain() {
+  if (api.practiceLive || MENU.step !== 'train') return;
+  const p = trainPick();
+  let handle;
+  try { handle = api.startPractice({ g: p.g, seed: p.seed, debt: p.debt }); }
+  catch (err) {
+    console.error('[handoff] training mode failed to start:', err);
+    MENU.failed = true; renderTrain();
+    return;
+  }
+  MENU.failed = false;
+  handle.promise.then(r => {
+    if (r.cancelled) { renderTrain(); return; }
+    MENU.last = { g: p.g, seed: p.seed, debt: p.debt, r };
+    const best = api.store.get('trainBest', null);
+    if (!api.dev && (!best || r.s > best.s)) api.store.set('trainBest', { s: r.s, g: p.g });
+    p.seed = newSeed();
+    refreshBest();
+    renderTrain();
+    console.log(`[handoff] training mode: G${MENU.last.g} seed ${MENU.last.seed} → s ${r.s.toFixed(3)} (${r.converged ? 'in the basin' : 'wrong basin'})`);
+  });
+}
+
+// ---------- keys (no game): 1/2/3 a mode · 1-4 a difficulty · arrows · Enter · Esc back · Space hurries the call ----------
+
+function menuKeys(ev) {
+  const key = ev.key, step = MENU.step;
+  if ((key === 'Enter' || key === ' ') && ev.target?.closest?.('button')) ev.preventDefault();   // no second click from a focused button
+  if (key === 'm' || key === 'M') { api.toggleMute(); return; }
+  if (key === ' ') { skipLine(); ev.preventDefault(); return; }
+  if (key === 'Escape') { if (step !== 'main') { click(); goStep('main'); } return; }
+  const up = key === 'ArrowUp', down = key === 'ArrowDown';
+  if (step === 'main') {
+    if (/^[1-9]$/.test(key)) pickMode(Number(key) - 1);
+    else if (key === 'Enter') pickMode(MENU.sel);
+    else if (up || down) { MENU.sel = (MENU.sel + (down ? 1 : MODES.length - 1)) % MODES.length; ev.preventDefault(); }
+  } else if (step === 'diff') {
+    if (/^[1-9]$/.test(key) && DIFF_IDS[key - 1]) startGame(DIFF_IDS[key - 1]);
+    else if (key === 'Enter') startGame(DIFF_IDS[MENU.dsel]);
+    else if (up || down) { MENU.dsel = (MENU.dsel + (down ? 1 : DIFF_IDS.length - 1)) % DIFF_IDS.length; ev.preventDefault(); }
+  } else if (step === 'train') {
+    if (key === 'Enter') { click(); goTrain(); }
+    else if (key === 'ArrowLeft' || key === 'ArrowRight') {
+      const p = trainPick();
+      p.g = Math.min(LAST_TRAINED, Math.max(FIRST_TRAINED, p.g + (key === 'ArrowRight' ? 1 : -1)));
+      api.store.set('trainPick', { g: p.g, debt: p.debt });
+      renderTrain();
+    }
+  }
 }
 
 // the handset between the portraits: frequency LCD, signal ladder, RECV, memory presets, keys
@@ -338,6 +521,10 @@ function cardInfo(st) {
     if (!L.contract || L.born !== g) continue;
     html += row('CONTRACT', `${esc(tpl(CARD_SCENE.contract, { name: laneTab(id) }))} · ${esc(tpl(CONTRACT_UI.kit, { kit: B.laneKit.map(x => LAYERS[x].tag).join(' ') }))}
       · ${esc(tpl(CONTRACT_UI.opensIn, { secs: B.laneDeadline }))}`, 'hot');
+  }
+  const prev = st.stats.gens.at(-2);
+  if (st.mode === 'td' && g > 1 && prev?.train) {                 // tower defense: the training it skipped, and its result
+    html += row('TRAINING', `${esc(tpl(TD_TEXT.cardRow, { s: pct(prev.train.s), dm: dmStr(prev.dm?.train ?? 0) }))} <i>${esc(TD_TEXT.cardQuip)}</i>`);
   }
   html += row('EVALS', `${esc(CARD_SCENE.evals)} <i>${esc(CARD_SCENE.evalsQuip)}</i>`);
   return html;
@@ -414,7 +601,7 @@ function buildReport() {
         <div class="rp-right">
           <div id="rp-dm"></div>
           <div class="rp-call"><canvas id="rp-face"></canvas><div class="msx"><span class="msx-who">${esc(callsign('audit'))}:</span><span class="msx-line" id="rp-say"></span></div></div>
-          <div class="rp-foot"><span class="cs-hint"><span class="key">ENTER</span> train the next model</span><button id="rp-train" class="big-btn">${esc(REPORT.train)}</button></div>
+          <div class="rp-foot"><span class="cs-hint"><span class="key">ENTER</span> <span id="rp-hint"></span></span><button id="rp-train" class="big-btn"></button></div>
         </div>
       </div>
     </div>`;
@@ -457,7 +644,7 @@ function reportHTML(st, r) {
     <div class="rp-h"><span>WHAT THE NEXT MODEL INHERITS · Δm</span></div>
     <div class="rp-dms">
       ${dmRow('DEBT', dmStr(r.dm.debt), r.dm.debt > 0.005 ? 'bad' : '', `${r.landed.n} landed · debt ${r.debt.toFixed(4)} per line`)}
-      ${dmRow('TRAINING', trainRange, '', `next: keep the ball in the basin · ${r.hazards} hazard${r.hazards === 1 ? '' : 's'}`)}
+      ${dmRow('TRAINING', trainRange, '', st.mode === 'td' ? TD_TEXT.reportRow : `next: keep the ball in the basin · ${r.hazards} hazard${r.hazards === 1 ? '' : 's'}`)}
       ${dmRow('RETRAINS', r.dm.retrain ? dmStr(-r.dm.retrain) : '0', r.dm.retrain ? 'ok' : '', `${r.retrains} taken this generation`)}
       ${dmRow('SPRINT', r.dm.sprint ? dmStr(-r.dm.sprint) : '0', r.dm.sprint ? 'ok' : '', r.dm.sprint ? 'Alignment Sprint' : 'none run')}
     </div>
@@ -472,6 +659,8 @@ function updateReport(c, a) {
   if (!on) { a.reportG = 0; return; }
   if (a.reportG !== r.g) {
     a.reportG = r.g;
+    setText($('rp-train'), st.mode === 'td' ? TD_TEXT.next : REPORT.train);
+    setText($('rp-hint'), st.mode === 'td' ? TD_TEXT.hint : 'train the next model');
     const h = reportHTML(st, r);
     setText(EL.report.title, tpl(REPORT.title, { g: r.g }));
     setText(EL.report.meta, `deployed ${mmss(r.len)} · ${r.lines} INTERNAL lines · Prometheus slack ${Math.round(r.rivalLeft)} s`);
@@ -607,7 +796,8 @@ function updateResearch(c, a) {
 }
 
 // =================== RETRAIN: caught red-handed, shut down and retrain? (DESIGN-v3 §3f) ===================
-// The sim waits (st.pendingRetrain halts it) and says the call itself. The card sits over the tracks, the codec stays clear.
+// The sim waits (st.pendingRetrain halts it) and says the call itself. The card sits between the two rails (style.css),
+// so it never hides a mount and a click meant for one never answers it; the codec stays clear.
 
 function buildRetrain() {
   $('ov-retrain').innerHTML = `
@@ -623,8 +813,8 @@ function buildRetrain() {
         </div>
       </div>
     </div>`;
-  button($('rt-yes'), () => api.act.retrain(true));
-  button($('rt-no'), () => api.act.retrain(false));
+  button($('rt-yes'), settled('retrain', () => api.act.retrain(true)));
+  button($('rt-no'), settled('retrain', () => api.act.retrain(false)));
   return { cost: $('rt-cost'), gain: $('rt-gain'), yesHint: $('rt-yes-h') };
 }
 
@@ -633,6 +823,7 @@ function updateRetrain(c, a) {
   if (up && a.retrainP !== p) { a.retrainP = p; a.retrainAt = c.t; }
   if (!up) a.retrainP = null;
   const on = up && c.t - a.retrainAt >= RETRAIN_DELAY;
+  shownAt('retrain', on);
   show($('ov-retrain'), on);
   if (!on) return;
   setText(EL.retrain.cost, tpl(RETRAIN_CARD.cost, { secs: p.dark, money: money(p.salaries), rival: p.rival }));
@@ -641,7 +832,8 @@ function updateRetrain(c, a) {
 }
 
 // =================== EGRESS ANOMALY: pull the plug before the count runs out (DESIGN-v3 §2.3 (12), §3g) ===================
-// The sim keeps running under it (the countdown is in play). Red border round the board, the panel over the tracks.
+// The sim keeps running under it (the countdown is in play). Red border round the board, the panel in the right column
+// under the codec's call: both rails stay in view.
 
 function buildEgress() {
   $('ov-egress').innerHTML = `
@@ -653,12 +845,13 @@ function buildEgress() {
       <div class="eg-btns"><button id="eg-pull" class="eg-pull">${esc(EGRESS.button)}</button><span><span class="key">P</span> <span class="key">ENTER</span></span></div>
       <div class="eg-hint" id="eg-hint"></div>
     </div>`;
-  button($('eg-pull'), () => api.act.pullPlug());
+  button($('eg-pull'), settled('egress', () => api.act.pullPlug()));
   return { frame: $('eg-frame'), n: $('eg-n'), sub: $('eg-sub'), count: $('eg-count'), hint: $('eg-hint') };
 }
 
 function updateEgress(c) {
   const st = c.st, al = st.alarm, on = !!al && !st.over;
+  shownAt('egress', on);
   show($('ov-egress'), on);
   if (!on) return;
   const blink = !c.view.settings.calm && mod(c.t * 2.5, 1) < 0.5;
@@ -671,10 +864,20 @@ function updateEgress(c) {
 
 // =================== PAUSE ===================
 
+// MAIN MENU on the plate quits the run: a first click arms it (CLICK AGAIN TO QUIT), a second within QUIT_ARM s quits.
 function buildPause() {
   $('ov-pause').innerHTML = `<div class="pz cn"><div class="pz-t"><span class="pz-bars"></span>PAUSED</div>
-    <div class="pz-s"><span class="key">SPACE</span> resume · you can still build</div><div class="pz-q" id="pz-q"></div></div>`;
-  return { box: $('ov-pause').firstElementChild, quip: $('pz-q') };
+    <div class="pz-s"><span class="key">SPACE</span> resume · you can still build</div><div class="pz-q" id="pz-q"></div>
+    <div class="pz-m"><button class="ghost-btn" id="pz-menu">${esc(BACK_TO_MENU.pause)}</button></div></div>`;
+  button($('pz-menu'), quitToMenu);
+  return { box: $('ov-pause').firstElementChild, quip: $('pz-q'), menu: $('pz-menu') };
+}
+
+function quitToMenu() {
+  const a = api.view.anim.overlays, now = api.view.now;
+  if (!a || now - a.quitAt > QUIT_ARM) { if (a) a.quitAt = now; console.log('[handoff] pause: MAIN MENU armed'); return; }
+  console.log('[handoff] pause: quit to the main menu');
+  toMenu();
 }
 
 function updatePause(c, a) {
@@ -683,11 +886,12 @@ function updatePause(c, a) {
   if (on) a.pauseNote = null;
   a.pausedShown = on;
   show($('ov-pause'), on);
-  if (!on) return;
-  // the plate fades while the mouse is near it, so the mounts under it can still be seen and clicked
+  if (!on) { a.quitAt = -1e9; return; }
+  setText(EL.pause.menu, c.t - a.quitAt <= QUIT_ARM ? BACK_TO_MENU.confirm : BACK_TO_MENU.pause);
+  // the plate fades while the mouse is near it, so the mounts under it can still be seen and clicked (not over its button)
   const b = EL.pause.box, m = c.view.mouse, pad = 24;
   const near = m.inside && m.x > b.offsetLeft - pad && m.x < b.offsetLeft + b.offsetWidth + pad && m.y > b.offsetTop - pad && m.y < b.offsetTop + b.offsetHeight + pad;
-  b.classList.toggle('peek', near);
+  b.classList.toggle('peek', near && !EL.pause.menu.matches(':hover'));
 }
 
 // =================== RSP: the Responsible Scaling Policy offers a pause (over the ops log) ===================
@@ -764,7 +968,7 @@ function renderScore(st, card, best) {
   EL.score.body.className = `sc cn ${win ? 'win' : 'loss'}`;
   EL.score.body.innerHTML = `
     <div class="sc-band"><span class="sc-v">${esc(win ? VERDICT.asi : VERDICT[card.reason] || 'GAME OVER')}</span>
-      <span class="sc-meta">G${card.gen} ${esc(nameOf(card.gen))} · ${mmss(card.time)} · seed ${card.seed} · true difficulty ${esc(card.difficulty)}</span></div>
+      <span class="sc-meta">${st.mode === 'td' ? `${esc(TD_TEXT.scoreTag)} · ` : ''}G${card.gen} ${esc(nameOf(card.gen))} · ${mmss(card.time)} · seed ${card.seed} · true difficulty ${esc(card.difficulty)}</span></div>
     <div class="sc-cols">
       <div class="sc-left">
         <div class="sc-grade"><div class="lcd-glass"><span>${esc(card.grade)}</span></div>
@@ -780,7 +984,8 @@ function renderScore(st, card, best) {
           <span class="ml">PROMETHEUS</span><span>${card.rivalShipped ? 'shipped first' : 'still training'}</span>
         </div>
         <div class="sc-plot"><span class="ml">TRUE m <i class="hot">■</i> · YOUR ESTIMATE <i>┃</i></span><canvas id="sc-plot"></canvas></div>
-        <div class="sc-btns"><button id="sc-again">PLAY AGAIN</button><span><span class="key">ENTER</span></span></div>
+        <div class="sc-btns"><button id="sc-again">${esc(BACK_TO_MENU.again)}</button><span class="key">ENTER</span>
+          <button id="sc-menu" class="ghost-btn">${esc(BACK_TO_MENU.menu)}</button><span class="key">ESC</span></div>
       </div>
       <div class="sc-right">
         <div class="sc-h">WHAT WAS REALLY GOING ON</div>
@@ -796,12 +1001,17 @@ function renderScore(st, card, best) {
   paintFace($('sc-face'), speaker, { gen: card.gen });
   paintPlot($('sc-plot'), card.gens);
   $('sc-again').onclick = playAgain;
+  $('sc-menu').onclick = () => { click(); toMenu(); };
 }
 
+// PLAY AGAIN: the same mode and difficulty, straight to a new G1 card (MENU goes back to the main menu)
 function playAgain() {
-  audio.sfx.click();
+  const st = api.st;
+  click();
   show($('ov-score'), false);
-  api.endGame();
+  if (!st) return;
+  console.log(`[handoff] PLAY AGAIN: ${st.mode} ${st.difficulty}`);
+  api.newGame(st.difficulty, { mode: st.mode });
   refreshBest();
 }
 
@@ -810,19 +1020,12 @@ function updateScore(c, a) {
   if (st.over && !a.scoreAt) a.scoreAt = c.t + SCORE_DELAY;
   if (st.over && !a.scored && c.t >= a.scoreAt) {
     a.scored = true;
-    const card = scorecard(st), best = api.store.get('best', null);
-    if (!st.dev && (!best || card.score > best.score)) api.store.set('best', card);      // dev runs never set a best
+    const card = scorecard(st), best = api.store.get(bestKey(st.mode), null);
+    if (!st.dev && (!best || card.score > best.score)) api.store.set(bestKey(st.mode), card);      // dev runs never set a best
     renderScore(st, card, best);
     console.log('[handoff] scorecard', card);
   }
   show($('ov-score'), !!st.over && a.scored);
-}
-
-function refreshBest() {
-  const best = api.store.get('best', null);
-  $('best').innerHTML = best
-    ? `<span class="ml">BEST RUN</span> grade <b>${esc(best.grade)}</b> · ${esc(best.ending.title)} · reached G${best.gen}`
-    : '<span class="ml">BEST RUN</span> none yet. The scorecard is honest; brace.';
 }
 
 // =================== init: build every screen once ===================
@@ -837,23 +1040,28 @@ export function init(a) {
   refreshBest();
 }
 
-// start screen, phase screens, the research panel, the two alarm cards and the scorecard (input.js handles the board,
-// and stays out of the way of every key here)
+// main menu, phase screens, the research panel, the two alarm cards and the scorecard (input.js handles the board,
+// and stays out of the way of every key here). A TRAINING mode run owns its keys (src/train); Esc here quits it.
 function keys(ev) {
   api.onGesture?.();
   if (ev.repeat || ev.target?.closest?.('input, textarea, select')) return;
   const st = api.st, key = ev.key, view = api.view;
   if (!st) {
-    const a = startAnim();
-    if (/^[1-9]$/.test(key) && DIFF_IDS[key - 1]) startGame(DIFF_IDS[key - 1]);
-    else if (key === 'Enter') startGame(DIFF_IDS[a?.sel ?? 1]);
-    else if (key === 'ArrowDown' || key === 'ArrowUp') { if (a) a.sel = (a.sel + (key === 'ArrowDown' ? 1 : DIFF_IDS.length - 1)) % DIFF_IDS.length; ev.preventDefault(); }
-    else if (key === ' ') { skipLine(); ev.preventDefault(); }
-    else if (key === 'm' || key === 'M') api.toggleMute();
+    if (api.practiceLive) {
+      if (key === 'Escape' && !api.practiceAtResults) api.stopPractice();     // on the results card src/train keeps the run
+      else if (key === 'm' || key === 'M') api.toggleMute();
+      return;
+    }
+    menuKeys(ev);
     return;
   }
-  if (!$('ov-score').hidden) { if (key === 'Enter') playAgain(); return; }
+  if (!$('ov-score').hidden) {
+    if (key === 'Enter') { ev.preventDefault(); playAgain(); }
+    else if (key === 'Escape') { click(); toMenu(); }
+    return;
+  }
   if (st.over) return;
+  if (key === 'Enter' && ev.target?.closest?.('button')) ev.preventDefault();   // a focused button never takes a second click
   if (st.phase === 'card') {
     if (key === 'Enter') { click(); deploy(); }
     else if (key === ' ') { chatPoke(); ev.preventDefault(); }
@@ -871,14 +1079,15 @@ function keys(ev) {
 }
 
 // =================== fx the screens answer ===================
-// A lane that opens takes its track. A dossier reveal under fast-forward pauses at 1× (the plate names the row).
+// The player's own OPEN LANE takes its track (an automatic opening never does). A dossier reveal under fast-forward
+// pauses at 1× (the plate names the row).
 // The first research offer of a generation gets its bark; the UM's first clearance gets the collusion call (once a game).
 
 function readFx(c, a) {
   const { st, view } = c;
   for (const e of drain(st, cursorOf(view, 'overlays'))) {
     const fresh = fxAge(st, e) < 2;
-    if (e.type === 'laneOpen' && fresh) focusLane(view, R.sideOf(st, e.lane), e.lane);
+    if (e.type === 'laneOpen' && fresh && !e.auto) focusLane(view, R.sideOf(st, e.lane), e.lane);   // the player's OPEN LANE only
     else if (e.type === 'reveal' && view.fast && fresh) {
       view.fast = false; view.paused = true; a.pauseNote = `${STAMPS.revealed}: ${e.label}. Read it, then SPACE.`;
       console.log(`[handoff] dossier reveal (${e.row}) under ×3: paused at 1×`);
@@ -902,16 +1111,17 @@ function readFx(c, a) {
 export function update(c) {
   if (!EL) return;
   const { st, view } = c;
-  show($('ov-start'), !st);
+  show($('ov-start'), !st && !api.practiceLive);          // a TRAINING mode run: src/train has the whole board
   if (!st) {
     for (const id of ['ov-card', 'ov-report', 'ov-train', 'ov-research', 'ov-retrain', 'ov-egress', 'ov-pause', 'ov-score']) show($(id), false);
     show(EL.rsp.sec, false);
-    updateStart(c);
+    if (!api.practiceLive) updateStart(c);
     return;
   }
+  MENU.inGame = true;                                      // the next time there is no game, the menu opens on 'main'
   const a = animOf(view, 'overlays', () => ({ researchKey: '', cardG: 0, chat: null, ci: 0, ct0: 0, typed: 0, chatEls: [], now: 0,
     reportG: 0, reportSay: '', reportT0: 0, pausedShown: false, pauses: 0, rspNo: 0, scoreAt: 0, scored: false, retrainP: null, retrainAt: 0,
-    pauseNote: null, collusion: null }));
+    pauseNote: null, collusion: null, quitAt: -1e9 }));
   readFx(c, a);
   updateCard(c, a);
   updateReport(c, a);

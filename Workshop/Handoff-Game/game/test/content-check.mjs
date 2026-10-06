@@ -356,6 +356,19 @@ for (const h of ceoHits) err(`"CEO" in a player-facing string (it is Big Boss no
 for (const [rel, list] of Object.entries(ceoPending)) warn(`"CEO" pending rename by ${PENDING[rel]} (requests.md): ${list.join(' · ')}`);
 for (const rel of Object.keys(PENDING)) if (!ceoPending[rel] && !ceoHits.some(h => h.startsWith(rel))) notes.push(`${rel} has no "CEO" left: drop it from PENDING`);
 
+// ==================== 5. the words never promise a free element the config doesn't place ====================
+// The G1 rails hold BALANCE.startRail (empty since v4: no default Kill Switch) and a contract lane arrives with
+// BALANCE.laneKit. A tutorial or contract line that names an element as already there must match them.
+const ALREADY = /\b(at the bottom|is mine|installed|comes with|already there|pre-?placed)\b/i;
+const freeLines = [];
+for (const s of V3.TUTORIAL_STEPS || []) for (const ln of [...(s.say || []), ...(s.after || [])]) freeLines.push([`TUTORIAL_STEPS.${s.id}`, ln[1], B.startRail]);
+for (const [id, c] of Object.entries(V3.CONTRACTS || {})) for (const k of ['offer', 'open']) for (const ln of c[k] || []) freeLines.push([`CONTRACTS.${id}.${k}`, ln[1], B.laneKit]);
+for (const [where, text, given] of freeLines) {
+  if (!ALREADY.test(text)) continue;
+  for (const id of Object.keys(LAYERS)) if (text.toLowerCase().includes(LAYERS[id].name.toLowerCase()) && !given.includes(id))
+    err(`${where}: "${text}" says the ${LAYERS[id].name} is already there, but the config doesn't place it (${given.join(', ') || 'nothing'})`);
+}
+
 // ==================== report ====================
 const scope = s => !ONLY || !/^G\d/.test(s) || s.startsWith(`G${ONLY} `) || s.startsWith(`G${ONLY}:`);
 console.log('\n gen  honest  attacks  decoys  >28ch   per flavour');

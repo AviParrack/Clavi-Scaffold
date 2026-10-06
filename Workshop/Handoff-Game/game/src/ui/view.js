@@ -10,8 +10,7 @@ export function createView() {
     placing: null,          // element id picked in the menu, waiting for a mount click
     selected: null,         // { lane, slot } whose upgrade panel is open (lane 'global', slot 0 = the lab site)
     focus: newFocus(),      // the lane id each track shows: { ext: EXTERNAL track, int: INTERNAL track } (by side)
-    pin: newPin(),          // per side: a tab click pins its lane until this view.now (auto-focus waits)
-    autoAt: newPin(),       // per side: when auto-focus last moved this track (at most once every 10 s)
+    sellArm: null,          // { lane, slot, layer, at }: a first right-click armed SELL? here (rightClickSells)
     research: null,         // a research card waiting for its mount: { i, id, type, layer, name } (view.placing is set too)
     panel: null,            // 'research' while the research panel is open (the sim waits: view.modal)
     drag: null,             // { kind, data, region, x0, y0, x, y } while a drag runs (split handles)
@@ -40,24 +39,48 @@ export function createView() {
 }
 
 export function resetView(view) {
-  Object.assign(view, { hover: null, placing: null, selected: null, focus: newFocus(), pin: newPin(), autoAt: newPin(), research: null,
+  Object.assign(view, { hover: null, placing: null, selected: null, focus: newFocus(), sellArm: null, research: null,
     panel: null, drag: null, paused: false, fast: false, modal: false, slow: 1, toasts: [], shake: null, codecLine: null, cursors: {}, anim: {} });
 }
-function newPin() { return { ext: -1e9, int: -1e9 }; }
 
 // a new game shows each side's G1 lane, whose id is the side's own
 function newFocus() { return { ext: 'ext', int: 'int' }; }
 
 // =================== lane focus: which lane each track shows ===================
-// A tab click (or Tab / [ ]) pins its choice for PIN_S s; auto-focus (tracks.js: an unfocused lane turns red) moves a
-// track at most once every AUTO_GAP s, and never while it is pinned.
+// Only the player moves a track: a tab click, Tab / [ ], or their own OPEN LANE. A lane in trouble out of view flashes
+// its tab (tracks.js alertLanes) and never takes the track: another lane's stack would read as yours, wiped.
 
-export const PIN_S = 20, AUTO_GAP = 10;
-export function focusLane(view, side, id, pin = true) {
-  if (view.focus[side] !== id) console.log(`[handoff] focus ${side}: ${id}${pin ? ' (pinned)' : ' (auto)'}`);
+export function focusLane(view, side, id) {
+  if (view.focus[side] !== id) console.log(`[handoff] focus ${side}: ${id}`);
   view.focus[side] = id;
-  if (pin) view.pin[side] = view.now + PIN_S;
-  else view.autoAt[side] = view.now;
+}
+
+// =================== right-click on a filled mount ===================
+// It cancels first: an element being placed, an open panel, a research card waiting for its mount. Then it sells in two
+// steps: the first right-click arms SELL? on that mount (a red frame, a note on the prompt), a second one on the same
+// mount within SELL_ARM_S s sells. So a right-click meant as "cancel" or "deselect" never sells by itself.
+
+export const SELL_ARM_S = 1.5;
+
+export function rightClickCancels(view) {
+  if (view.research) return true;                          // the card waits for its mount: Esc banks it
+  if (!view.placing && !view.selected) return false;
+  view.placing = null; view.selected = null; view.sellArm = null;
+  console.log('[handoff] right-click: cancelled, nothing sold');
+  return true;
+}
+
+// true: sell now (the second right-click). false: this one only armed SELL? (the caller says so on the prompt)
+export function rightClickSells(view, lane, slot, layer) {
+  if (sellArmed(view, lane, slot, layer)) { view.sellArm = null; return true; }
+  view.sellArm = { lane, slot, layer, at: performance.now() };
+  console.log(`[handoff] right-click: SELL? armed on ${lane}/${slot} (${layer})`);
+  return false;
+}
+// is SELL? armed on this mount (for its red frame)
+export function sellArmed(view, lane, slot, layer) {
+  const a = view.sellArm;
+  return !!a && a.lane === lane && a.slot === slot && a.layer === layer && performance.now() - a.at <= SELL_ARM_S * 1000;
 }
 
 // a module's own corner of the view: animOf(c.view, 'tracks', () => ({ pops: [] }))

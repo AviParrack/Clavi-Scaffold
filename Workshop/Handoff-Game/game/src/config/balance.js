@@ -7,7 +7,7 @@ export const BALANCE = {
   parity: false,             // true: no events (random or story); traits and the rival stay on
 
   // --- economy ---
-  startMoney: 2500,
+  startMoney: 3100,          // v4: 2500 → 3100, the $600 the two free Kill Switches were worth (DESIGN-v3 §2.9 #20)
   upgradeSteps: [150, 300, 600, 1200],   // $ for lab level 2, 3, 4, 5 of an element (× buy/400 × π × lanes it sits on)
   sellRefund: 0.5,
   bankruptSeconds: 20,
@@ -17,8 +17,9 @@ export const BALANCE = {
   // --- reputation ---
   startRep: 100,
   repMax: 100,
-  regenPerLine: 0.28,        // reputation per honest EXTERNAL line delivered (a deferred line: half). v3 retune: 0.15 → 0.22 → 0.28
-                             // pays for the events, the parity fixes (DESIGN-v3 §2.9 #17) and the Kill Switch's price (#19)
+  regenPerLine: 0.31,        // reputation per honest EXTERNAL line delivered (a deferred line: half). v3 retune: 0.15 → 0.22 → 0.28
+                             // → 0.31: pays for the events, the parity fixes (DESIGN-v3 §2.9 #17), the Kill Switch's price
+                             // (#19) and the overflow that ships now that no Kill Switch comes free (#20)
 
   // --- pacing ---
   warmup: 40,                // s: a generation ramps volume from the last model's lines/s to its own, and the model's
@@ -82,9 +83,11 @@ export const BALANCE = {
   sprint: { mFrac: 0.10, rdMult: 0.8 },   // Alignment Sprint: next m −10% of m; R&D ×0.8 for the rest of the generation
 
   // --- contract lanes (DESIGN-v3 §3b) ---
-  startRail: ['killswitch'],             // pre-placed on both G1 lanes, bottom mount (Big Boss's red button)
-  laneKit: ['probe', 'monitor', 'killswitch'],   // a contract lane arrives with these, free, on mounts 1, 2 and the bottom
-  laneGrant: 2000,           // $ × π when a contract lane arrives
+  startRail: [],             // pre-placed free on both G1 lanes (state.js placeKit: detectors from the top mount down,
+                             // responders from the bottom up). Empty: no default Kill Switch
+                             // (Avi, v4). It stays in the starting hand; a flag no responder takes ships unreviewed
+  laneKit: ['probe', 'monitor'],   // a contract lane arrives with these, free, placed as startRail (v4: no Kill Switch)
+  laneGrant: 2300,           // $ × π when a contract lane arrives. v4: 2000 → 2300, the kit's old Kill Switch as cash (#20)
   laneDeadline: 90,          // s of play: a contract lane opens by itself if you haven't pressed OPEN LANE
   laneRamp: 60,              // s: a new lane ramps from rampFrom to 100% volume (fast-forward is locked meanwhile)
   rampFrom: 0.25,

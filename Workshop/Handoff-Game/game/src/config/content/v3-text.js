@@ -10,7 +10,7 @@
 export const FILLS = {
   tutorial:  ['model', 'price', 'n', 'of'],                 // model: its name · price: the element's $ · n of: step counter
   contract:  ['lane', 'money', 'secs', 'kit', 'quota'],      // lane: its tab name · money: the grant · secs: to auto-open
-  lane:      ['harm', 'quota', 'now', 'exfil', 'reviewed', 'flags', 'shipped'],   // from config/tasks.js LANE_DEFS + live stats
+  lane:      ['harm', 'quota', 'now', 'exfil', 'reviewed', 'flags', 'shipped', 'name', 'money'],   // from config/tasks.js LANE_DEFS + live stats · name, money: SELL? (the element, its refund)
   collusion: ['k', 'c', 'mult', 'name', 'pct', 'tpr'],       // rules.js collusionParts: k = κ_g, c = collusion so far
   retrain:   ['secs', 'money', 'dm', 'rival'],              // the dark seconds, salaries, m gain, rival seconds
   egress:    ['lane', 'secs', 'rep'],
@@ -41,7 +41,7 @@ export const TUTORIAL_STEPS = [
 
   { step: 4, id: 'auditor', teaches: 'responders, desks, evidence', do: 'Place an Auditor below the Probe ({price})',
     say: [['audit', 'A flag needs a responder. Put a Human Auditor below the Probe: slow, pricey, almost never wrong.'],
-          ['ceo', 'The red button at the bottom is mine. The Kill Switch refuses whatever the desk has no room for.']],
+          ['ceo', 'My red button? Buy your own. A Kill Switch refuses what the desk can\'t take. Customers hate it.']],
     after: [['audit', 'CAUGHT. That one meant it. A confirmed catch is evidence, and evidence fills the dossier.'],
             ['audit', 'One desk, one line at a time. A flag nobody has room for ships anyway. Watch the overflow.']] },
 
@@ -133,6 +133,7 @@ export const LANE_UI = {
   lampGreen: 'nominal',
   lampAmber: 'a flag shipped unreviewed',
   lampRed: 'incident or glitch',
+  sellArm: 'SELL {name}? right-click it again ({money} back)',
 };
 
 export const QUOTA = {
@@ -289,7 +290,7 @@ export const CARD_BLURBS = {
   resampler:   { what: 'Redraws a flagged R&D line, then checks the redraw.',
                  quip: 'Didn\'t like that answer? Ctrl-Z. There\'s a paper.' },
   killswitch:  { what: 'Refuses a flagged line. No risk, a fee, annoyed users.',
-                 quip: 'Big Boss\'s red button. He polishes it between meetings.' },
+                 quip: 'Like Big Boss\'s red button, but yours. He polishes his between meetings.' },
   paraphraser: { what: 'Rewrites lines so the twins can\'t pass signals.',
                  quip: 'Same meaning, fewer secret handshakes.' },
   sandbox:     { what: 'Runs the work in a box, so an escape does less.',

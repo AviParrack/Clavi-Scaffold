@@ -14,12 +14,14 @@ import { EVENTS } from '../config/events.js';
 import { RESEARCH_UI, OPS_LOG, EGRESS, BURST, QUOTA, CARD_TYPES, RETRAIN_CARD, CONTRACT_UI, LANE_UI, STAMPS } from '../config/content/v3-text.js';
 import { GENERATIONS } from '../config/generations.js';
 import * as R from '../sim/rules.js';
+import { TD_TEXT } from '../config/content/menu-text.js';
 import { CARD_BY_ID, cardTitle } from '../sim/research.js';
 import { big, money, pct, tpl, mmss } from '../util/format.js';
 import { C, F, fill, box, dashBox, corners, text, tw, fit, wrap, layer, blit, glowRect, clamp, ease, mod, snap, strobe, calm } from './theme.js';
 import { SPR, sprite, icon, microN, seg7, segW, lcdPanel } from './sprites.js';
 import { HUD, TRACKS, DOSSIER, LAB_SITE, OPSLOG } from './layout.js';
-import { animOf, cursorOf, drain, fxAge } from './view.js';
+import { animOf, cursorOf, drain, fxAge, rightClickCancels, rightClickSells, sellArmed } from './view.js';
+import { sellNote } from './tracks.js';
 import { modelCard, laneCode, laneTab } from './derive.js';
 import { openResearch } from './input.js';
 
@@ -764,7 +766,8 @@ function labSite(c) {
   const placing = view.placing === 'interp', sel = view.selected?.lane === 'global';
   const hov = view.hover?.kind === 'lab-site';
   if (lab.layer) {
-    fill(g, r.x, r.y, r.w, r.h, C.pan2); box(g, r.x, r.y, r.w, r.h, sel ? C.g : hov ? C.e3 : C.e2);
+    const arm = sellArmed(view, 'global', 0, lab.layer);                 // SELL? armed by a first right-click
+    fill(g, r.x, r.y, r.w, r.h, C.pan2); box(g, r.x, r.y, r.w, r.h, arm ? C.r : sel ? C.g : hov ? C.e3 : C.e2);
     icon(g, 'interp', r.x + 3, r.y + 2, 1, C.gm);
     text(g, 'INTERP LAB', r.x + 16, r.y + 10, F.k8, C.gm);
     for (let i = 0; i < 5; i++) fill(g, r.x + r.w - 17 + i * 3, r.y + 5, 2, 4, i < lab.level ? C.gm : C.e0);
@@ -877,8 +880,8 @@ function toLine(st, A, e) {
     case 'newModel':  return line(`G${e.g}`, 'BOOT', `${modelCard(st, e.g).name} at its card`, 'info', 2);
     case 'deploy':    return line(`G${e.g}`, 'LIVE', `${modelCard(st, e.g).name} deployed`, 'good', 2);
     case 'report':    return line(`G${e.g}`, 'DONE', 'R&D bar full: the report is in', 'info', 2);
-    case 'training':  return line(`G${e.g}`, 'TRAIN', 'training run started', 'info', 2);
-    case 'trained':   return line(`G${e.g + 1}`, 'READY', `trained · s ${(e.s ?? 0).toFixed(2)}`, 'good', 2);
+    case 'training':  return st.mode === 'td' ? null : line(`G${e.g}`, 'TRAIN', 'training run started', 'info', 2);   // tower defense: no run
+    case 'trained':   return line(`G${e.g}`, 'READY', `${st.mode === 'td' ? TD_TEXT.logTrained : 'trained'} · s ${(e.s ?? 0).toFixed(2)}`, 'good', 2);   // e.g: the new model
     case 'rivalShipped': return line('RIVL', 'SHIP', `Prometheus shipped ASI${e.grace ? `: ${e.grace} s grace` : ''}`, 'bad', 2);
     case 'rsp':       return line('RSP', 'PAUSE', `INTERNAL held for ${e.dur} s`, 'good', 2);
     case 'researchReady': return line('RES', 'READY', `${RESEARCH_UI.ready.toLowerCase()}: ${tpl(RESEARCH_UI.banked, { n: e.n })}`, 'good', 2);
@@ -1035,9 +1038,11 @@ export const input = {
       if (view.placing === 'interp') { if (act.place('global', 0, 'interp')) view.placing = null; }
       else if (api.st.global.slots[0].layer) view.selected = { lane: 'global', slot: 0 };
     },
-    context(e, api) {
-      if (!api.st.global.slots[0].layer || !api.act.sell('global', 0)) return;
-      if (api.view.selected?.lane === 'global') api.view.selected = null;
+    context(e, api) {                                    // like a mount: cancel first, else arm SELL?, a second one sells
+      const id = api.st.global.slots[0].layer;
+      if (rightClickCancels(api.view) || !id) return;
+      if (rightClickSells(api.view, 'global', 0, id)) api.act.sell('global', 0);
+      else api.view.toast(sellNote(api.st, id), true);
     },
   },
   research: { click(e, api) { if (api.st.phase === 'play') openResearch(api); } },

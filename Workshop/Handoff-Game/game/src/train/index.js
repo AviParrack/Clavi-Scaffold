@@ -5,8 +5,8 @@
 //   k        device px per logical px (a number, or a function read every frame)
 //   debug    lets D toggle the debug view (quiver, error integral, knob panel, replay seed)
 //   muted    a function (or boolean): true silences the blips
-// The promise resolves exactly once: with runResult(run) when the player clicks CONTINUE on the results card,
-// or with { cancelled: true } on cancel(). This module owns its animation loop, its input, the 3-2-1 and the card.
+// The promise resolves exactly once: with runResult(run) when the player clicks CONTINUE on the results card (or
+// presses Enter, Space or Esc there), or with { cancelled: true } on cancel(). This module owns its animation loop, its input, the 3-2-1 and the card.
 
 import { TRAIN } from '../config/training.js';
 import { setScale } from '../ui/theme.js';
@@ -144,7 +144,7 @@ export function runTraining(config, { canvas, k = 1, debug = false, muted = fals
   const onMenu = e => e.preventDefault?.();
   const onKey = e => {
     sound.wake();
-    if (view.phase === 'results' && (e.code === 'Enter' || e.code === 'Space' || e.code === 'NumpadEnter')) { e.preventDefault?.(); finish(result); return; }
+    if (view.phase === 'results' && ['Enter', 'Space', 'NumpadEnter', 'Escape'].includes(e.code)) { e.preventDefault?.(); finish(result); return; }
     if (e.code === 'KeyD' && view.canDebug) { view.debug = !view.debug; return; }
     if (!view.debug) return;
     if (e.code === 'KeyR') { replay(); return; }
@@ -179,6 +179,7 @@ export function runTraining(config, { canvas, k = 1, debug = false, muted = fals
   return {
     promise,
     cancel: () => finish({ cancelled: true }),
+    get phase() { return view.phase; },                         // countdown | run | stamp | results
     // ---- for tests and the standalone page: read the run, freeze the sim, step it by hand ----
     get _view() { return view; },
     _ctl: {

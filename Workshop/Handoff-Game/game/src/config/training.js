@@ -110,3 +110,9 @@ export const SAMPLE_HAZARDS = [
   { kind: 'sabotage', weight: 1, text: 'sabotaged: patch the monitor config' },
   { kind: 'poison', weight: 3, text: 'poisoned: write synthetic math data' },
 ];
+
+// =================== tower defense mode (main menu 2): training resolves itself ===================
+// src/main.js submits Sim.trainingStub(st, TD_TRAIN_SKILL). 0.5 is the "human" policy's skill (test/policies.mjs),
+// so a tower defense run trains at par with the population the balance targets are tuned on.
+
+export const TD_TRAIN_SKILL = 0.5;

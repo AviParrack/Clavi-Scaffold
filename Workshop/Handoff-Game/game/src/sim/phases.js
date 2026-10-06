@@ -15,7 +15,7 @@ import { fx, say, noteSeen, earn } from './log.js';
 import { clamp, misalignmentEstimate, estimateFooled, tech, laneIds, debt, rampLam, priceIndex, intLines, killBreakEven,
   lanePrecision } from './rules.js';
 import { rollTraits, newDossier, revealTrait } from './dossier.js';
-import { addLane, placeFree } from './state.js';
+import { addLane, placeKit } from './state.js';
 
 // ----- Evals: one random true tendency, read on the new model's card (a Sandbagger makes it read low) -----
 export function evalPhase(st) {
@@ -121,10 +121,7 @@ function spineUnlocks(st, g) {
 function arriveContract(st, id) {
   const L = addLane(st, id, false);
   L.contract = true;
-  const [top, second, bottom] = B.laneKit;
-  placeFree(st, id, 0, top);
-  placeFree(st, id, 1, second);
-  placeFree(st, id, L.slots.length - 1, bottom);
+  placeKit(st, id, B.laneKit);
   const grant = B.laneGrant * priceIndex(st);
   earn(st, grant, 'grant');
   fx(st, 'laneOffer', { lane: id, stage: 'arrived', gen: st.gen, grant, deadline: B.laneDeadline });

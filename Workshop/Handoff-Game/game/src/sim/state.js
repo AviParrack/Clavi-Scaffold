@@ -1,7 +1,7 @@
 // ===== Fresh game state =====
 
 import { BALANCE as B, SPLIT } from '../config/balance.js';
-import { STARTING_HAND } from '../config/layers.js';
+import { STARTING_HAND, LAYERS } from '../config/layers.js';
 import { LANE_DEFS, START_LANES } from '../config/tasks.js';
 import { say, fx } from './log.js';
 import { startGeneration, resolveDifficulty, newGenStats } from './phases.js';
@@ -42,9 +42,10 @@ export function addLane(st, id, open = true) {
   return st.lanes[id];
 }
 
-export function createState({ seed = 1, difficulty = 'medium', tutorial = true } = {}) {
+// mode: 'campaign' (deploy, report, the training minigame) or 'td' (tower defense: the UI resolves training at par)
+export function createState({ seed = 1, difficulty = 'medium', tutorial = true, mode = 'campaign' } = {}) {
   const st = {
-    seed, rng: seed >>> 0, t: 0, difficulty,
+    seed, rng: seed >>> 0, t: 0, difficulty, mode: mode === 'td' ? 'td' : 'campaign',
     phase: 'card', trainT: 0, over: null,   // card → play → report → training → card (sim/phases.js); G1 starts at its card
     warmT: B.warmup,                   // s left in this generation's warm-up (rules.js warmth)
 
@@ -121,8 +122,16 @@ export function createState({ seed = 1, difficulty = 'medium', tutorial = true }
   for (const id of START_LANES) addLane(st, id);
   resolveDifficulty(st, difficulty);
   startGeneration(st, 1);
-  for (const id of START_LANES) placeFree(st, id, st.lanes[id].slots.length - 1, B.startRail[0]);   // Big Boss's red button
+  for (const id of START_LANES) placeKit(st, id, B.startRail);   // empty: both G1 rails start bare
   return st;
+}
+
+// a free set of elements on a fresh rail (BALANCE.startRail, laneKit): detectors and modifiers from the top mount
+// down, responders from the bottom mount up (a responder only takes the flags of the detectors above it)
+export function placeKit(st, lane, ids) {
+  const slots = st.lanes[lane].slots;
+  let top = 0, bottom = slots.length - 1;
+  for (const id of ids) placeFree(st, lane, LAYERS[id]?.role === 'responder' ? bottom-- : top++, id);
 }
 
 // an element on a mount, free (the starting rail, a contract lane's kit, a NEW research card), at the lab level

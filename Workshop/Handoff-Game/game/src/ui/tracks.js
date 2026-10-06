@@ -5,8 +5,9 @@
 // anything that would land on a line (alert pop, hung tag) is only drawn where the rows are free.
 // Each track draws the lane view.focus picks for its side; colours, geometry and art go by side (TRACKS, C.lane).
 // The header is the side's tab row (DESIGN-v3 §3b): one tab per lane with its lamp (laneStatus), a telegraphed contract
-// as a ghost tab. An unfocused lane whose lamp turns red takes its track (at most once every AUTO_GAP s, never while a
-// tab click pins the track). A closed contract lane shows its kit, OPEN LANE and the deadline.
+// as a ghost tab. Only the player moves a track: a lane out of view whose lamp turns red burns its tab red and names
+// itself on the prompt (alertLanes). The rail's head names the lane on show. A closed contract lane shows its kit,
+// OPEN LANE and the deadline.
 // Juice (DESIGN-v3 §3g): caught red-handed (desk flash, stamp), a contract's tab slides in at DEPLOY, G7 burst lamps.
 // Registers: mount {lane, slot} · slot-buy {lane} · bay {lane, slot} · lane-tab {side, id, tip} · lane-open {id}
 //            · line {lane, id, text}   (lane = lane id)
@@ -21,7 +22,7 @@ import { money, pct, tpl } from '../util/format.js';
 import { C, F, k, epoch, fill, box, dashH, dashBox, corners, text, tw, fit, blit, hash, clamp, lerp, ease, mod, strobe, calm } from './theme.js';
 import { SPR, MICRO, sprite, icon } from './sprites.js';
 import { TRACK, TRACKS, rowCentre, mountRect, trackY } from './layout.js';
-import { animOf, cursorOf, drain, fxAge, focusLane, AUTO_GAP } from './view.js';
+import { animOf, cursorOf, drain, fxAge, focusLane, rightClickCancels, rightClickSells, sellArmed } from './view.js';
 import { laneTab, laneTip } from './derive.js';
 import { sheet } from './upgrade.js';
 import * as tutorial from './tutorial.js';
@@ -289,9 +290,7 @@ function paintStatic(g, side, { X, bx, by }) {
   text(g, ext ? 'EXT' : 'INT', X + 15, 48, F.k8, C.bg, 'center');
 
   // ---------- rail ----------
-  fill(g, X, FT, TRACK.railW, FB - FT, C.pan);
-  text(g, 'DEFENSE', X + 5, FT + 11, F.k8, col.dim);
-  text(g, 'LV', X + 66, FT + 11, F.k8, col.dim);
+  fill(g, X, FT, TRACK.railW, FB - FT, C.pan);      // its head (the lane's name, LV, n/10) is drawn live: railHead()
 
   // ---------- scope body: radar (EXTERNAL) or blueprint lattice (INTERNAL) ----------
   fill(g, bx, FT, BODY, FB - FT, col.field);
@@ -494,7 +493,7 @@ export function draw(c) {
   const A = animState(c);
   for (const side of SIDES) if (!c.st.lanes[c.view.focus[side]]) c.view.focus[side] = R.laneIds(c.st, side)[0];
   readFx(c, A);
-  autoFocus(c, A);
+  alertLanes(c, A);
   for (const side of SIDES) {
     const lane = c.view.focus[side];
     tabRow(c, A, side);
@@ -512,7 +511,7 @@ function drawLane(c, lane, A) {
 
   const layer = staticLayer(side);
   put(g, layer);
-  say(g, `${P.n}/${B.maxSlots}`, P.X + 124, FT + 12, F.v16, P.col.dim, 'right');
+  railHead(P);
   P.lastResp = lastResponderY(P);
 
   // event glow under the lines (their backings are opaque)
@@ -527,13 +526,22 @@ function drawLane(c, lane, A) {
   bevelFx(P);
   bays(P);
   edge(P);
-  if (!L.open) contractPlate(P);
   redFx(P);
   glitchFx(P);
-  darkFx(P);
+  if (L.open) darkFx(P);                       // a closed contract lane shows its OPEN LANE plate, never LIGHTS OUT over it
+  else contractPlate(P);
 }
 
 const glowPhase = t => 0.5 + 0.5 * Math.cos(2 * Math.PI * 1.2 * t);
+
+// the rail's head names the lane on show, in its tab's colours, so another lane's stack never reads as yours, emptied
+function railHead(P) {
+  const { g, lane, col, X, n } = P, name = laneTab(lane), w = Math.ceil(tw(name, F.k8)) + 6;
+  fill(g, X + 2, FT + 3, w, 11, col.mid);
+  say(g, name, X + 5, FT + 11, F.k8, C.bg);
+  if (w <= 60) say(g, 'LV', X + 66, FT + 11, F.k8, col.dim);     // the level pips' column, when the name leaves room
+  say(g, `${n}/${B.maxSlots}`, X + 124, FT + 12, F.v16, col.dim, 'right');
+}
 
 // =================== fx → animations ===================
 
@@ -586,7 +594,7 @@ function readFx(c, A) {
       case 'honeypot': case 'canary': plateFx(a, slotOf(st, e.lane, e.type), 'bait', t0, age); break;
       case 'redteam': plateFx(a, e.slot, 'probe', t0, age); break;
       case 'place': case 'upgrade': case 'sell': case 'toggle': plateFx(a, e.slot, e.type, t0, age); break;
-      case 'forceOff': plateFx(a, e.slot, 'sell', t0, age); break;
+      case 'forceOff': plateFx(a, e.slot, 'toggle', t0, age); break;      // switched off for a while, not sold
       case 'slot': plateFx(a, e.n - 1, 'place', t0, age); break;
     }
   }
@@ -594,13 +602,18 @@ function readFx(c, A) {
 
 const slotOf = (st, lane, id) => st.lanes[lane].slots.findIndex(s => s.layer === id);
 
-// caught red-handed (DESIGN-v3 §3g): the catch that offered Shut down & retrain (same step) takes its side's track,
-// and its desk gets the big flash before the retrain card comes up (overlays.js RETRAIN_DELAY)
+// caught red-handed (DESIGN-v3 §3g): the desk of the catch that offered Shut down & retrain (same step) gets the big
+// flash before the retrain card comes up (overlays.js RETRAIN_DELAY). A lane out of view flashes its tab and names
+// itself on the prompt: the catch never takes the track
 function redHanded(c, A, before, offer) {
   const hit = offer.lane ? offer : before.reverse().find(e => e.type === 'caught' && e.t === offer.t), side = hit && R.sideOf(c.st, hit.lane);
   if (!side) return;
-  focusLane(c.view, side, hit.lane, false);
-  laneAnimOf(A, hit.lane).red = { slot: hit.slot, t0: c.t - fxAge(c.st, offer) };
+  const t0 = c.t - fxAge(c.st, offer);
+  laneAnimOf(A, hit.lane).red = { slot: hit.slot, t0 };
+  if (c.view.focus[side] !== hit.lane) {
+    (A.tabs[hit.lane] || (A.tabs[hit.lane] = {})).flash = { t0, red: false };
+    c.view.toast(`${STAMPS.caught} on ${laneTab(hit.lane)} · ${LOOK[side]}`, true);
+  }
   console.log(`[handoff] caught red-handed on ${hit.lane} (mount ${hit.slot + 1})`);
 }
 
@@ -1001,7 +1014,8 @@ function plate(P, i, slot, r, hovered) {
 
   // live: selection or hover, and the LED
   const sel = c.view.selected, selected = sel && sel.lane === lane && sel.slot === i;
-  if (selected) { frame(g, r.x, r.y, r.w, r.h, col.acc); corners(g, r.x - 1, r.y - 1, r.w + 2, r.h + 2, col.hot, 5, 1); }
+  if (sellArmed(c.view, lane, i, id)) { frame(g, r.x, r.y, r.w, r.h, C.r); corners(g, r.x - 1, r.y - 1, r.w + 2, r.h + 2, C.r, 5, 1); }   // SELL? armed
+  else if (selected) { frame(g, r.x, r.y, r.w, r.h, col.acc); corners(g, r.x - 1, r.y - 1, r.w + 2, r.h + 2, col.hot, 5, 1); }
   else if (hovered && !engaged) frame(g, r.x, r.y, r.w, r.h, col.dim);
   const heads = KIND[id] === 'det' ? R.detectorHeads(id, slot.level) : 0;
   const full = heads && busyNow(slot, st.t) >= heads;
@@ -1447,6 +1461,8 @@ function anomalyStamp(P) {
 // =================== the tab row: one tab per lane of the side, with its lamp ===================
 
 const LAMP_TIP = { green: LANE_UI.lampGreen, amber: LANE_UI.lampAmber, red: LANE_UI.lampRed };
+const KEY = { ext: 'TAB', int: '[ ]' };                                        // the keys that cycle a side's lanes
+const LOOK = { ext: '[tab] shows it', int: '[ or ] shows it' };                  // the prompt's hint (it fits the line)
 
 function tabRow(c, A, side) {
   const { g, st, view } = c, T0 = TRACKS[side], col = C.lane[side], up = R.upcomingLane(st);
@@ -1455,7 +1471,7 @@ function tabRow(c, A, side) {
   // F.k16 when the row fits (DESIGN-v3 §3b), F.k8 when it doesn't
   const wOf = (it, font) => 18 + Math.ceil(tw(laneTab(it.id), font)) + (it.ghost ? 4 : 0);
   const big = items.reduce((w, it) => w + wOf(it, F.k16) + 4, 0) <= T0.tabs.w, font = big ? F.k16 : F.k8;
-  let x = T0.tabs.x;
+  let x = T0.tabs.x, alarmed = false;
   const research = view.research?.type === 'mount';
   // the G7 burst (DESIGN-v3 §3g): every lamp pulses through the 3 s warning (2 Hz glow), then burns red while it runs
   const bu = A.burst, bAge = bu ? st.t - bu.t : 99, warn = bAge >= 0 && bAge < bu?.in, burning = !warn && bAge >= 0 && bAge < bu?.in + bu?.dur;
@@ -1464,8 +1480,8 @@ function tabRow(c, A, side) {
   for (const it of items) {
     const tb = A.tabs[it.id] || (A.tabs[it.id] = {});
     if (tb.arrive && tb.arrive.t0 == null && st.phase === 'play') {   // a contract that came on the card: it arrives now
-      tb.arrive.t0 = c.t;
-      focusLane(view, side, it.id, false);
+      tb.arrive.t0 = c.t;                                               // (the track stays where the player left it)
+      if (view.focus[side] !== it.id) view.toast(`${laneTab(it.id)} arrived · ${LOOK[side]}`, true);
       console.log(`[handoff] contract tab in: ${it.id}`);
     }
     const arr = tb.arrive?.t0 != null ? c.t - tb.arrive.t0 : 99;
@@ -1475,25 +1491,30 @@ function tabRow(c, A, side) {
     const w = wOf(it, font), on = view.focus[side] === it.id, hov = view.hover?.kind === 'lane-tab' && view.hover.data.id === it.id && !view.hover.data.debt;
     const fl = tb.flash, flashing = fl && c.t - fl.t0 < T.tabFlash && c.t >= fl.t0 && strobe(c.t, 6);
     const pick = research && !it.ghost && st.lanes[it.id].slots.length < B.maxSlots;
+    const alarm = !on && !it.ghost && !it.closed && it.s.lamp === 'red';       // trouble out of view: the tab burns red
+    if (alarm) alarmed = true;
     if (it.ghost) dashRect(g, x, 37, w, 16, col.ddim, 2, 2);
     else if (on) { fill(g, x, 37, w, 16, col.mid); if (hov) box(g, x, 37, w, 16, col.hot); }
-    else { fill(g, x, 37, w, 16, flashing ? (fl.red ? C.rdd : C.ambDD) : C.pan); box(g, x, 37, w, 16, pick ? C.rs : hov ? col.mid : col.ddim); }
+    else {
+      fill(g, x, 37, w, 16, flashing ? (fl.red ? C.rdd : C.ambDD) : alarm && strobe(c.t, 3, 0.6) ? C.rdd : C.pan);
+      box(g, x, 37, w, 16, pick ? C.rs : alarm ? C.r : hov ? col.mid : col.ddim);
+    }
     if (it.closed && !on) dashRect(g, x, 37, w, 16, C.amb, 2, 2, Math.floor(mod(c.t * 6, 4)));
     // the lamp: green / amber / red (blinks); a closed contract or a signed one: amber, slow
     const lamp = it.ghost || it.closed ? (mod(c.t * 1.5, 1) < 0.6 ? C.lamp.amber : C.lamp.off) : it.s.lamp === 'red' ? (strobe(c.t, 4, 0.6) ? C.lamp.red : C.rd) : C.lamp[it.s.lamp];
     if (glow && !it.ghost && !it.closed) { g.globalAlpha = glow; fill(g, x + 3, 40, 10, 10, C.rm); g.globalAlpha = 1; }
     fill(g, x + 5, 42, 6, 6, C.black); fill(g, x + 6, 43, 4, 4, glow && !it.ghost && !it.closed ? (glow > 0.5 ? C.lamp.red : C.lamp.amber) : lamp);
-    const ink = it.ghost ? col.ddim : on ? C.bg : hov ? col.acc : it.closed ? C.amb : col.dim;
+    const ink = it.ghost ? col.ddim : on ? C.bg : alarm ? C.rLite : hov ? col.acc : it.closed ? C.amb : col.dim;
     text(g, laneTab(it.id), x + 14, big ? 52 : 48, font, ink);
     const why = it.ghost ? `${CONTRACT_UI.lamp}: it arrives with G${it.gen}.` : it.closed ? `${CONTRACT_UI.tag}: idle until OPEN LANE.`
       : `Lamp: ${LAMP_TIP[it.s.lamp]}.`;
-    if (!it.ghost) c.hit.add(x, 37, w, 16, 'lane-tab', { side, id: it.id, tip: `${laneTip(it.id)} ${why}${on ? '' : ' Click to show it (pins the track for 20 s).'}` }, 'pointer');
+    if (!it.ghost) c.hit.add(x, 37, w, 16, 'lane-tab', { side, id: it.id, tip: `${laneTip(it.id)} ${why}${on ? '' : ' Click to show it.'}` }, 'pointer');
     else c.hit.add(x, 37, w, 16, 'lane-tab', { side, id: it.id, ghost: true, tip: `${laneTip(it.id)} ${why}` }, 'help');
     g.globalAlpha = 1;
     x = x0 + w + 4;
   }
-  const keys = side === 'ext' ? 'TAB' : '[ ]';
-  if (items.length > 1 && T0.x + 408 - x >= tw(keys, F.k8) + 4) text(g, keys, T0.x + 408, 48, F.k8, col.ddim, 'right');
+  const keys = (alarmed ? '! ' : '') + KEY[side];
+  if (items.length > 1 && T0.x + 408 - x >= tw(keys, F.k8) + 4) text(g, keys, T0.x + 408, 48, F.k8, alarmed && strobe(c.t, 3, 0.6) ? C.r : col.ddim, 'right');
 }
 
 // a contract arrives (DESIGN-v3 §3g): the side's header flashes for T.arrive s (2 Hz; reduce flashes: a steady fade) and a
@@ -1509,15 +1530,16 @@ function arriving(c, side, x, w, age) {
   });
 }
 
-// an unfocused lane whose lamp turns red takes its track: at most once every AUTO_GAP s, never while a tab click pins it
-function autoFocus(c, A) {
+// a lane out of view whose lamp turns red (an incident, a glitch): its tab burns red (tabRow) and the prompt names it.
+// It never takes the track: the player picks what to look at, so the stack on show is always the one they chose
+function alertLanes(c, A) {
   const { st, view } = c;
   for (const side of SIDES) for (const id of R.laneIds(st, side)) {
     const tb = A.tabs[id] || (A.tabs[id] = {}), lamp = st.lanes[id].open ? R.laneStatus(st, id).lamp : 'green', was = tb.lamp;
     tb.lamp = lamp;
     if (lamp !== 'red' || was === 'red' || view.focus[side] === id) continue;
-    if (view.now < view.pin[side] || view.now - view.autoAt[side] < AUTO_GAP || view.research) continue;
-    focusLane(view, side, id, false);
+    view.toast(`${laneTab(id)} ${side === 'ext' ? 'incident' : 'glitch'} · ${LOOK[side]}`, true);
+    console.log(`[handoff] ${id} turned red out of view: its tab alerts, the ${side} track stays on ${view.focus[side]}`);
   }
 }
 
@@ -1640,6 +1662,7 @@ function wrapLines(s, w) {
 export const input = {
   mount: {
     // placing → place here (shift keeps the element picked) · shift → upgrade · else open its panel
+    // right-click: cancel what is placing or open first (rightClickCancels); else arm SELL?, and a second one sells
     click(e, api) {
       const { lane, slot } = e.data, { view, act } = api, s = api.st.lanes[lane].slots[slot];
       if (view.research?.type === 'new') {                     // a research NEW card: its free copy goes here
@@ -1653,15 +1676,16 @@ export const input = {
         const id = view.placing;
         const ok = LAYERS[id].lanes.includes('global') ? act.place('global', 0, id) : act.place(lane, slot, id);
         if (ok && !e.shift) view.placing = null;
-      } else if (view.placing) view.toast('mount taken: sell it first [rmb], or pick an empty one');
+      } else if (view.placing) view.toast('mount taken: pick an empty one, or [esc] then [rmb] twice to sell it');
       else if (s.layer && e.shift) act.upgrade(lane, slot);
       else if (s.layer) view.selected = { lane, slot };
       else if (!(boughtAt.lane === lane && performance.now() - boughtAt.t < DOUBLE)) view.toast('empty mount: pick a defense from the menu first [1-9]');
     },
     context(e, api) {
-      const { lane, slot } = e.data;
-      if (api.st.lanes[lane].slots[slot].layer) api.act.sell(lane, slot);
-      else { api.view.placing = null; api.view.selected = null; }
+      const { lane, slot } = e.data, id = api.st.lanes[lane].slots[slot].layer;
+      if (rightClickCancels(api.view) || !id) return;
+      if (rightClickSells(api.view, lane, slot, id)) api.act.sell(lane, slot);
+      else api.view.toast(sellNote(api.st, id), true);
     },
   },
   'slot-buy': {
@@ -1676,12 +1700,15 @@ export const input = {
       const { side, id, ghost, debt } = e.data;
       if (ghost || debt) return;
       if (api.view.research?.type === 'mount') { pickMount(api, id); return; }
-      focusLane(api.view, side, id, true);
+      focusLane(api.view, side, id);
     },
   },
   'lane-open': { click: (e, api) => { if (api.act.openLane(e.data.id)) console.log(`[handoff] lane ${e.data.id} opened`); } },
   line: { click: (e, api) => { tutorial.lineClicked(e.data.lane, e.data.id); if (api.debug) console.log(`[handoff] line ${e.data.id}: ${e.data.text}`); } },
 };
+
+// the prompt's note when a first right-click arms SELL? (view.js rightClickSells)
+export const sellNote = (st, id) => tpl(LANE_UI.sellArm, { name: LAYERS[id].name, money: money(R.investedPrice(st, id) * B.sellRefund) });
 
 // a research MOUNT card: +1 mount on this lane
 function pickMount(api, lane) {

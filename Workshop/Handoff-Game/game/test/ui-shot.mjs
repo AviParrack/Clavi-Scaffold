@@ -28,8 +28,60 @@ const SIZES = [[1200, 660, 1], [1600, 900, 1]];          // width, height, devic
 // animation before each shot. hash = a location hash for the page (#dev).
 
 const SCENARIOS = {
-  start: {
-    about: 'start screen, no game yet',
+  // ---------- the main menu: CAMPAIGN · TOWER DEFENSE · TRAINING ----------
+  menu: {
+    about: 'the main menu, no game yet: the cold-open call, the three modes, THE JOB',
+  },
+  'menu-diff': {
+    about: 'the main menu, CAMPAIGN picked: the difficulty step, CONTROLS on the left',
+    settle: 6,
+    interact: async page => { await page.click('#mm-campaign'); return null; },
+  },
+  'menu-td': {
+    about: 'the main menu, TOWER DEFENSE picked (key 2): the difficulty step',
+    settle: 6,
+    interact: async page => { await page.keyboard.press('2'); return null; },
+  },
+  'menu-train': {
+    about: 'the main menu, TRAINING picked: the picker (generation, debt, seed), HOW TO TRAIN on the left',
+    settle: 6,
+    interact: async page => { await page.click('#mm-training'); return null; },
+  },
+  'menu-train-last': {
+    about: 'TRAINING mode after a run: the picker with the LAST RUN box and AGAIN',
+    settle: 6,
+    interact: async page => {
+      await page.click('#mm-training');
+      await page.click('#mm-go');
+      await page.waitForFunction(() => window.__handoff.training, null, { timeout: 5000 });
+      await page.evaluate(async () => {
+        const h = window.__handoff.training, c = h._ctl;
+        c.skipCountdown(); c.advance(90);
+        for (let i = 0; i < 400 && h._view.phase !== 'results'; i++) await new Promise(r => setTimeout(r, 25));
+      });
+      await page.keyboard.press('Enter');                           // CONTINUE on src/train's results card
+      await page.waitForFunction(() => !window.__handoff.training && !document.getElementById('mm-last').hidden, null, { timeout: 5000 });
+      return page.evaluate(() => document.getElementById('mm-last').innerText.replace(/\s+/g, ' '));
+    },
+  },
+  'train-mode': {
+    about: 'TRAINING mode: a G5 run on #train, 15 s in (no game state; src/train frozen, stepped by hand)',
+    settle: 0.1,
+    interact: async page => {
+      await page.click('#mm-training');
+      await page.evaluate(() => [...document.querySelectorAll('#mm-gens .mm-o')].find(b => b.textContent === 'G5').click());
+      await page.click('#mm-go');
+      return training(page, 15, false);
+    },
+  },
+  'train-mode-results': {
+    about: 'TRAINING mode\'s results card: a practice run trains no model (no next-model Δm, no prize; what it would do in a campaign)',
+    settle: 0.1,
+    interact: async page => {
+      await page.click('#mm-training');
+      await page.click('#mm-go');
+      return training(page, 90, true);
+    },
   },
 
   // ---------- phases (§3f): the card scene, the report, training ----------
@@ -47,6 +99,20 @@ const SCENARIOS = {
     about: 'G7 card: the boss generation (humans fooled, bursts)',
     settle: 6,
     setup: H => { H.play(); H.toGen(6); H.endGeneration(); H.train(); return `${H.st.phase} G${H.st.gen}`; },
+  },
+  'card-td': {
+    about: 'TOWER DEFENSE, G2 card: the training it skipped, auto-resolved at par (the TRAINING row)',
+    settle: 6,
+    setup: async H => {
+      H.newGame('medium', { tutorial: false, mode: 'td' }); H.deploy(); H.placeStarter(); H.advance(60, { choose: 1 }); H.endGeneration(); H.act.ack();
+      for (let i = 0; i < 40 && H.st.phase === 'training'; i++) await new Promise(r => requestAnimationFrame(r));   // main.js resolves it
+      return `${H.st.mode} ${H.st.phase} G${H.st.gen} s ${H.st.stats.gens.at(-2).train?.s.toFixed(2)}`;
+    },
+  },
+  'report-td': {
+    about: 'TOWER DEFENSE, G1 report: NEXT MODEL instead of TRAIN, "auto-resolved at par"',
+    settle: 3,
+    setup: H => { H.newGame('medium', { tutorial: false, mode: 'td' }); H.deploy(); H.placeStarter(); H.advance(90, { choose: 1 }); H.endGeneration(); return H.st.phase; },
   },
   report: {
     about: 'G1 report: caught vs landed, the heaviest landed lines, Δm parts, TRAIN',
@@ -88,7 +154,7 @@ const SCENARIOS = {
       H.build('ext3', ['probe', 'monitor', 'untrusted', null, 'auditor', 'killswitch']);
       H.build('int2', ['probe', 'cot', 'egress', null, 'auditor', 'killswitch']);
       H.advance(70, { choose: 1 });
-      H.frame(); H.view.focus.ext = 'ext3'; H.view.focus.int = 'int2'; H.view.pin.ext = H.view.pin.int = 1e9;   // pinned: auto-focus would jump to a red lane
+      H.frame(); H.view.focus.ext = 'ext3'; H.view.focus.int = 'int2';   // show the two newest lanes
       return H.Rules.laneIds(H.st).join(' ');
     },
   },
@@ -198,7 +264,7 @@ const SCENARIOS = {
   },
   'tip-um': {
     about: 'G3: hover the Untrusted Monitor: the collusion readout at the estimate',
-    setup: H => { H.play(); H.toGen(3); H.build('ext', ['probe', 'monitor', 'untrusted', 'paraphraser', 'auditor', 'killswitch']); H.advance(30, { choose: 1 }); H.frame(); H.view.focus.ext = 'ext'; H.view.pin.ext = 1e9; },   // frame(): the deploy fx focus Enterprise first
+    setup: H => { H.play(); H.toGen(3); H.build('ext', ['probe', 'monitor', 'untrusted', 'paraphraser', 'auditor', 'killswitch']); H.advance(30, { choose: 1 }); H.frame(); H.view.focus.ext = 'ext'; },
     interact: async page => hoverRegion(page, 'mount', { lane: 'ext', slot: 2 }),
   },
 
@@ -232,7 +298,7 @@ const SCENARIOS = {
       H.build('ext', ['classifier', 'probe', 'monitor', 'untrusted', 'ratelimit', 'paraphraser', 'canary', 'redteam', 'defer', 'killswitch']);
       H.build('int', ['redteam', 'cot', 'probe', 'untrusted', 'egress', 'honeypot', 'sandbox', 'leastpriv', 'auditor', 'killswitch']);
       H.advance(45, { choose: 0 }); H.frame();
-      H.view.focus.ext = 'ext'; H.view.focus.int = 'int'; H.view.pin.ext = H.view.pin.int = 1e9;   // the two built lanes
+      H.view.focus.ext = 'ext'; H.view.focus.int = 'int';   // the two built lanes
     },
   },
   choice: {
@@ -247,7 +313,7 @@ const SCENARIOS = {
   },
   pause: {
     about: 'paused: the plate between the tracks',
-    setup: H => { H.play(); H.placeStarter(); H.advance(6, { choose: 0 }); H.view.paused = true; },
+    setup: H => { H.play(); H.placeStarter(); H.advance(6, { choose: 0 }); H.frame(); H.view.paused = true; },   // frame(): the deploy fx unpauses
   },
   tutorial: {
     about: 'G1 tutorial, step 2: the plate over the codec trace, "Click a line on CONSUMER"',
@@ -295,7 +361,7 @@ const SCENARIOS = {
     setup: H => {
       H.play(); H.toGen(7); H.unlockAll(); H.labMode();
       H.build('int', ['redteam', 'cot', 'probe', 'untrusted', 'egress', 'honeypot', 'sandbox', 'leastpriv', 'auditor', 'killswitch']);
-      H.advance(20, { choose: 0 }); H.frame(); H.view.focus.int = 'int'; H.view.pin.int = 1e9; H.settle(6.5, 4);
+      H.advance(20, { choose: 0 }); H.frame(); H.view.focus.int = 'int'; H.settle(6.5, 4);
     },
     interact: async page => hoverRegion(page, 'mount', { lane: 'int', slot: 3 }),
   },

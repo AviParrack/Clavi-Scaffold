@@ -1,9 +1,13 @@
 // ===== UI playthrough (DESIGN-v3 §7.5 UI tier): one Medium run in real time, driven by real clicks, drags and keys =====
 // usage:  NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt NODE_USE_ENV_PROXY=1 node test/ui-play.mjs <outdir> [seed]
-// G1 card → DEPLOY → the 10-step tutorial by clicks (the codec hurried by clicks, as a reader would) → retrain card,
-// a choice, upgrade, mount, split → report → training (a click bot) → G2 card → the codec's minimum dwell → RETRAIN
-// → G3 card with a contract → OPEN LANE, fast-forward refused during the ramp → tabs → research → G4 EGRESS ANOMALY
-// → scorecard → PLAY AGAIN. Then dev mode (#dev) and a plain page (no hooks). Asserted on the way (§3f, §3g, §3b):
+// MAIN MENU (keys and Esc) → CAMPAIGN → Medium → G1 card → DEPLOY → the 10-step tutorial by clicks (the codec hurried by
+// clicks, as a reader would) → retrain card, a choice, upgrade, mount, split → report → training (a click bot) → G2 card
+// → the codec's minimum dwell → RETRAIN → G3 card with a contract (the EXTERNAL track stays put: only the player moves
+// a track) → a tab click shows it → OPEN LANE, fast-forward refused during the ramp → tabs → research → G4 EGRESS
+// ANOMALY → scorecard → PLAY AGAIN (same mode, a new G1 card) → pause → MAIN MENU.
+// Then TOWER DEFENSE (a generation ends: no minigame, training resolves itself, the next card says so → scorecard → MENU),
+// TRAINING mode (a run, its result, AGAIN, Esc, MENU), dev mode (#dev) and a plain page (no hooks: a first tower defense
+// game still opens with the tutorial). Asserted on the way (§3f, §3g, §3b):
 //   1× at every card, report and alarm · no card closes untouched · the card chat completes with no input ·
 //   every codec page stays up ≥ max(1.5 + n/15, pageHold) s · fast-forward refused while a new lane ramps.
 // ?debug=1 is used only for window.__handoff (hit regions, state reads, a few set-ups named in the log). Every
@@ -130,6 +134,17 @@ async function holdsUntouched(what, phase, el) {
 // the retrain card (§3f, §3g): the flash first, then the card; it waits; 1× while it is up
 let retrainSeen = 0;
 async function retrainCard(answer) {
+  if (!retrainSeen) {                                    // the first time: a click the frame the card comes up is ignored
+    const held = await page.evaluate(() => new Promise(ok => {
+      const t0 = performance.now(), tick = () => {
+        if (!document.getElementById('ov-retrain').hidden) { document.getElementById('rt-yes').click(); ok(!!window.__handoff.st.pendingRetrain); }
+        else if (performance.now() - t0 > 3000) ok(null);
+        else requestAnimationFrame(tick);
+      };
+      tick();
+    }));
+    log(held === true, 'retrain card: a click in its first 0.6 s is ignored (overlays.js CARD_GRACE)', held === null ? 'the card never came up' : '');
+  }
   log(await until(() => !document.getElementById('ov-retrain').hidden, 3000), 'retrain card: up after the red-handed flash');
   if (!retrainSeen++) await shot('retrain-card');
   log(!(await fast()), 'retrain card: 1× speed');
@@ -162,28 +177,35 @@ async function untilTending(pred, ms) {
 const dwellSpec = n => Math.max(1.5 + n / 15, Math.min(6, Math.max(2.2, 1.2 + n / 28)));
 async function recordCodec() {
   await page.evaluate(() => {
-    const H = window.__handoff, rec = H.__codecRec = { pages: [], cur: null, on: true };
+    const H = window.__handoff, rec = H.__codecRec = { pages: [], cur: null, on: true, clicks: [] };
+    addEventListener('pointerdown', () => { if (rec.on) rec.clicks.push(performance.now() / 1000); }, true);   // a click can cut a page
     const tick = ms => {
       const S = H.view.anim.codec, e = S?.cur, key = e ? `${e.id}|${e.page}` : null, now = ms / 1000;
       if (rec.cur && rec.cur.key !== key) {
         rec.cur.end = now; rec.cur.phase = H.st?.phase; rec.cur.requeued = !!S?.queue.some(q => q.id === rec.cur.id);
         rec.pages.push(rec.cur); rec.cur = null;
       }
-      if (e && !rec.cur && e.pages) rec.cur = { key, id: e.id, page: e.page, t0: e.t0, seen: now, urgent: !!e.urgent,
-        n: e.pages[e.page].reduce((a, s) => a + s.length, 0), choice: !!e.choice };
+      if (e && !rec.cur && e.pages) rec.cur = { key, id: e.id, page: e.page, t0: e.t0, seen: now, urgent: !!e.urgent, speaker: e.speaker,
+        n: e.pages[e.page].reduce((a, s) => a + s.length, 0), choice: !!e.choice, text: e.pages[e.page].join(' ').slice(0, 40) };
       if (rec.on) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
   });
 }
 async function checkDwell() {
-  const pages = await page.evaluate(() => { const r = window.__handoff.__codecRec; r.on = false; return r.pages; });
+  const { pages, clicks } = await page.evaluate(() => { const r = window.__handoff.__codecRec; r.on = false; return r; });
   // an incident or a choice cuts in: the cut page goes back to the queue (requeued) and restarts later
   const cut = pages.filter((p, i) => pages[i + 1]?.urgent && pages[i + 1].seen === p.end);
   const restarted = new Set(pages.filter((p, i) => p.page === 0 && pages.findIndex(q => q.id === p.id && q.page === 0) !== i).map(p => p.id));
-  const timed = pages.filter(p => !p.choice && p.phase === 'play' && !p.requeued && !cut.includes(p) && !restarted.has(p.id));
+  // the test's own clicks (answerChoice's fallback on the codec box) hurry a page on purpose: not the codec's pacing
+  const clicked = pages.filter(p => clicks.some(t => t >= p.seen - 0.05 && t <= p.end + 0.05));
+  const timed = pages.filter(p => !p.choice && p.phase === 'play' && !p.requeued && !cut.includes(p) && !restarted.has(p.id) && !clicked.includes(p));
   const short = timed.filter(p => p.end - p.t0 < dwellSpec(p.n) - 0.05);
   const worst = timed.reduce((w, p) => Math.min(w, (p.end - p.t0) / dwellSpec(p.n)), Infinity);
+  if (clicked.length) info(`codec: ${clicked.length} page(s) cut by the test's own clicks, not timed`);
+  // a short page names itself and its neighbours, so a failure says what cut it
+  const desc = p => p ? `${p.id}#${p.page} ${p.speaker} "${p.text}" ${p.n} ch, up ${(p.end - p.t0).toFixed(2)} s of ${dwellSpec(p.n).toFixed(2)}${p.urgent ? ' urgent' : ''}${p.requeued ? ' requeued' : ''} (${p.phase})` : 'none';
+  for (const p of short) { const i = pages.indexOf(p); info(`SHORT page: ${desc(p)} · before: ${desc(pages[i - 1])} · after: ${desc(pages[i + 1])}`); }
   log(timed.length >= 4 && !short.length, 'codec: every page stays up for the minimum dwell',
     `${timed.length} pages timed, shortest at ${worst.toFixed(2)}× its dwell` + (short.length ? ` · SHORT: ${short.map(p => `${p.n} ch ${(p.end - p.t0).toFixed(2)} s`).join(', ')}` : ''));
 }
@@ -241,6 +263,8 @@ async function training(tag) {
   const p = await page.evaluate(([x, y]) => window.__handoff.client(x, y), [B.x + B.w / 2, B.y + B.h / 2]);
   await page.mouse.click(p.x, p.y);
   log(await until((H, st) => st.phase === 'card' && !H.training, 5000), `${tag}: CONTINUE → the next model's card`);
+  await until(() => !document.getElementById('ov-card').hidden, 3000);
+  await wait(200);                                                   // a frame fills the card (a busy machine can lag one)
   const card = await page.evaluate(() => document.getElementById('ov-card').innerText);
   log(!!name && card.toLowerCase().includes(name.toLowerCase()), `${tag}: the training run carries the card's model name`, name);   // the card sets it in capitals
 }
@@ -283,10 +307,26 @@ try {
   await page.waitForFunction(() => window.__handoff, null, { timeout: 10000 });
   log(await page.evaluate(() => window.__handoff.fontsReady), 'web fonts loaded');
   await wait(1500);
-  await shot('start');
+  await shot('menu');
+
+  // ---------- the main menu: three modes, keys 1/2/3, Esc back a step ----------
+  log(await visible('mm-main') && await page.locator('#mm-main .mm-b').count() === 3, 'main menu: CAMPAIGN · TOWER DEFENSE · TRAINING');
+  await page.keyboard.press('1');
+  log(await visible('mm-diff') && /CAMPAIGN/.test(await page.locator('#mm-title').innerText()), 'key 1: CAMPAIGN asks for a difficulty');
+  await page.keyboard.press('Escape');
+  log(await visible('mm-main'), 'Esc: back to the main menu');
+  await page.keyboard.press('3');
+  log(await visible('mm-train'), 'key 3: the training picker');
+  await page.keyboard.press('Escape');
+  await page.locator('#mm-campaign').dblclick();                      // its second click lands on a difficulty button
+  log(await visible('mm-diff') && await S(H => !H.st), 'a double-click on CAMPAIGN: the difficulty step, no game started');
+  await page.keyboard.press('Escape');
+  await page.locator('#mm-campaign').click();
+  await wait(1200); await shot('menu-difficulty');
 
   // ---------- G1: the card ----------
-  await page.locator('#difficulty .ch', { hasText: 'Medium' }).click();
+  await page.locator('#mm-d-medium').click();
+  log(await S((H, st) => st?.mode === 'campaign' && st.difficulty === 'medium'), 'CAMPAIGN → Medium: a campaign game');
   await page.keyboard.press('f');                                    // F does nothing at a card
   await holdsUntouched('G1 card', 'card', 'ov-card');
   await shot('card-g1');
@@ -421,11 +461,19 @@ try {
   await shot('card-g3');
   await page.locator('#cs-deploy').click();
   log(await until((H, st) => st.phase === 'play' && st.gen === 3, 3000), 'DEPLOY: G3');
-  log(await until(H => H.view.focus.ext === 'ext2', 3000), 'the contract lane takes the EXTERNAL track');
-  await wait(1500); await shot('g3-contract');
+  await wait(1000);
+  log(await S(H => H.view.focus.ext === 'ext'), 'the contract arrives: the EXTERNAL track stays on CONSUMER (only the player moves it)');
+  await click('lane-tab', { id: 'ext2' }); await away();
+  log(await until(H => H.view.focus.ext === 'ext2', 3000), 'a tab click shows the contract lane (ENTERPRISE)');
+  await wait(500); await shot('g3-contract');
 
   // ---------- the contract: OPEN LANE, and no fast-forward while it ramps (§3b) ----------
-  log(await click('lane-open', { id: 'ext2' }) && await until((H, st) => st.lanes.ext2.open, 2000), 'OPEN LANE (a click): Enterprise opens');
+  let opened = false;                                                // a red-handed catch can put the retrain card over the plate:
+  for (let i = 0; i < 3 && !opened; i++) {                           // answer it first, as a player would
+    await tend();
+    opened = await click('lane-open', { id: 'ext2' }) && await until((H, st) => st.lanes.ext2.open, 2000);
+  }
+  log(opened, 'OPEN LANE (a click): Enterprise opens');
   await away();
   log(!(await goFast()) && await S(H => H.view.toasts.some(t => /ramp/i.test(t.text))), 'F during the ramp: refused, with a reason', await S(H => H.view.toasts.at(-1)?.text));
   await click('hud-btn', { action: 'fast' }); await away();
@@ -437,12 +485,12 @@ try {
   log(await goFast(), 'F after the ramp: three times speed');
   await page.keyboard.press('f');
 
-  // ---------- lanes: Tab cycles the EXTERNAL track, a tab click pins it ----------
+  // ---------- lanes: Tab cycles the EXTERNAL track, a tab click shows a lane ----------
   const f0 = await S(H => H.view.focus.ext);
   await page.keyboard.press('Tab');
   log(await S(`H => H.view.focus.ext !== '${f0}'`), 'Tab: the EXTERNAL track shows the next lane', `${f0} → ${await S(H => H.view.focus.ext)}`);
   await click('lane-tab', { id: 'ext' }); await away();
-  log(await S(H => H.view.focus.ext === 'ext' && H.view.pin.ext > H.view.now), 'a click on CONSUMER: shown and pinned');
+  log(await S(H => H.view.focus.ext === 'ext'), 'a click on CONSUMER: shown');
 
   // ---------- research: the badge, a card, a mount ----------
   await tend();
@@ -474,6 +522,7 @@ try {
   log(await until(() => !document.getElementById('ov-egress').hidden, 2000), 'EGRESS ANOMALY: the alarm card is up');
   log(!(await fast()), 'EGRESS ANOMALY: 1× speed');
   await shot('egress');
+  await wait(700);                                                   // overlays.js CARD_GRACE: a click in the first 0.6 s is ignored
   await page.locator('#eg-pull').click();
   log(await until((H, st) => !st.alarm && !st.over, 2000) && await S((H, st) => H.Rules.isDark(st)), 'PULL THE PLUG (a click): the alarm ends, the lab goes dark');
   await wait(400); await shot('egress-pulled');
@@ -484,13 +533,93 @@ try {
   log(await until(() => !document.getElementById('ov-score').hidden, 6000), 'the scorecard', await S((H, st) => `${st.over.win ? 'win' : 'loss'} ${st.over.reason ?? ''}`));
   await wait(2500); await shot('scorecard');
   await page.locator('#sc-again').click();
-  log(await until(H => !H.st && !document.getElementById('ov-start').hidden, 3000), 'PLAY AGAIN: the start screen');
+  log(await until((H, st) => st && !st.over && st.phase === 'card' && st.gen === 1 && st.mode === 'campaign' && st.difficulty === 'medium', 3000),
+    'PLAY AGAIN: a new campaign on Medium, at the G1 card');
+
+  // ---------- the pause plate: MAIN MENU (a click arms it, a second quits) ----------
+  await page.keyboard.press('Enter');
+  log(await until((H, st) => st.phase === 'play' && st.gen === 1, 3000), 'ENTER: the new G1 deployed (once: no second game)');
+  const fx0 = await S((H, st) => st.fxId);
+  await until(`H => (H.view.cursors.overlays?.fx ?? 0) >= ${fx0}`, 3000);   // a frame has read the deploy fx (it unpauses)
+  await away();
+  await page.keyboard.press(' ');
+  log(await until(() => !document.getElementById('ov-pause').hidden, 2000), 'SPACE: paused, the plate is up');
+  await page.locator('#pz-menu').click();
+  await wait(200);
+  log(await S(H => !!H.st) && /AGAIN/.test(await page.locator('#pz-menu').innerText()), 'MAIN MENU: the first click only arms it');
+  await wait(300); await shot('pause-menu');
+  await page.locator('#pz-menu').click();
+  log(await until(H => !H.st && !document.getElementById('ov-start').hidden && !document.getElementById('mm-main').hidden, 3000), 'MAIN MENU again: the main menu');
+
+  // =================== TOWER DEFENSE: deployment only, training resolves itself at par ===================
+  await page.keyboard.press('2');
+  log(await visible('mm-diff') && /TOWER DEFENSE/.test(await page.locator('#mm-title').innerText()), 'key 2: TOWER DEFENSE asks for a difficulty');
+  await page.keyboard.press('2');
+  log(await until((H, st) => st?.mode === 'td' && st.phase === 'card', 3000), 'key 2 again: a tower defense game on Medium, G1 card');
+  await page.locator('#cs-deploy').click();
+  await until((H, st) => st.phase === 'play', 3000);
+  info('set-up: the rest of G1 at sim speed');
+  await S(H => { H.labMode(true); H.placeStarter(); H.advance(600, { choose: 0 }); });
+  log(await until(() => !document.getElementById('ov-report').hidden, 4000) && await page.locator('#rp-train').innerText() === 'NEXT MODEL',
+    'tower defense report: NEXT MODEL, not TRAIN');
+  await shot('td-report');
+  await page.locator('#rp-train').click();
+  log(await until((H, st) => st.phase === 'card' && st.gen === 2, 3000), 'NEXT MODEL: straight to the G2 card');
+  log(await S(H => !H.training) && !(await page.evaluate(() => document.getElementById('train').classList.contains('on'))), 'tower defense: no training minigame');
+  const td = await S((H, st) => st.stats.gens.at(-2).train);
+  log(!!td?.stub && td.s >= 0 && td.s <= 1, 'tower defense: training resolved at par (the stub)', `s ${td?.s?.toFixed(2)}`);
+  await until(() => !document.getElementById('ov-card').hidden, 3000);
+  await wait(300);
+  const tdRow = await page.evaluate(() => document.getElementById('cs-info').innerText);
+  log(/auto-resolved/i.test(tdRow), 'the G2 card says training was auto-resolved, and its result', tdRow.split('\n').find(l => /auto-resolved/i.test(l)));
+  await wait(1500); await shot('td-card-g2');
+  info('set-up: ship the remaining generations');
+  await S(H => H.finish());
+  log(await until(() => !document.getElementById('ov-score').hidden, 6000) && /TOWER DEFENSE/.test(await page.locator('.sc-meta').innerText()), 'tower defense: the scorecard says so');
+  await page.locator('#sc-menu').click();
+  log(await until(H => !H.st && !document.getElementById('mm-main').hidden, 3000), 'scorecard MENU: the main menu');
+
+  // =================== TRAINING mode: the minigame on its own ===================
+  await page.locator('#mm-training').click();
+  await page.locator('#mm-gens .mm-o', { hasText: 'G4' }).click();
+  await page.locator('#mm-debts .mm-o', { hasText: '0.010' }).click();
+  await shot('menu-training');
+  await page.locator('#mm-go').click();
+  log(await until(H => !!H.training && !H.st && document.getElementById('train').classList.contains('on') && document.getElementById('ov-start').hidden, 3000),
+    'TRAIN: a run on #train, no game state, the menu hidden');
+  log(await S(H => H.training._ctl.run.course.g === 4 && Math.abs(H.training._ctl.run.course.debt - 0.01) < 1e-9), 'the run is the one picked', 'G4 · debt 0.010');
+  await S(H => H.training._ctl.skipCountdown());
+  const tclicks = await trainBot(4);
+  await shot('training-mode');
+  await S(H => H.training?._view.phase === 'run' && H.training._ctl.advance(90));
+  log(await until(H => H.training?._view.phase === 'results', 10000), 'training mode: the results card', `${tclicks} bot clicks`);
+  await wait(600);
+  const seed1 = await S(H => H.training._ctl.run.course.seed);
+  await page.keyboard.press('Enter');                                // CONTINUE
+  log(await until(() => !document.getElementById('mm-last').hidden && !document.getElementById('mm-train').hidden, 3000), 'CONTINUE: the picker, with the LAST RUN');
+  log(/AGAIN/.test(await page.locator('#mm-go').innerText()), 'the button says AGAIN', (await page.locator('#mm-last').innerText()).replace(/\s+/g, ' '));
+  await shot('training-last');
+  await page.locator('#mm-go').click();
+  log(await until(H => !!H.training, 3000) && await S(`H => H.training._ctl.run.course.seed !== ${seed1} && H.training._ctl.run.course.g === 4`), 'AGAIN: a new run, same pick, a new seed');
+  const seed2 = await S(H => H.training._ctl.run.course.seed);
+  await S(H => { H.training._ctl.skipCountdown(); H.training._ctl.advance(90); });
+  await until(H => H.training?._view.phase === 'results', 10000);
+  await page.keyboard.press('Escape');                               // on the results card Esc is CONTINUE: the run is kept
+  log(await until(() => !document.getElementById('mm-last').hidden, 3000) && (await page.locator('#mm-last').innerText()).includes(`seed ${seed2}`),
+    'Esc on the results card: the LAST RUN is kept', (await page.locator('#mm-last').innerText()).replace(/\s+/g, ' '));
+  await page.locator('#mm-go').click();
+  await until(H => !!H.training, 3000);
+  await page.keyboard.press('Escape');
+  log(await until(H => !H.training && !document.getElementById('mm-train').hidden, 3000), 'Esc: the run is quit, back to the picker');
+  await page.locator('#mm-tback').click();
+  log(await visible('mm-main'), '◂ MENU: the main menu');
 
   // =================== dev mode (#dev, §7.4) ===================
   await openPage(`/index.html?seed=${seed}#dev`);
   await page.waitForFunction(() => window.__handoff, null, { timeout: 10000 });
   await page.evaluate(() => window.__handoff.fontsReady);
-  await page.locator('#difficulty .ch', { hasText: 'Medium' }).click();
+  await page.locator('#mm-campaign').click();
+  await page.locator('#mm-d-medium').click();
   await until((H, st) => st?.phase === 'card');
   await page.keyboard.press('Enter');
   await until((H, st) => st.phase === 'play');
@@ -509,13 +638,14 @@ try {
   await S(H => H.newGame('medium'));
   log(await until(H => !H.training && !document.getElementById('train').classList.contains('on'), 3000), 'dev: a new game cancels the training run');
 
-  // =================== a plain page: no hooks; Easy, DEPLOY, SKIP TUTORIAL, a Probe by layout coordinates, 15 s at ×3 ===================
+  // =================== a plain page: no hooks; TOWER DEFENSE, Easy, DEPLOY, SKIP TUTORIAL, a Probe by layout coordinates, 15 s at ×3 ===================
   await openPage(`/index.html?seed=${seed}`);
   await wait(1500);
   log(await page.evaluate(() => window.__handoff === undefined), 'plain page: no debug hooks');
-  await page.locator('#difficulty .ch', { hasText: 'Easy' }).click();
+  await page.locator('#mm-td').click();
+  await page.locator('#mm-d-easy').click();
   await page.locator('#cs-deploy').click();
-  log(await page.locator('#tut .tut-skip').waitFor({ state: 'visible', timeout: 3000 }).then(() => true, () => false), 'plain page: a first game opens with the tutorial');
+  log(await page.locator('#tut .tut-skip').waitFor({ state: 'visible', timeout: 3000 }).then(() => true, () => false), 'plain page: a first game (tower defense) opens with the tutorial');
   await page.locator('#tut .tut-skip').click();
   log(await page.evaluate(() => document.getElementById('tut').hidden), 'plain page: SKIP TUTORIAL');
   await page.mouse.click(856, 544); await wait(100); await page.mouse.click(72, 121); await wait(100);     // the PRB key, CONSUMER mount 1

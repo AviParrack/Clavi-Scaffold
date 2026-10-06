@@ -193,7 +193,7 @@ function tabs(c, tab) {
 
 function help(c) {
   const { g, view } = c, y = MENU_FOOT.helpY;
-  const s = view.research ? '[click] a lit mount   [esc] bank the card' : view.placing ? '[click] lit mount  [shift] keep  [esc] cancel' : '[1-9] place   [shift] upgrade   [rmb] sell';
+  const s = view.research ? '[click] a lit mount   [esc] bank the card' : view.placing ? '[click] lit mount  [shift] keep  [esc] cancel' : '[1-9] place  [shift] upgrade  [rmb]×2 sell';
   let x = MENU.x;
   for (const part of s.split(/(\[[^\]]+\])/)) if (part) x += text(g, part, x, y, F.v16, part[0] === '[' ? C.gm : C.gd);
   text(g, 'DEFENSE MENU', MENU.x + MENU.w, y, F.k8, C.gm, 'right');

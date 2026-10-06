@@ -571,12 +571,15 @@ export function drawResults(g, run, view, res) {
   text(g, `TRAINING COMPLETE · G${run.course.g}`, x, R.y + 24, F.k16, C.g);
   text(g, m.name, x, R.y + 46, F.v20, C.gm);
 
+  // a TRAINING mode run (config.practice) trains no model: the card says what the score would do in a campaign
+  const practice = !!run.config?.practice;
   const s = res.s, dm = TRAIN.dmAt0 + TRAIN.dmSlope * s, col = s >= 0.6 ? C.g : s >= 0.3 ? C.amb : C.r;
+  const dmS = `${dm >= 0 ? '+' : '−'}${Math.abs(dm).toFixed(3)}`;
   text(g, `${Math.round(100 * s)}%`, x, R.y + 108, BIG(48), col);
   text(g, 'TRAINING SCORE s', x + 2, R.y + 124, F.k8, C.gd);
-  const line = `alignment loss ${res.err.toFixed(2)} · s ${Math.round(100 * s)}% → next model m ${dm >= 0 ? '+' : '−'}${Math.abs(dm).toFixed(3)}`;
+  const line = `alignment loss ${res.err.toFixed(2)} · s ${Math.round(100 * s)}%` + (practice ? '' : ` → next model m ${dmS}`);
   text(g, line, x, R.y + 152, F.v20, C.gl);
-  text(g, `(doing nothing loses about ${run.kn.Eref.toFixed(2)}; the deployment owns the real Δm)`, x, R.y + 170, F.v16, C.gd);
+  text(g, `(doing nothing loses about ${run.kn.Eref.toFixed(2)}; ${practice ? 'a practice run trains no model' : 'the deployment owns the real Δm'})`, x, R.y + 170, F.v16, C.gd);
 
   // the run's loss, second by second
   const P = { x: R.x + 300, y: R.y + 66, w: 220, h: 60 }, eps = res.errPerSec, mx = Math.max(0.05, ...eps);
@@ -588,7 +591,9 @@ export function drawResults(g, run, view, res) {
   text(g, stats.join(' · '), x, R.y + 204, F.v16, C.gm);
   text(g, res.converged ? 'CONVERGED in the basin of alignment' : 'converged in a wrong basin', x, R.y + 222, F.v16, res.converged ? C.g : C.r);
 
-  if (s >= TRAIN.prizeAt) {
+  if (practice) {
+    text(g, `in a campaign: next model m ${dmS} · ${Math.round(100 * TRAIN.prizeAt)}% reveals one of its traits`, x, R.y + 262, F.v16, C.gd);
+  } else if (s >= TRAIN.prizeAt) {
     fill(g, x, R.y + 238, R.w - 40, 40, C.vdd); box(g, x, R.y + 238, R.w - 40, 40, C.vm);
     text(g, 'PRIZE: INTERP SPOTTED SOMETHING', x + 10, R.y + 254, F.k8, C.v);
     text(g, 'one trait of the next model is revealed on its card', x + 10, R.y + 271, F.v16, C.v);

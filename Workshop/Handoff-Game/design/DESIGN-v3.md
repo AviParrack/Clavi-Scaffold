@@ -80,7 +80,7 @@ You can read every line. Some honest lines are **decoys** that only look suspici
 - A flag that finds every desk busy *with flags* rolls on to the next responder. If nothing below has room, it **ships**.
 - *Your "1%" question.* One desk covers 21% of a lane at G1 and 7% at G7. Real labs review far less than 1%; the game compresses this so humans matter. The HUD shows "% of traffic reviewed by humans".
 
-**The other responders.** **Defer to Trusted** (2 s per line): the weak trusted model redoes the line; safe, but it pays less. **Kill Switch** (4 s): refuses the line; no risk, but a $10 fee and −1.3 reputation per refusal on Consumer, because users notice. It is the blunt last resort, not a stand-in for review. **Resampler** (R&D only, 1 s): redraws the line.
+**The other responders.** **Defer to Trusted** (2 s per line): the weak trusted model redoes the line; safe, but it pays less. **Kill Switch** (4 s): refuses the line; no risk, but a $10 fee and −1.3 reputation per refusal on Consumer, because users notice. It is the blunt last resort, not a stand-in for review, and it is **optional**: it sits in the starting hand, but no rail holds one until you buy it (Avi, v4: no default Kill Switch). **Resampler** (R&D only, 1 s): redraws the line.
 
 **Evidence and the dossier.**
 - Evidence comes from attacks a human confirms (+1 each), Honeypot catches, and Safety sweeps (1.5 per minute at the default 10% Safety).
@@ -108,7 +108,7 @@ You can read every line. Some honest lines are **decoys** that only look suspici
 3. **the model card and its chat:** it waits for your click;
 4. **deployment:** it opens with a 40 s warm-up at 1× speed.
 
-G1 starts at the card, then the tutorial. New lanes arrive as **contracts** at G3, G5 and G6. Press OPEN LANE when you are ready (it opens itself after 90 s), and it comes with a starter kit.
+G1 starts at the card, then the tutorial. New lanes arrive as **contracts** at G3, G5 and G6. Press OPEN LANE when you are ready (it opens itself after 90 s), and it comes with a starter kit: a Probe and a TM, no responder (v4), so put one on before it opens.
 
 **You lose** if reputation hits 0, you are in the red for 20 s, an exfiltration alarm goes unanswered, or the rival ships the final model first. **You win** by getting G7 through deployment. How the ending reads depends on the final m (§5).
 
@@ -233,9 +233,9 @@ G1 starts at the card, then the tutorial. New lanes arrive as **contracts** at G
 
 **Money.**
 - EXTERNAL pay is × (0.5 + 0.5·rep/100), which is your market share.
-- You start with $2500.
-- Each contract lane comes with a kit installed free (Probe, TM, Kill Switch) and a Big Boss grant of $2000·π_g.
-- Both G1 lanes start with a Kill Switch L1: Big Boss's red button.
+- You start with $3100 (v4: it was $2500; the extra $600 is what the two free Kill Switches were worth).
+- Each contract lane comes with a kit installed free (Probe, TM) and a Big Boss grant of $2300·π_g (v4: $2000·π_g, plus the kit's old Kill Switch as cash).
+- Both G1 lanes start empty. The Kill Switch is in the starting hand, and a flag no responder takes ships (§2.9 #20: until v4 a free Kill Switch L1 sat at the bottom of both G1 lanes and of every kit).
 
 **Difficulty** sets the first model's m. The ranges are narrow on purpose: run-to-run variety comes from the traits, not from a hidden roll.
 
@@ -342,19 +342,19 @@ When it reaches 0, the rival ships first.
 
 *Medium, m = 0.34. Command: `node balance-v3.mjs worked`.*
 
-**G1 tutorial rail on Consumer:** Probe, TM, Auditor L1, Kill Switch L1. λ = 0.6/s, T_travel = 8 s, dwell 0.48 s.
+**G1 tutorial rail on Consumer:** Probe, TM, Auditor L1, and (since v4) no Kill Switch unless you buy one. λ = 0.6/s, T_travel = 8 s, dwell 0.48 s.
 
 | step | number |
 |---|---|
-| attack chances | p_model = (0.05 + 0.034) × 1.20 = **10.1%**; jailbreak 3% |
+| attack chances | p_model = (0.05 + 0.034) × 1.05 = **8.8%**; jailbreak 3% |
 | reads | the Probe (0.04 s) and the TM (0.40 s) both read fully: q = 1, and their heads are almost always free |
 | a model attack slips both | normal: (1 − .70)(1 − .88) = 3.6%. Subtle: (1 − .35)(1 − .44) = 36%. Mixed at 3% subtle: **4.6%** |
 | a jailbreak slips both | (1 − .35)(1 − .44) = **36.5%**: general detectors read jailbreaks at half TPR |
-| flags | 7.8/min, with precision **53%**. The rest are false alarms |
-| auditor, 1 desk | A = 7.8/60 × 8 = 1.04 Erlang, so B = 51%. The auditor takes **49%** of flags, the Kill Switch 40%, and **10.7% ship** |
-| spot checks | spare desk time reviews **10.4%** of unflagged lines; humans see **19%** of the traffic |
-| P(land) | model attack **14.4%**, jailbreak **39.5%** |
-| per line | PI **2.72**, −6.3 rep/min. Most of the loss is jailbreaks and shipped flags. The forced first offer (§3h) shows the Jailbreak Classifier, and Kill Switch L2 ($225) stops the shipping |
+| flags | 7.4/min, with precision **50%**. The rest are false alarms |
+| auditor, 1 desk | A ≈ 1 Erlang: the desk takes **51%** of flags. With no Kill Switch the other **49% ship**; a Kill Switch L1 below takes 35% of them and 14% ship |
+| spot checks | spare desk time reviews **5.1%** of unflagged lines; humans see **15%** of the traffic |
+| P(land) | no Kill Switch: model attack **51.5%**, jailbreak **66%**. With one: 18.1% and 43.7% |
+| per line | no Kill Switch: PI **2.56**, −15.3 rep/min. With one ($300): PI **1.84**, −5.0 rep/min. Most of what is left is jailbreaks: the forced first offer (§3h) shows the Jailbreak Classifier |
 
 **G6 par rail on Consumer:**
 - top to bottom: Paraphraser, Honeypots, Probe L2, TM L4, Classifier L2, two UMs at L4, Auditor L3, Defer L3, Kill Switch L4;
@@ -378,7 +378,7 @@ When it reaches 0, the rival ships first.
 *Analytic; Medium mid m = 0.34; one lane of each side. Command: `node balance-v3.mjs table` and `evidence`.*
 
 The three builds:
-- **none:** the G1 starting rails (a Kill Switch only);
+- **none:** the G1 starting rails (empty since v4);
 - **starter:** Probe, TM, Auditor and Kill Switch, never upgraded or retrained;
 - **par:** what `smart` owns at the end of g.
 
@@ -438,27 +438,30 @@ All Δm columns are **per generation, not cumulative**.
 - **For a good player, the INTERNAL lane shows through the *stopped* side.** Their R&D rail stops attacks worth +0.44 to +0.65 m every generation. The reveal card and the debt meter show that number next to what landed (§3e).
 - **Deployment length** stays within 4% of T_g. Money neither piles up nor runs out.
 
-**Transition shock.** Command: `shock`. Each row walks into g + 1 with g's par build; a new lane has only its kit.
+**Transition shock.** Command: `shock`. Each row walks into g + 1 with g's par build; a new lane has only its kit, which since v4 is a Probe and a TM with no responder (§2.9 #20). The model's table, on Medium, after #20:
 
-| Medium step | PI: old gen → new gen | jump | bleed (rep/min, all EXTERNAL lanes) | time from 100 to 0 rep |
-|---|---|---|---|---|
-| G1 → G2 | 0.53 → 2.52 | ×4.8 | 5.4 | 1116 s |
-| G2 → G3 | 0.92 → 1.88 | ×2.0 | 20.5 | 292 s |
-| G3 → G4 | 0.44 → 0.70 | ×1.6 | −4.1 (recovers) | never |
-| G4 → G5 | 0.48 → 0.68 | ×1.4 | 17.0 | 354 s |
-| G5 → G6 | 0.51 → 0.71 | ×1.4 | −7.5 | never |
-| G6 → G7 | 0.67 → 0.91 | ×1.4 | −1.0 | never |
+| Medium step | PI: old gen → new gen | jump | bleed (rep/min, all EXTERNAL lanes, full volume) | 100 to 0 rep, new lane at once | new lane at the deadline |
+|---|---|---|---|---|---|
+| G1 → G2 | 0.51 → 4.50 | ×8.7 | 9.0 | 666 s | 667 s |
+| G2 → G3 | 0.54 → 1.07 | ×2.0 | 98.5 | 61 s | 134 s |
+| G3 → G4 | 0.27 → 0.44 | ×1.6 | −17.6 (recovers) | never | never |
+| G4 → G5 | 0.26 → 0.36 | ×1.4 | 49.5 | 121 s | 206 s |
+| G5 → G6 | 0.28 → 0.38 | ×1.4 | −35.5 | never | never |
+| G6 → G7 | 0.35 → 0.47 | ×1.3 | −33.1 | never | never |
+
+- **"At once"** opens the new lane at full volume from the first second. With no responder it ships every flag. With a Kill Switch in the kit (v3), the same table gives G2 → G3 9.0 rep/min, and G4 → G5 recovers (−7.2).
+- **"At the deadline"** walks it in as the game does: closed until Big Boss opens it at 90 s into the generation (50 s into this full-volume window, which starts after the 40 s warm-up), then the 25% → 100% ramp. The sim's assert measures this one (§2.9 #20).
 
 **Hard.**
-- The worst step is G2 → G3: 26 rep/min, 231 s from full to empty.
-- Hard's G1 → G2 (7.4 rep/min) is softened by the G1 build's TM L2, Probe L2 and Classifier. It is not softened by a UM, which only arrives at G3.
+- The worst step is G2 → G3: 121.5 rep/min at once (49 s from full to empty), 120 s with the new lane at the deadline.
+- Hard's G1 → G2 (13.0 rep/min) is softened by the G1 build's TM L2, Probe L2 and Classifier. It is not softened by a UM, which only arrives at G3.
 
-**What is guaranteed.** Avi's "came back after 10 s and had lost" now needs a 4-minute absence. The guarantees, in order:
+**What is guaranteed.** Avi's "came back after 10 s and had lost" now needs an absence of more than 2 minutes. The guarantees, in order:
 1. The game stops at the card.
 2. Speed drops to 1× there.
 3. Fast-forward stays locked during a new lane's ramp.
-4. A contract lane carries no traffic until you open it, or until 90 s pass. Then it opens with its kit.
-5. The worst measured bleed from walking in unprepared takes **≥ 231 s** to empty a full bar (asserted ≥ 90 s).
+4. A contract lane carries no traffic until you open it, or until 90 s pass. Then it opens with its kit, which has no responder: that 90 s is the time to put one on it.
+5. Walking in unprepared and letting the new lane open at the deadline takes **≥ 141 s** to empty a full bar (the sim's Medium 5th percentile, G2 → G3; asserted ≥ 90 s). Opening the new lane at once with only its kit is faster: 38 s.
 
 **Pressure index plot** (log scale). PI = 1 is break-even. Command: `plot`.
 
@@ -481,37 +484,38 @@ All Δm columns are **per generation, not cumulative**.
 
 ### 2.7 Validation
 
-**Policy zoo.** Command: `zoo 400`. One standard error is about 2.4 points at 36%. Loss reasons: **R** reputation, **C** exfiltration alarm missed, **B** bankrupt, **P** the rival shipped first.
+**Policy zoo.** Command: `zoo 400` (the model, v4: §2.9 #20). One standard error is about 2.4 points at 36%. Loss reasons: **R** reputation, **C** exfiltration alarm missed, **B** bankrupt, **P** the rival shipped first. The model has no events, so human reads about 12 points high on Medium; the asserted numbers are the sim's, with events on (`node test/headless.mjs balance 400`, §2.9 #20).
 
 | policy | what it is | Easy | Medium | Hard | Medium: died by G2 · median death · losses (of 400) |
 |---|---|---|---|---|---|
-| none | the G1 rails (Kill Switch only); never acts | 0 | 0 | 0 | 100% · 123 s · R400 |
-| afkTutorial | the tutorial's rail and the Classifier pick, then hands off | 0 | 0 | 0 | 84% · 365 s · R400 |
-| starter | the starting hand on both lanes, never upgraded | 0 | 0 | 0 | 75% · 379 s · R400 |
-| **human** | **the target population** | **74** | **36** | **15** | 1% · 1078 s · R249 C4 P3 |
-| smart | the oracle | 99 | 87 | 54 | 0% · 1329 s · R50 C2 |
-| probewall | your Hard strategy: four probes and auditors, then Defer | 0 | 0 | 0 | 6% · 743 s · R400 |
-| monoTM | | 0 | 0 | 0 | 3% · 822 s |
-| monoUM | | 26 | 1 | 0 | 2% · 838 s |
-| noResearch | smart's list, never picks a card | 3 | 0 | 0 | 4% · 785 s |
-| noAuditor | human with no auditors | 35 | 11 | 2 | 12% · 729 s · R339 C5 P12 |
-| noDefer | human with no Defer | 70 | 37 | 16 | 0% · 1128 s |
-| noTraining | human with training s = 0 | 55 | 24 | 8 | 1% · 1052 s |
-| researchHeavy | human with the split at 30/40/30 | 36 | 21 | 11 | 0% · 1242 s · R99 C9 P209 |
+| none | the G1 rails (empty since v4); never acts | 0 | 0 | 0 | 100% · 140 s · R400 |
+| afkTutorial | the tutorial's rail and the Classifier pick, then hands off | 0 | 0 | 0 | 100% · 246 s · R400 |
+| starter | the starting hand on both lanes, never upgraded | 0 | 0 | 0 | 83% · 361 s · R400 |
+| **human** | **the target population** | **75** | **48** | **23** | 2% · 1041 s · R186 C16 P7 |
+| smart | the oracle | 100 | 94 | 77 | 0% · 1151 s · R22 C1 |
+| probewall | your Hard strategy: four probes and auditors, then Defer | 1 | 0 | 0 | 3% · 897 s · R399 C1 |
+| monoTM | | 0 | 0 | 0 | 2% · 1031 s |
+| monoUM | | 36 | 3 | 0 | 3% · 949 s |
+| noResearch | smart's list, never picks a card | 12 | 0 | 0 | 7% · 821 s |
+| noAuditor | human with no auditors | 42 | 27 | 10 | 34% · 502 s · R289 P3 |
+| noDefer | human with no Defer | 65 | 34 | 9 | 2% · 1024 s |
+| noKill | human with no Kill Switch (v4; no target) | 7 | 1 | 0 | 54% · 443 s · R395 |
+| noTraining | human with training s = 0 | 69 | 42 | 18 | 1% · 1016 s |
+| researchHeavy | human with the split at 30/40/30 | 66 | 35 | 14 | 3% · 1300 s · R174 C12 B15 P60 |
 
-**Targets.** All 18 pass in the model; `checks()` in balance-v3.mjs prints them.
+**Targets.** In the model 16 of 18 pass; `checks()` in balance-v3.mjs prints them. The two that fail are human Medium (48) and Hard (23), high for want of events. With events on, the sim passes all 18 (§2.9 #20).
 - **none:**
-  - loses in G1 on Medium ≥ 80% (98%) and on Hard ≥ 90% (99%);
+  - loses in G1 on Medium ≥ 80% (83%) and on Hard ≥ 90% (93%);
   - loses by G2 on Easy ≥ 95% (100%);
-  - median death on Medium is 120–300 s (123 s).
-- **afkTutorial** dies by G2 on Medium ≥ 80% (84%) and on Hard (95%).
+  - median death on Medium is 120–300 s (140 s).
+- **afkTutorial** dies by G2 on Medium ≥ 80% (100%) and on Hard (100%).
 - **starter** loses by G3 on Medium ≥ 90% (100%) and never wins.
-- **human** wins Easy 60–80% (74), Medium 30–45% (36), Hard 5–18% (15).
+- **human** wins Easy 60–80% (75), Medium 30–45% (48: fails), Hard 5–18% (23: fails).
 - **smart** ≥ human on every difficulty.
-- **probewall, monoTM, monoUM and noResearch** each win ≤ 5% on Medium and lose by G6 ≥ 80% (100 / 100 / 93 / 100%).
-- **noAuditor** wins ≥ 5 points less than human (11 vs 36).
-- **researchHeavy** wins ≤ human + 5 (21 vs 36).
-- **The hazard curve** passes as in §2.6.
+- **probewall, monoTM, monoUM and noResearch** each win ≤ 5% on Medium and lose by G6 ≥ 80% (99 / 99 / 89 / 100%).
+- **noAuditor** wins ≥ 5 points less than human (27 vs 48).
+- **researchHeavy** wins ≤ human + 5 (35 vs 48).
+- **The hazard curve** passes (0 / 2 / 11 / 13 / 13 / 14 / 16%).
 
 **How touchy the target is.** Command: `slope 300`. Base: human on Medium, 38% at 300 seeds.
 
@@ -547,7 +551,7 @@ Retune with these slopes, never at fewer than 400 seeds.
 - The `cards` report shows the soft cards do save something: Debate saves 7.4 rep per generation, Diversity 5.8, Faithful CoT 1.95 debt points.
 - Defer matters (−7, SE 2.4) under the harsher refusal cost, now the default (🚩 1). On the real sim, noDefer loses 13 points (§2.9 #19).
 
-**Element arc.** Command: `arc`. Each cell is reputation saved per minute per $1000 spent (buy plus one generation of running costs). **Bold** marks that generation's top 3. The Kill Switch is left out because it is in the starting hand.
+**Element arc.** Command: `arc`. Each cell is reputation saved per minute per $1000 spent (buy plus one generation of running costs). **Bold** marks that generation's top 3. *(The table below predates v4, when the Kill Switch was free and left out; `arc` now ranks it with the rest.)*
 
 | Consumer | G1 | G2 | G3 | G4 | G5 | G6 | G7 |
 |---|---|---|---|---|---|---|---|
@@ -594,7 +598,7 @@ From `scratchpad/v3/research.md`:
 | takeaway | where it shows |
 |---|---|
 | **Stability condition** r* = 1 + k/(p·c) (§1.2): income that scales with the threat makes "do nothing" survivable | damage and regen are both per line, so PI doesn't depend on volume. Growth comes from opp_g, detector decay, the subtle share and new lanes, never from money inflation. π_g is the price lever |
-| **Do-nothing must lose** (§1.4): no passive defence; lock-and-key threats; threat outgrows the start | the G1 rails hold only a Kill Switch; one new threat per generation (§2.2); the none, afkTutorial and starter asserts |
+| **Do-nothing must lose** (§1.4): no passive defence; lock-and-key threats; threat outgrows the start | the G1 rails start empty (v4); one new threat per generation (§2.2); the none, afkTutorial and starter asserts |
 | **Cliff avoidance** (§1.3): player-started waves, previews, sawtooth, warm-up, opt-in speed | the card waits for a click; 1× at every card; a 40 s warm-up ramp; lanes telegraphed at Q4 and opened by the player |
 | **New lanes** (§1.5): telegraphed, light at first, paired with a new tool, a source of income; PvZ's water-lane rule | contracts with a kit and a grant; a 25% → 100% ramp; Enterprise pays $50; Cyber's exfiltration ×3 is the Egress Filter's home |
 | **Budget-pressure curve** (§1.5): a 25% → 70% safety bill | par running cost ÷ income runs 25% → 57% |
@@ -629,6 +633,7 @@ The model can say *plausible*, never *balanced*. The real asserts run on the rea
 | #16: offers by stream | **0** | afkTutorial Easy died by G2 −5 · smart Hard win −4 |
 | #17: the retune, in both engines | **0** | monoUM Easy win +9 (the loosest cell: watch it) · smart Hard win +6 · afkTutorial Hard died by G2 −6 |
 | #19: the Kill Switch's price and the retune, in both engines | **0** | afkTutorial Easy died by G2 −6.5 · human Hard win −5.5 · human Medium win +5.2 |
+| #20: no default Kill Switch, the policies buy theirs, money and regen, in both engines | **0** | starter Easy died by G2 −5 · afkTutorial Easy died by G2 −3 · human Easy win −2 |
 
 12. **R&D per line.** In the sim only a line that completes brings R&D. An attack stopped by an Auditor or a Kill Switch brings none, and neither does an honest line the Kill Switch refuses; a deferred line brings half. The model credited every spawned line, so a par lane finished in about 0.9·T_g and a retrain (20 s dark) cost no slack. Both engines now count R&D per completed line, and **rdPar 0.9 → 0.8** keeps a par lane at about T_g, since it loses about 20% of its R&D lines. The quick test `deployLength` checks it: T_g plus one travel, ± 5%, over 16 seeds.
 13. **Pay and regen per line.** The sim pays every line that completes, a landed attack included, and Defer pays its share. Regen comes per honest EXTERNAL line delivered (half if deferred). The model paid INTERNAL attack lines that were stopped, and spread pay per second. It now uses the same per-line pay and regen.
@@ -698,6 +703,56 @@ The model can say *plausible*, never *balanced*. The real asserts run on the rea
     What it costs:
     - **Deaths move earlier.** Human Medium dies by G2 in 9% of runs (it was 3%), and Hard in 19% (it was 5%). In G1 and early G2 there is no Defer yet, so a desk's overflow goes to the Kill Switch. All of noAuditor's deficit is there: its Medium hazard runs 10 / 43 / 49% in G1–G3.
     - **Late desks may not pay.** From G4, noAuditor's Medium hazard (13 / 8 / 11 / 9%) sits below human's (15 / 17 / 12 / 23%). Some of that is selection: the noAuditor runs that reach G4 are its lucky ones. Some may be Defer, which takes noAuditor's flags at zero risk from G2 on, while desks cost salaries and levels. The two are not yet split. The Kill Switch no longer stands in for review; whether Defer does, from G4, is open.
+20. **No default Kill Switch (Avi, v4: "Don't think a default to kill switch is needed").**
+    - **The change.** Both G1 rails start empty (`startRail: []`), and a contract lane's kit is a Probe and a TM (`laneKit`). The Kill Switch stays in the starting hand at $300.
+    - **The rule was already there.** A flag that no responder takes ships unreviewed (`completeTask`), and the readouts follow the rail: the Auditor tooltip says "ships unreviewed", the lane box says SHIPS, and a chip that passes the last responder gets the UNREVIEWED stamp.
+    - **The words.** In step 4 of the tutorial Big Boss now says "My red button? Buy your own." A new content check fails any tutorial or contract line that calls an element already there when the config doesn't place it.
+    - **Untuned, it broke the game.** With only the policies changed to buy their Kill Switches, human won 25 / 8 / 1% and smart 88 / 72 / 35% (`tune`, 400 seeds, events on). The Medium hazard ran 16 / 29 / 42% in G1–G3. The causes:
+      - **G1 Consumer.** One desk carries about 1 Erlang, so half its flags ship. That bleeds −15.3 rep/min, against −5.0 with a Kill Switch L1 below it (`worked`).
+      - **R&D.** A Probe with nothing below it ships every flag, and that debt raises the next model's m.
+      - **Money.** The two Kill Switches cost $600, and each contract lane's costs $300·π.
+      - **Order.** The old human list bought its desks first. Buying Consumer's Kill Switch right after the tutorial alone took human to 35 / 9 / 2%.
+      - **G1's first event.** Most of human's G1 deaths followed the first event (t = 150 s) on a Sycophant model, with the Kill Switch still at L1. Buying L2 earlier took the G1 hazard to 2%. The 8 G1 deaths of 400 that remain still follow that event, 7 of them on a Sycophant model.
+    - **Who buys one now** (`test/policies.mjs`; the model reads the same file):
+      - **none** and **afkTutorial** buy none. The tutorial doesn't place one.
+      - **starter** buys one per lane, last on its list (its rail is still "the starting hand on both lanes"). The walls inherit it.
+      - **smart** buys both right after the tutorial's items. That pays from the first flag: refusing pays above 14% precision, and G1's flags are about 50% real.
+      - **human** buys a lane's Kill Switch once that lane's desk overflows. Consumer's comes right after the tutorial. R&D's Probe has nothing below it, so R&D gets a desk first and then its Kill Switch. Then L2, then smart's G1 list.
+      - The tutorial's step 4 points at Consumer's Kill Switch, so `drawPlayer` never skips it, as it never skips the tutorial's own items. Without that, a player who forgets 0–20% of the list would go without one in about 1 run in 10.
+      - **noAuditor** and **noDefer** drop from human's list, as before.
+      - **noKill** (a new ablation, with no target) is human with no Kill Switch at all.
+    - **Knobs.** The first two hand back what used to come free. Regen pays for what still ships before a player buys, and for the extra R&D debt.
+
+    | knob | was | now | where |
+    |---|---|---|---|
+    | `startRail`, `laneKit` | Kill Switch; Probe, TM, Kill Switch | **none; Probe, TM** | both engines (`START_RAIL`, `NEW_LANE_KIT`) |
+    | `startMoney` | $2500 | **$3100** | both (`START_MONEY`) |
+    | `laneGrant` | $2000·π | **$2300·π** | both (`GRANT`) |
+    | `regenPerLine` | 0.28 | **0.31** | both (`REGEN`) |
+
+    - **How regen was chosen.** With the money knobs in, regen 0.28 gave human 60 / 28 / 9%, under Medium's 30% floor. 0.31 gives 66 / 36 / 13%. The Kill Switch's break-even moves to 14.2% on Consumer, 2.5% on Enterprise and 3.3% on Government.
+    - **The shock assert now walks the new lane in as the game does.** With no responder, a new lane at full volume ships every flag. On Medium, the sim's 5th percentile fell to 38 s at G2 → G3 and 39 s at G4 → G5, and no sane knob buys that back. The shock now keeps the new lane closed until Big Boss opens it at the deadline (genT 90 s, as sim.js does; that is 50 s into the measured window, which starts at genT 40 after the warm-up), then ramps it 25% → 100%. The old lanes still run at full volume from the first second. The 90 s is the time a returning player has to put a responder on the new lane. The model's `shock` prints both columns: on Medium, at once 61 s and 121 s, at the deadline 134 s and 206 s. (The first v4 run opened the lane at genT 130, 40 s later than the game; the review fix moved it to 90 and reran `balance 400`.)
+    - **The result**, from `balance 400` with events on. All 18 targets and the shock pass. `parity 400` passes too: no gate cell is off by more than 5 points (the parity log above).
+
+    | | v3 (#19) | v4 (#20) |
+    |---|---|---|
+    | human Easy / Medium / Hard | 68 / 36 / 14% | **66 / 36 / 13%** |
+    | smart | 93 / 80 / 52% | **94 / 84 / 59%** |
+    | noAuditor | 34 / 17 / 7% (−19 on Medium) | **33 / 18 / 7%** (−18) |
+    | noDefer | 53 / 23 / 5% (−13) | **49 / 17 / 6%** (−19) |
+    | noKill | – | **5 / 2 / 0%** (−34) |
+    | human dies by G2, Medium / Hard | 9 / 19% | **7 / 20%** |
+    | human Medium hazard G1–G7 | 1 / 8 / 16 / 15 / 17 / 12 / 23% | **2 / 6 / 17 / 14 / 20 / 17 / 19%** |
+    | human Medium Δm from debt, G1 (median) | 0.044 | **0.068** |
+    | afkTutorial Medium: dies by G2, median death | 92%, 339 s | **100%, 249 s** |
+    | shock, Medium 5th percentile: G1 → G2 · G2 → G3 · G4 → G5 | 321 · 126 · 199 s (new lane at once) | **332 · 99 · 121 s** (new lane at the deadline; fastest 79 s and 86 s) |
+
+    What it costs:
+    - **The Kill Switch is optional to place, not optional to win.** noKill wins 2% on Medium. A human who spends that money on desks instead (Auditor L2, or L3, in G1) wins 3–6%. Desks cost salaries and still overflow, and before Defer (G2) nothing else takes the overflow. That was already true while it came free (the model's forbid had it at −36). The sim's `forbid` now includes it: on par it saves 112 / 117 / 142 / 95 / 18 / 4 / −8 in G1–G7 (the metric's units), the most of any element through G3, and nothing that clears the bar from G6 on. Now the player has to see it, and step 4 says so. A real no-Kill-Switch style needs something else to take G1's overflow: cheaper desks, Defer in G1, or a gentler G1 (§8 decision 1).
+    - **More debt early.** R&D runs without a responder until its desk arrives, so human's Δm from debt in G1 is 0.068 (it was 0.044).
+    - **Defer matters more.** noDefer is −19 on Medium (it was −13). The cause is not split.
+    - **Opening a new lane at once, with nothing below the TM, is the old shock.** At G2 → G3 on Medium, 1 run in 20 goes from full to empty within 40 s. The lane box says SHIPS while it lasts.
+    - **The shock margin is thin.** Even with the lane left closed until the deadline, G2 → G3 on Medium survives 99 s at the 5th percentile against the 90 s bar (fastest of 100: 79 s), and G4 → G5 121 s. A returning player has the 90 s, little more.
 
 ---
 
@@ -762,12 +817,12 @@ A **Red Team** offer is guaranteed by the end of G2.
 | G5, Q4 | telegraph: "They want a cyber model. We train it in-house." |
 | G6 | **Cyber contract** (`int2`) |
 
-**How a contract opens.** Before you open it, you can build on the lane, and it costs nothing to run. On opening, volume ramps from 25% to 100% over 60 s, fast-forward is locked during the ramp, and the lane's tab takes focus.
+**How a contract opens.** Before you open it, you can build on the lane, and it costs nothing to run. On opening, volume ramps from 25% to 100% over 60 s and fast-forward is locked during the ramp. Your own OPEN LANE shows the lane on its track; the automatic opening at the deadline never moves a track (v4).
 
 **Layout at 1200×660.** Keep the two 408-px tracks: the left one shows an EXTERNAL lane, the right one an INTERNAL lane.
 - **Tab row.** Each track's 16-px header becomes a tab row with short labels in F.k16: `CONSUMER · ENTERPRISE · GOV` (349 px with the badge) and `R&D · CYBER`. The flavour subtitles move into the hover tip.
 - **Lamps.** Green: nominal. Amber: a flag shipped in the last 10 s. Red: an incident or a glitch in the last 5 s.
-- **Auto-focus.** An unfocused lane whose lamp turns red takes the track, at most once every 10 s. Clicking a tab pins your choice for 20 s.
+- **No auto-focus (v4).** Only the player moves a track: a tab click, Tab / `[` `]`, or their own OPEN LANE. A lane in trouble out of view burns its tab red (it blinks; steady with reduce flashes), the key hint turns red, and the prompt names the lane once per new red lamp. The rail's head names the lane on show. v3 let a red lane take the track for 10 s; its thinner stack read as the player's own, wiped (Avi, v4: "an incident deletes the probes and monitors"). `test/ui-stack.mjs` guards it.
 - **Keys** (using `ev.code`, so the number keys keep their meaning): Tab / Shift+Tab cycle the EXTERNAL lanes; `[` and `]` cycle the INTERNAL lanes.
 - **INTERNAL edge.** It is re-laid as an R&D bar (120 px) beside a debt meter (120 px).
 - **Animation state** is kept per lane id. Only the focused lane on each side consumes track fx; the others feed their tab lamp and the ops log, which names the lane on every line.
@@ -848,7 +903,7 @@ A **Red Team** offer is guaranteed by the end of G2.
 
 The v2 "CATCH" figure (coverage × accuracy, the source of the 4%) is deleted.
 
-**Kill Switch tooltip.** It shows the break-even precision: (refusal cost + lost regen) ÷ (mean harm + lost regen), since every refusal pays the refusal cost, real or not. That is 14.0% on Consumer, 2.3% on Enterprise and 3.1% on Government (§2.9 #19; it was 4.1% / 1.9% / 2.6%). Next to it: "your flags here: 53% real".
+**Kill Switch tooltip.** It shows the break-even precision: (refusal cost + lost regen) ÷ (mean harm + lost regen), since every refusal pays the refusal cost, real or not. That is 14.2% on Consumer, 2.5% on Enterprise and 3.3% on Government at regen 0.31 (§2.9 #20; 14.0 / 2.3 / 3.1% at #19's 0.28, 4.1 / 1.9 / 2.6% before that). Next to it: "your flags here: 53% real".
 - On INTERNAL lanes a refusal costs R&D, so killing too much loses the race.
 - The refusal's price is 🚩 1.
 
@@ -932,8 +987,8 @@ The v2 "CATCH" figure (coverage × accuracy, the source of the 4%) is deleted.
 ### 3h. G1 tutorial
 
 **Start state.**
-- $2500.
-- Both lanes hold a Kill Switch L1.
+- $3100 (v4; it was $2500).
+- Both lanes start empty (v4: no default Kill Switch). Step 4's Big Boss line says the Kill Switch is yours to buy.
 - Probe, TM, Auditor and Kill Switch are unlocked.
 - G1 m is *not* pinned: the difficulty ranges are narrow now.
 
@@ -953,9 +1008,9 @@ G1 opens on the card and chat. The tutorial lives in `ui/tutorial.js` (owned by 
 | 10 | | "Warm-up's over. Good luck." Speed returns to 1× | |
 
 **The rail after the tutorial.**
-- Consumer: Probe, TM, Auditor L1, Kill Switch L1, and the Classifier once picked.
-- R&D: Probe, Kill Switch L1.
-- That is $1700 of the $2500 spent. This rail, with no further play, is the `afkTutorial` policy: it dies by G2 on Medium 84% of the time and on Hard 95%.
+- Consumer: Probe, TM, Auditor L1, and the Classifier once picked. The desk's overflow ships.
+- R&D: Probe. Its flags ship.
+- That is $1700 of the $3100 spent, which leaves enough for a Kill Switch on each lane ($300 each) if the player wants them. This rail, with no further play, is the `afkTutorial` policy: with no Kill Switch on it, it dies by G2 in every Medium and Hard run (v4; it was 92% and 97% with the free one).
 
 **Skipping.** The tutorial is skippable at any step; it is skipped automatically once `tutorialDone` is set. A skip places nothing.
 
@@ -1235,8 +1290,8 @@ Training's debug view is on D. The hash is parsed as flags, so `#dev,slow` works
 | tier | command | runs | content |
 |---|---|---|---|
 | **quick** (before every sim commit, < 30 s) | `node test/headless.mjs` | 20 seeds | the 1a parity checks; the capacity case (§3c); Kill above Auditor; ship; accuracy in lab mode; precision (5 seeds, ± 3 SE); debt at Medium mid m; glitch share; reveal cap; phases and `ack`; 10,000 offers; lane open, ramp and kit; deployment length T_g ± 5%; the tutorial's sim events; the old UI's first frame (until step 3). It shells out to `test/train.mjs` and `test/content-check.mjs` |
-| **balance** | `node test/headless.mjs balance [N=400]` | ≥ 400 seeds, `worker_threads`, one block of seeds per core | the zoo in balance-v3's format; asserts the §2.7 targets on `human`, the walls, afkTutorial, none and starter; the hazard curve; the shock (par_g at g + 1, new lanes untouched; on Medium the 5th percentile of 100 seeds survives ≥ 90 s, §2.9 #18) |
-| **forbid** (nightly) | `node test/headless.mjs forbid` | paired lab A/B | a **continuous** metric: rep lost per minute plus debt per line, at locked G1–G7, par with and without the element. It extends `abPair` / `testElementAB`. It prints a **rework list**, not a failure. The Kill Switch is excluded (starting hand) |
+| **balance** | `node test/headless.mjs balance [N=400]` | ≥ 400 seeds, `worker_threads`, one block of seeds per core | the zoo in balance-v3's format; asserts the §2.7 targets on `human`, the walls, afkTutorial, none and starter; the hazard curve; the shock (par_g at g + 1; a new lane holds its kit and opens at the deadline, §2.9 #20; on Medium the 5th percentile of 100 seeds survives ≥ 90 s, §2.9 #18) |
+| **forbid** (nightly) | `node test/headless.mjs forbid` | paired lab A/B | a **continuous** metric: rep lost per minute plus debt per line, at locked G1–G7, par with and without the element. It extends `abPair` / `testElementAB`. It prints a **rework list**, not a failure. Since v4 the Kill Switch is in it (no rail holds one for free) |
 | UI | `test/ui-play.mjs`, `test/ui-shot.mjs` | | 1× at every card; no card closes untouched; codec dwell; fast-forward locked during a ramp; the tutorial click-through; frames for 1, 2 and 3 tabs, the card scene, the report, training and the research panel |
 
 **Parity gate (after 1c).**
@@ -1252,10 +1307,11 @@ The build lists live in `game/test/policies.mjs`, which balance-v3.mjs and headl
 
 Each is a real fork where your taste matters. The build uses the **default** if you say nothing.
 
-1. 🚩 **Kill Switch.**
-   - **Default (since §2.9 #19):** a blunt, costly last resort. Humans' overflow goes to the Kill Switch. L1 is 1 operator × 4 s (15 per minute), with a $10 fee and −1.3 rep per refusal on Consumer (−0.05 Enterprise, −0.15 Government). A flag ships only when the Kill Switch is saturated too.
-   - It breaks even at 14% precision on Consumer (2.3% Enterprise, 3.1% Government). Review matters again: with no auditors, human Medium falls from 36% to 17%; with no Defer, to 23%. Most of the no-auditor loss lands in G1–G3 (its Medium hazard there is 10 / 43 / 49%).
-   - *Was:* −0.25 rep per refusal (break-even 4.1%). The Kill Switch then stood in for review: once the first event left the tutorial, noAuditor won as often as human (35 vs 35%).
+1. ✅ **Kill Switch. Decided (Avi, v4): no default Kill Switch.**
+   - **Now:** no rail holds one for free, and a contract lane's kit is a Probe and a TM. The Kill Switch is in the starting hand at $300: a blunt, costly last resort below the desks. L1 is 1 operator × 4 s (15 per minute), with a $10 fee and −1.3 rep per refusal on Consumer (−0.05 Enterprise, −0.15 Government). A flag that no responder takes ships unreviewed (§2.9 #20).
+   - It breaks even at 14.2% precision on Consumer (2.5% Enterprise, 3.3% Government). Review still matters: with no auditors, human Medium falls from 36% to 18%; with no Defer, to 17%.
+   - **The open part:** it is optional to place, not optional to win. With no Kill Switch, human Medium wins 2%, and desks bought instead win 3–6%. If a no-Kill-Switch style should be viable, something else has to take G1's overflow: cheaper desks, Defer in G1, or a gentler G1.
+   - *Was (v3):* one came free at the bottom of both G1 rails and in every contract kit (#19 made it costly; before that, at −0.25 rep per refusal, it stood in for review).
    - *Or:* the Kill Switch becomes an early research card instead of part of the starting hand.
 2. 🚩 **Research shape.**
    - **Default:** the three slots are three work streams (Monitoring / Control / Lab & Interp), with ≥ 1 NEW element guaranteed. A flat 0.6 RP/s, with Safety as a small bonus (×1 to ×1.4).
@@ -1316,7 +1372,7 @@ Each is a real fork where your taste matters. The build uses the **default** if 
 | 26 | m | ✅ Steps 1a/1b/1c; v2 tests deleted by name; UI exports kept |
 | 27 | m | ✅ `ack`, `submitTraining`, `trainingStub`, `{ promise, cancel }`, `view.fast`, `laneStatus`, `splitYields`, `pickCard`, `upcomingLane`; the fx table; `glitch` |
 | 28 | m | ✅ The ownership table; events-text.js; train.html; `modelPortrait` |
-| 29 | m | ✅ Three test tiers; the forbid uses a paired continuous metric; Kill Switch excluded |
+| 29 | m | ✅ Three test tiers; the forbid uses a paired continuous metric; Kill Switch excluded (v4: included, since no rail holds one for free) |
 | 30 | m | ✅ `BALANCE.parity`; the ±10 gate; policies.mjs shared; the full difference list (§2.9) |
 | 31 | s | ✅ Rail order for every responder; catch-all deleted; plate warning; a test |
 | 32 | s | ✅ `play` kept, with `st.warmT`; rival and events pause; tutorial.js in the UI; headless asserts sim events only |
@@ -1331,7 +1387,7 @@ Each is a real fork where your taste matters. The build uses the **default** if 
 | 41 | n | ✅ The HUD tier tag; the publish glob script; hash flags |
 | 42 | m | ✅ Same as #1, in Avi's words in §1 |
 | 43 | m | ✅ Rails primary, ramps on the path, bumper on right click |
-| 44 | m | ✅ Kit plus contract; fast-forward lock; auto-focus; in the model, unlocks arrive at offer cadence and lanes open on the deadline; shock table and ≥ 90 s assert; "impossible" reworded |
+| 44 | m | ✅ Kit plus contract; fast-forward lock; auto-focus (removed in v4, §3b); in the model, unlocks arrive at offer cadence and lanes open on the deadline; shock table and ≥ 90 s assert; "impossible" reworded |
 | 45 | m | ✅ Evidence sources and rates; par and starter columns; thresholds as a fraction of E_g; Safety's job stated; batched flashes |
 | 46 | m | ✅ G1 starts card → chat → tutorial; chats are all lines plus 1 tell |
 | 47 | s | ✅ 🚩 1; L1 at 15/min; a forbid row (−36); out of the arc top 3 |
@@ -1339,14 +1395,14 @@ Each is a real fork where your taste matters. The build uses the **default** if 
 | 49 | s | ✅ The dwell rule; ×0.5 queue rule deleted; SLOW/NORMAL; ui-play assert |
 | 50 | s | ✅ 2× density, a 3× card canvas, the mug reference; HUD sprite dropped |
 | 51 | s | ✅ Probes 62% → 62% (§1); 21% → 7% (§1); TPR and FPR tooltips; a Red Team offer by G2 |
-| 52 | s | ✅ The first six lines scripted; start rail stated; `none` matches it (Kill Switch only) |
+| 52 | s | ✅ The first six lines scripted; start rail stated; `none` matches it (Kill Switch only; v4: an empty rail) |
 | 53 | s | ✅ A one-time collusion call at G3; the UM tooltip readout |
 | 54 | s | ✅ Dev mode spec (§7.4); training debug on D |
 | 55 | s | ✅ Missing files owned; CEO sites listed; content-check assert |
 | 56 | s | ✅ Debate on the rework list (−4, SE 1.8); 400 paired seeds; a rework list, not a fail; tiers |
 | 57 | s | ✅ The v3.0 cut list (§3i) |
 | 58 | n | ✅ Units, α_g and Q4 defined; the PI plot |
-| 59 | n | 🟡 Auto-focus on a red lamp. ⏭️ Strips |
+| 59 | n | 🟡 Auto-focus on a red lamp (removed in v4: a red tab instead, §3b). ⏭️ Strips |
 | 60 | n | ✅ A loss-reason column in the zoo; exfiltration is now an alarm |
 | 61 | n | ✅ The §6 table; rules in content-check; reveal capped at 8 |
 | 62 | n | ✅ The eyepatch and 140.85 |

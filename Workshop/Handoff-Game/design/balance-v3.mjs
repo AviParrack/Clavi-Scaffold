@@ -67,7 +67,7 @@ const A0 = 0.05, A1 = 0.10, INT_ATK = 1.5;
 const INT_MIX = { sabotage: 0.7, poison: 0.3 };
 const HARM = { harmful: 8, leak: 20, jailbreak: 10 };          // reputation per landed EXTERNAL incident
 const DEBT = { sabotage: 1, poison: 3 };                        // debt points per landed INTERNAL attack
-const REGEN = 0.28;                  // reputation per honest EXTERNAL line delivered (a deferred line: half). v3 retune: 0.15 → 0.22 → 0.28
+const REGEN = 0.31;                  // reputation per honest EXTERNAL line delivered (a deferred line: half). v3 retune: 0.15 → 0.22 → 0.28 → 0.31 (v4, §2.9 #20)
 const DEBT_M = 2.0;                  // next m += DEBT_M × debt, where debt = weighted landings ÷ INTERNAL lines
 const COLLUDE = [1.6, 1.75, 1.9, 2.05, 2.2, 2.35, 2.5];          // UM collusion c = min(0.9, κ_g·m)
 const GEN_VS = { jailbreak: 0.5, exfil: 0.5 };   // general detectors read these at this × their TPR
@@ -149,10 +149,10 @@ const LAB = {
 // Prices.
 const UPG = [150, 300, 600];          // $ for lab level 2, 3, 4 of an element (× buy/400 × price index × lanes covered)
 const MOUNT = { start: 6, max: 10, base: 600, mult: 1.6 };
-const START_MONEY = 2500, GRANT = 2000, BANKRUPT_S = 20;
+const START_MONEY = 3100, GRANT = 2300, BANKRUPT_S = 20;   // v4: 2500 → 3100 and 2000 → 2300, the Kill Switches that came free (§2.9 #20)
 const STARTING_HAND = ['probe', 'monitor', 'auditor', 'killswitch'];   // unlocked at G1
-const START_RAIL = ['killswitch'];                                      // pre-placed on both G1 lanes (Big Boss's red button)
-const NEW_LANE_KIT = { ext: ['probe', 'monitor', 'killswitch'], int: ['probe', 'monitor', 'killswitch'] };   // from the grant
+const START_RAIL = [];                                                  // pre-placed on both G1 lanes (v4: none, no default Kill Switch)
+const NEW_LANE_KIT = { ext: ['probe', 'monitor'], int: ['probe', 'monitor'] };   // from the grant (v4: no Kill Switch)
 const SPINE = { 3: ['untrusted'] };   // automatic unlocks, announced on the model card ("UM cleared for deployment")
 
 // Research stream. RP/s = RP_BASE × (1 + RP_SAFETY × Safety share). One offer of 3 cards per RP_OFFER points.
@@ -909,22 +909,29 @@ function pressureReport(N = 200, pol = 'human', d = 'medium') {
 }
 
 // Transition shock: walk into generation g with the par build of g−1 (new lanes holding only their kit).
+// "at the deadline" walks a new lane in as the game does: closed until LANE_DEADLINE, then the ramp (DESIGN-v3 §2.9 #20)
 function shockReport() {
   const rows = [];
   for (const [d, m] of Object.entries(MID_M)) for (let g = 2; g <= NGEN; g++) {
     const prev = parAt(g - 1), gen = GENS[g - 1];
-    for (const id of Object.keys(LANES)) if (LANES[id].opens === g) { const l = newLane(id, g); l.open = 0; prev.lanes.push(l); }
+    for (const id of Object.keys(LANES)) if (LANES[id].opens === g) { const l = newLane(id, g); l.open = 0; l.fresh = true; prev.lanes.push(l); }
     const oldE = extBalance(solveIn(parAt(g - 1), 'ext', g - 1, m), 'ext');
-    // bleed over every open EXTERNAL lane at full volume, rep/min
-    const bleed = sum(prev.lanes.filter(l => l.side === 'ext').map(l => { const sl = solveIn(prev, l.id, g, m); const b = extBalance(sl, l.id);
-      return (b.dmg - b.reg) * gen.lam * LANES[l.id].vol * 60; }));
+    // bleed of each EXTERNAL lane at full volume, rep/min
+    const rate = l => { const b = extBalance(solveIn(prev, l.id, g, m), l.id); return (b.dmg - b.reg) * gen.lam * LANES[l.id].vol * 60; };
+    const ext = prev.lanes.filter(l => l.side === 'ext');
+    const bleedOld = sum(ext.filter(l => !l.fresh).map(rate)), bleedNew = sum(ext.filter(l => l.fresh).map(rate));
+    const bleed = bleedOld + bleedNew;
+    const at = LANE_DEADLINE - WARMUP;                 // t counts from the end of the warm-up; the deadline counts from genT 0
+    const vol = t => t < at ? 0 : Math.min(1, 0.25 + 0.75 * (t - at) / LANE_RAMP);
+    let rep = 100, t = 0;
+    while (rep > 0 && t < 3600) { rep = Math.min(100, rep - (bleedOld + bleedNew * vol(t)) / 60); t++; }
     const newE = extBalance(solveIn(prev, 'ext', g, m), 'ext');
     const parE = extBalance(solveIn(parAt(g), 'ext', g, m), 'ext');
     rows.push([d, `G${g - 1}→G${g}`, f2(oldE.pi), f2(newE.pi), `×${f1(newE.pi / oldE.pi)}`, f2(parE.pi), f1(bleed),
-      bleed > 0 ? Math.round(100 / bleed * 60) + ' s' : 'never']);
+      bleed > 0 ? Math.round(100 / bleed * 60) + ' s' : 'never', rep <= 0 ? t + ' s' : 'never']);
   }
   return table(['difficulty', 'step', 'PI old build, old gen', 'PI old build, new gen', 'jump', 'PI new par',
-    'bleed rep/min (all EXT lanes, new lanes = kit)', 'time 100 → 0'], rows);
+    'bleed rep/min (all EXT lanes, new lanes = kit)', 'time 100 → 0, new lanes at once', 'new lanes at the deadline'], rows);
 }
 
 // Element arc: value per $1000 of each element on the par build (par minus that element), per generation.
@@ -953,11 +960,11 @@ function arc(m = MID_M.medium) {
     }
     const rows = ids.map(id => [id, ...GENS.map((gen, gi) => {
       const v = vals[id][gi]; if (v == null) return '·';
-      const col = ids.filter(j => j !== 'killswitch').map(j => vals[j][gi]).filter(x => x != null).sort((a, b) => b - a);
-      return id !== 'killswitch' && v >= col[Math.min(2, col.length - 1)] ? `**${f1(v)}**` : f1(v);
+      const col = ids.map(j => vals[j][gi]).filter(x => x != null).sort((a, b) => b - a);
+      return v >= col[Math.min(2, col.length - 1)] ? `**${f1(v)}**` : f1(v);
     })]);
     const what = side === 'ext' ? 'Consumer lane: rep/min saved per $1000' : 'R&D lane: (debt/line + exfil) × 1000 saved per $1000';
-    out.push(`### Element arc, ${what}. Bold = top 3 (Kill Switch excluded: starting hand)\n`);
+    out.push(`### Element arc, ${what}. Bold = top 3\n`);
     out.push(table(['element', ...GENS.map(x => 'G' + x.g)], rows) + '\n');
   }
   return out.join('\n');
@@ -1137,7 +1144,8 @@ function workedReport(m = MID_M.medium) {
     out.push(`- PI ${f2(b.pi)}, net ${f1((b.reg - b.dmg) * lam * 60)} rep/min`);
   };
   const bare = { lv: {}, techs: new Set(), probeStale: 0 };
-  show('G1 tutorial rail: Probe, TM, Auditor L1, Kill Switch L1', ['probe', 'monitor', 'auditor', 'killswitch'], 1, bare);
+  show('G1 tutorial rail: Probe, TM, Auditor L1 (no Kill Switch: the overflow ships)', ['probe', 'monitor', 'auditor'], 1, bare);
+  show('the same with a Kill Switch L1 bought for the bottom', ['probe', 'monitor', 'auditor', 'killswitch'], 1, bare);
   const par = parAt(6), lane = par.lanes.find(l => l.id === 'ext'), rail = railOf(lane).map(e => e.id), lab = { ...par.lab, probeStale: 0 };
   out.push(`\nG6 par Consumer rail: ${rail.join(', ')}; levels ${JSON.stringify(par.lab.lv)}; lab cards ${[...par.lab.techs].join(', ')}`);
   show('G6 par', rail, 6, lab);

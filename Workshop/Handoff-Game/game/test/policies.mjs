@@ -22,11 +22,14 @@ export const LVL = (gen, id, to) => ({ gen, lv: id, to });
 
 // what the G1 tutorial has you place (§3h gates 2–6): Probe, Auditor, Trusted Monitor on Consumer; a Probe on R&D
 export const TUTORIAL = [P('ext', 1, 'probe'), P('ext', 1, 'auditor'), P('ext', 1, 'monitor'), P('int', 1, 'probe')];
+// the Kill Switch is never free (v4): a policy that wants one buys it, one per lane of its side, contract lanes too.
+// The tutorial points at Consumer's (step 4: "Buy your own"), so a human never forgets that one (drawPlayer)
+const POINTED_AT = P('ext', 1, 'killswitch');
+const KILL = [POINTED_AT, P('int', 1, 'killswitch')];
 // the starting hand on both lanes, never upgraded
-export const STARTER = [...TUTORIAL, P('int', 1, 'monitor'), P('int', 1, 'auditor')];
-// what smart owns by the end of each generation (the par build, §2.5)
-export const SMART_BUILD = [
-  ...TUTORIAL, P('int', 1, 'monitor'), P('ext', 1, 'classifier'), LVL(1, 'killswitch', 2), P('int', 1, 'auditor'),
+export const STARTER = [...TUTORIAL, P('int', 1, 'monitor'), P('int', 1, 'auditor'), ...KILL];
+// G1's levels and everything after: smart's and human's lists share it
+const LATER = [
   LVL(1, 'monitor', 2), LVL(1, 'probe', 2), LVL(2, 'auditor', 2),
   P('int', 2, 'cot'), P('ext', 2, 'defer'), LVL(2, 'killswitch', 3),
   P('ext', 3, 'untrusted'), P('int', 3, 'untrusted'), P('ext', 3, 'paraphraser'), P('int', 3, 'paraphraser'),
@@ -38,6 +41,20 @@ export const SMART_BUILD = [
   LVL(6, 'defer', 3), LVL(6, 'monitor', 4), LVL(6, 'egress', 2), P('ext', 6, 'redteam'),
   LVL(7, 'auditor', 4), LVL(7, 'defer', 4), LVL(7, 'probe', 3),
 ];
+// what smart owns by the end of each generation (the par build, §2.5). The oracle buys both Kill Switches first:
+// on Consumer a refusal pays from 14% precision, and G1's flags run ~50% real
+export const SMART_BUILD = [
+  ...TUTORIAL, ...KILL, P('int', 1, 'monitor'), P('ext', 1, 'classifier'), LVL(1, 'killswitch', 2), P('int', 1, 'auditor'),
+  ...LATER,
+];
+// a decent first-time player buys a lane's Kill Switch once that lane's desk overflows: Consumer's right after the
+// tutorial (its step 4 points at the overflow); R&D, whose Probe has nothing below it, gets a desk first, then its own.
+// A second operator (L2) once the Kill Switches overflow too, then smart's G1 list
+export const HUMAN_BUILD = [
+  ...TUTORIAL, POINTED_AT, P('int', 1, 'auditor'), P('int', 1, 'killswitch'), LVL(1, 'killswitch', 2),
+  P('int', 1, 'monitor'), P('ext', 1, 'classifier'),
+  ...LATER,
+];
 export const SMART_PICKS = ['classifier', 'cot', 'defer', 'paraphraser', 'jamming', 'egress', 'weight_security', 'monitor_diversity',
   'faithful_cot', 'debate', 'honeypot', 'leastpriv', 'level:untrusted', 'level:monitor', 'level:auditor', 'level:defer',
   'level:killswitch', 'level:cot', 'redteam', 'level:classifier', 'level:probe', 'resampler', 'level:egress', 'sprint'];
@@ -47,8 +64,8 @@ export const SMART_PICKS = ['classifier', 'cot', 'defer', 'paraphraser', 'jammin
 const BASE = { build: SMART_BUILD, picks: SMART_PICKS, skill: 0.75, delay: 0, waste: 0, attn: 0.97,
   retrain: 'smart', retrainProbes: true, openLane: 0, split: SPLIT.default };
 // human: a population of decent first-time players. skip = share of the build list this player never thinks of
-// (the tutorial items are never skipped)
-const HUMAN = { ...BASE, skill: 0.5, delay: 25, shopEvery: 45, waste: 0.10, attn: 0.85, retrain: 'greedy', openLane: 30,
+// (never the tutorial items, nor the Consumer Kill Switch the tutorial points at)
+const HUMAN = { ...BASE, build: HUMAN_BUILD, skill: 0.5, delay: 25, shopEvery: 45, waste: 0.10, attn: 0.85, retrain: 'greedy', openLane: 30,
   spread: { skill: [0.3, 0.7], waste: [0.05, 0.15], shopEvery: [30, 60], attn: [0.7, 1.0], skip: [0, 0.2] } };
 export const without = (list, id) => list.filter(e => (e.id ?? e.lv) !== id);
 const HANDS_OFF = { retrain: 'never', retrainProbes: false, openLane: B.laneDeadline };
@@ -74,26 +91,27 @@ export const POLICY = {
                  picks: ['defer', 'level:untrusted', 'level:auditor', 'level:killswitch'], skill: 0.5 },
   noResearch:  { ...BASE, picks: [], maxPicks: 0, skill: 0.5 },
   // ablations of the human population (same seeds, same players): what one missing idea costs
-  noAuditor:   { ...HUMAN, build: without(SMART_BUILD, 'auditor') },
-  noDefer:     { ...HUMAN, build: without(SMART_BUILD, 'defer'), picks: SMART_PICKS.filter(p => p !== 'defer') },
+  noAuditor:   { ...HUMAN, build: without(HUMAN_BUILD, 'auditor') },
+  noDefer:     { ...HUMAN, build: without(HUMAN_BUILD, 'defer'), picks: SMART_PICKS.filter(p => p !== 'defer') },
+  noKill:      { ...HUMAN, build: without(HUMAN_BUILD, 'killswitch'), picks: SMART_PICKS.filter(p => p !== 'level:killswitch') },
   noTraining:  { ...HUMAN, spread: { ...HUMAN.spread, skill: [0, 0] } },
   researchHeavy: { ...HUMAN, split: { product: 0.3, capabilities: 0.4, safety: 0.3 } },
 };
 export const ZOO = ['none', 'afkTutorial', 'starter', 'human', 'smart', 'probewall', 'monoTM', 'monoUM', 'noResearch',
-  'noAuditor', 'noDefer', 'noTraining', 'researchHeavy'];
+  'noAuditor', 'noDefer', 'noKill', 'noTraining', 'researchHeavy'];
 // the parity gate's policies (§7.5): the targets' anchors and the walls
 export const GATE = ['none', 'afkTutorial', 'starter', 'human', 'smart', 'probewall', 'monoTM', 'monoUM', 'noResearch'];
 export const DIFFS = ['easy', 'medium', 'hard'];
 
 // ===== one player from a policy's spread =====
-// each knob uniform in its range; skip drops build items after the tutorial ones. r: the run's own player stream
+// each knob uniform in its range; skip drops build items, never the tutorial's or the Kill Switch it points at. r: the run's own player stream
 // (mulberry32 from seed × 104729 + 3, so the model and the sim draw the same player for the same seed)
 export function drawPlayer(pol, r) {
   const p = { ...pol };
   for (const [k, [a, b]] of Object.entries(pol.spread)) if (k !== 'skip') p[k] = a + r() * (b - a);
   p.shopEvery = Math.round(p.shopEvery);
   const skip = pol.spread.skip ? pol.spread.skip[0] + r() * (pol.spread.skip[1] - pol.spread.skip[0]) : 0;
-  p.build = pol.build.filter((it, i) => i < TUTORIAL.length || r() >= skip);
+  p.build = pol.build.filter(it => TUTORIAL.includes(it) || it === POINTED_AT || r() >= skip);
   p.skipShare = skip;
   return p;
 }

@@ -48,8 +48,8 @@ import { POLICY as ZOO_POLICY, ZOO, GATE, DIFFS, SMART_BUILD as ZOO_BUILD, SMART
 const DT = 0.05;
 
 // =================== a fresh game, as the UI starts one ===================
-// No tutorial, the G1 card acknowledged (DEPLOY). rail: keep Big Boss's Kill Switch on each lane (the real start);
-// by default it is cleared, so lab tests start from empty rails.
+// No tutorial, the G1 card acknowledged (DEPLOY). rail: keep BALANCE.startRail (empty since v4: no default Kill
+// Switch); by default it is cleared, so lab tests start from empty rails whatever the config says.
 export function fresh({ seed = 1, difficulty = 'medium', rail = false } = {}) {
   const st = createState({ seed, difficulty, tutorial: false });
   if (!rail) clearRails(st);
@@ -65,7 +65,7 @@ const decline = st => { if (st.pendingChoice) choose(st, 1); if (st.pendingRetra
 // retrain: 'never' | 'greedy' | 'smart' (balance-v3 wantsRetrain) · attn: chance of pulling the plug on EGRESS ANOMALY
 // skill: the training stand-in (trainingStub) · openLane: s of play before it presses OPEN LANE
 
-// the starting hand on both lanes, with the Kill Switch at the bottom (pre-placed: BALANCE.startRail)
+// the starting hand on both lanes, with a Kill Switch bought for the bottom mount (none comes free since v4)
 const STARTER = [['ext', 5, 'killswitch'], ['int', 5, 'killswitch'], ['ext', 0, 'probe'], ['int', 0, 'probe'], ['ext', 1, 'monitor'], ['int', 1, 'monitor'],
   ['int', 3, 'auditor'], ['ext', 3, 'auditor']];
 // research: what smart prefers (balance-v3 SMART_PICKS) and what 'all' prefers (any NEW element first)
@@ -1277,6 +1277,9 @@ function testCatalogue() {
   const start = fresh({ seed: 1 });
   check('starting hand: probe, monitor, auditor, kill switch (unlockedAtStart), and a new game starts with exactly those',
     STARTING_HAND.join() === 'probe,monitor,auditor,killswitch' && start.unlocked.join() === STARTING_HAND.join());
+  const bare = createState({ seed: 1, tutorial: false });
+  check('both G1 rails start empty: no default Kill Switch (BALANCE.startRail is empty; the Kill Switch is bought)',
+    !B.startRail.length && laneIds(bare).every(id => bare.lanes[id].slots.every(s => !s.layer)));
   let hintsOk = true;
   const spine = Object.entries(SPINE).flatMap(([g, list]) => list.map(id => [id, Number(g)]));
   for (const id of ids) {
@@ -2232,7 +2235,7 @@ function testContracts() {
       const fresh = laneIds(st).filter(id => st.lanes[id].born === g && st.lanes[id].contract);
       for (const id of fresh) {
         const L = st.lanes[id], s = L.slots;
-        if (!(s[0].layer === 'probe' && s[1].layer === 'monitor' && s[s.length - 1].layer === 'killswitch' && !L.open)) kitOk = false;
+        if (!(s[0].layer === 'probe' && s[1].layer === 'monitor' && s.filter(x => x.layer).length === 2 && !L.open)) kitOk = false;
       }
       const got = (st.ledger.byCat.grant || 0) - grant0;
       if (!near(got, fresh.length * B.laneGrant * GENERATIONS[g - 1].price)) grantOk = false;
@@ -2249,7 +2252,8 @@ function testContracts() {
   }
   console.log(`    lanes per generation: ${counts.join(' ')} (${laneIds(st).join(', ')})`);
   check('lane count per generation: 2 2 3 3 4 5 5', counts.join(' ') === '2 2 3 3 4 5 5');
-  check('a contract arrives built with the kit (Probe, Trusted Monitor, Kill Switch at the bottom), closed', kitOk);
+  check('a contract arrives built with the kit (Probe and Trusted Monitor on top, nothing else: no Kill Switch), closed',
+    kitOk && B.laneKit.join() === 'probe,monitor');
   check(`each arrival pays a grant of $${B.laneGrant} × π_g`, grantOk);
   check('a closed lane carries no traffic and costs nothing to run (no salaries)', idleOk);
   check('the UM is cleared at G3 (spine: fx unlock)', umOk);
@@ -2452,8 +2456,8 @@ function testReadouts() {
     && ds.tp + ds.fa > 0 && near(ds.precision, ds.tp / (ds.tp + ds.fa)) && ds.lo <= ds.precision && ds.precision <= ds.hi && !('recall' in ds));
   const ks = killStats(st, 'int', 5), be = id => killBreakEven(lab1b({ g: 5, lanes: ALL_LANES }), id);
   console.log(`    kill switch break-even: Consumer ${pct(be('ext'), 1)} · Enterprise ${pct(be('ext2'), 1)} · Government ${pct(be('ext3'), 1)} · R&D ${be('int')}`);
-  check('killStats: operators, perMin, break-even precision (Consumer 14.0%, Enterprise 2.3%, Government 3.1%; INTERNAL none)', ks.operators === 1 && ks.breakEven === null
-    && Math.abs(be('ext') - 0.140) < 0.002 && Math.abs(be('ext2') - 0.023) < 0.002 && Math.abs(be('ext3') - 0.031) < 0.002);   // refuse 1.3, regenPerLine 0.28 (DESIGN-v3 §2.9 #19)
+  check('killStats: operators, perMin, break-even precision (Consumer 14.2%, Enterprise 2.5%, Government 3.3%; INTERNAL none)', ks.operators === 1 && ks.breakEven === null
+    && Math.abs(be('ext') - 0.142) < 0.002 && Math.abs(be('ext2') - 0.025) < 0.002 && Math.abs(be('ext3') - 0.033) < 0.002);   // refuse 1.3, regenPerLine 0.31 (DESIGN-v3 §2.9 #19, #20)
 }
 
 // ----- the G1 tutorial's scripted opening (§3h) -----
@@ -2776,16 +2780,20 @@ function zooLab(seed, g, m, open = g) {
 
 // ----- transition shock (§2.6, §7.5): walk into g + 1 with par_g; a lane new at g + 1 holds only its kit -----
 // From 100 reputation, no regen top-up: seconds until it hits 0 (capped at maxT). The model's `shock` gives the bleed.
+// The new lane arrives as in the game: closed until Big Boss opens it at genT laneDeadline (50 s into the full-volume
+// window, which starts at genT warmup), then it ramps in. Since v4 its kit has no responder (no Kill Switch), so at
+// full volume from the first second it would ship every flag (DESIGN-v3 §2.9 #20).
 const MID_M = { easy: 0.19, medium: 0.34, hard: 0.49 };   // the middle of each DIFFICULTY range
 function shockRuns({ g, diff, from, to, maxT = 600 }) {
   const out = [];
   for (let seed = from; seed <= to; seed++) {
-    const st = zooLab(seed, g + 1, MID_M[diff], g + 1);
+    const st = zooLab(seed, g + 1, MID_M[diff], g);
     placePar(st, g);
     st.rep = 100;
-    const loss0 = st.stats.repLoss.incidents || 0;
+    const loss0 = st.stats.repLoss.incidents || 0, arrived = laneIds(st).filter(id => !st.lanes[id].open);
     let dead = null;
     while (st.genT < B.warmup + maxT) {
+      for (const id of arrived) if (!st.lanes[id].open && st.genT >= B.laneDeadline) openLane(st, id, true);   // genT, as sim.js tickContracts
       step(st, DT); decline(st);
       st.money = 1e12; st.rivalLeft = 1e9;
       if (st.rep <= 0) { dead = st.genT - B.warmup; break; }
@@ -2867,9 +2875,9 @@ export const balanceLab = { placePar, zooLab, shockRuns, forbidRuns, relay, next
 
 // forbid: every element and lab card par_g holds (dropped) or could hold (added), against par_g itself, per generation.
 // value = metric(without) − metric(with): what having it saves. It "matters" at g when value ≥ max(5% of par's metric,
-// 2·SE) (paired seeds). The rework list: what matters at no generation. The Kill Switch is left out (starting hand).
-const FORBID_IDS = [...Object.keys(LAYERS).filter(id => id !== 'killswitch'),
-  ...CARDS.filter(c => c.type === 'lab' && c.id !== 'sprint').map(c => c.id)];
+// 2·SE) (paired seeds). The rework list: what matters at no generation. The Kill Switch is in it since v4: no rail
+// holds one for free any more, so par buys it like anything else.
+const FORBID_IDS = [...Object.keys(LAYERS), ...CARDS.filter(c => c.type === 'lab' && c.id !== 'sprint').map(c => c.id)];
 function inPar(st, id) {
   return LAYERS[id] ? laneIds(st).some(l => countOn(st, l, id)) || st.global.slots.some(s => s.layer === id) : !!st.upgrades[id];
 }
@@ -2984,7 +2992,7 @@ else if (cmd === 'balance' || cmd === 'parity') {
     console.log('\n### Parity: sim / model\n\n' + table(['policy', 'difficulty', 'win sim / model', 'Δ', 'died by G2 sim / model', 'Δ', 'median death', '± 10'], rows));
     check(`parity: every gate cell within ± 10 points of balance-v3 (win and died by G2)`, !miss.length, miss.join(', '));
   } else {
-    console.log('\n▶ Transition shock (§2.6): par_g walks into g + 1, new lanes hold their kit, full volume, from 100 rep');
+    console.log('\n▶ Transition shock (§2.6): par_g walks into g + 1, full volume, from 100 rep; a new lane holds its kit and opens at the deadline');
     const sh = await shockReport(20, 100);
     console.log('\n' + sh.text);
     check(`shock: on Medium every step survives ≥ ${SHOCK_MIN_S} s from full reputation (5th percentile of 100 seeds)`, !sh.fails.length, sh.fails.join(', '));

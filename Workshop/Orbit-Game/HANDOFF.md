@@ -25,7 +25,7 @@ cd Workshop/Orbit-Game/game && python3 -m http.server 8000     # open localhost:
 ?debug=1 / #debug   overlay + self-test      ?dev=1 / #dev   $50k, no save, T cycles spawns, K +$5000, J summons a pirate
 ?spawn=hub|outpost|rusts|pad|orbit|belt|kiwi|pretzel|potato|glimmer|swarm (or #kiwi)      ?seed=N      ?fresh=1 ignore save
 ?mods=eva,economy   load only those feature modules (debugging)
-for t in physics core economy stations eva mobs wrecks combat; do node tests/test_$t.js | tail -1; done
+for t in physics core economy stations eva mobs wrecks combat haul npcs mochi; do node tests/test_$t.js | tail -1; done
 python3 tools/bundle.py                                         # -> dist/pocket-orbit.html (the Artifact)
 NODE_PATH=$(npm root -g) node tests/playtest.js /tmp/shots      # headless browser playtest of the whole loop
 ```

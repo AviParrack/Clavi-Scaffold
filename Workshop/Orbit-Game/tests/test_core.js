@@ -13,6 +13,7 @@ function check(name, ok, info = '') {
 }
 const fresh = (spawn = 'pad') => Game.create(7, spawn, { fresh: true });
 const WMAX = CONFIG.sim.warps[CONFIG.sim.warps.length - 1];
+const built = (T, x, y) => { const k = Terrain.index(T, x, y); return k >= 0 && (!!(T.zone && T.zone[k]) || !!Terrain.MATS[T.grid[k]].fixed); };
 
 
 // ---------------- 1. terrain grid ----------------
@@ -22,8 +23,9 @@ const WMAX = CONFIG.sim.warps[CONFIG.sim.warps.length - 1];
   for (let k = 0; k < 400; k++) {
     const th = k / 400 * 2 * Math.PI, R = World.surfaceR(mochi, th);
     n++;
-    if (Terrain.solid(T, (R - 0.6) * Math.cos(th), (R - 0.6) * Math.sin(th))) inside++;
-    if (!Terrain.solid(T, (R + 0.6) * Math.cos(th), (R + 0.6) * Math.sin(th))) outside++;
+    const xi = (R - 0.6) * Math.cos(th), yi = (R - 0.6) * Math.sin(th), xo = (R + 0.6) * Math.cos(th), yo = (R + 0.6) * Math.sin(th);
+    if (Terrain.solid(T, xi, yi) || built(T, xi, yi)) inside++;                // v4: carved town and plinths are built on purpose
+    if (!Terrain.solid(T, xo, yo) || built(T, xo, yo)) outside++;
   }
   check('grid matches the drawn outline (±0.6 m)', inside === n && outside === n, `${inside}/${n} just inside solid, ${outside}/${n} just outside empty`);
   const ores = {}; for (const m of T.grid) if (m > Terrain.REG) ores[Terrain.MATS[m].id] = (ores[Terrain.MATS[m].id] || 0) + 1;
@@ -81,13 +83,15 @@ function dropOn(bodyId, speed, th = 1.0) {
   check('R after a crash respawns a fresh ship', g3.status !== 'dead' && g3.sh.hull === g3.S.hull, `${g3.status} at ${g3.spawn}`);
 }
 {
-  const g = fresh('pad'), b = g.w.byId.mochi, [bx, by] = World.bodyState(g.w, b, g.t);
-  for (let i = 0; i < 40; i++) Game.dig(g, b, g.sh.x, g.sh.y - g.S.radius - 0.5, 3.5, 5);
+  const g = fresh('pad'), b = g.w.byId.mochi, TH = Math.PI / 2 - 0.6;  // v4: off the pad, east of Downtown
+  Game.landAt(g, b, TH); H.run(g, 10, {});
+  const ux = Math.cos(TH), uy = Math.sin(TH), up = () => { const [bx, by] = World.bodyState(g.w, b, g.t); return (g.sh.x - bx) * ux + (g.sh.y - by) * uy; };
+  const h0 = up();
+  for (let i = 0; i < 40; i++) Game.dig(g, b, g.sh.x - (g.S.radius + 0.5) * ux, g.sh.y - (g.S.radius + 0.5) * uy, 3.5, 5);
   H.run(g, 30, {});
-  check('ship falls when the ground under it is dug away', g.status === 'flying' || (g.status === 'landed' && g.land.ly < g.sh.y - by - 0.1 + 100), `${g.status}`);
+  check('ship falls when the ground under it is dug away', g.status === 'flying' || up() < h0 - 0.1, `${g.status} ${(h0 - up()).toFixed(2)} m down`);
   H.run(g, 240, {});
-  const by2 = World.bodyState(g.w, b, g.t)[1];                       // Mochi rides its rail round Ember meanwhile: compare in its frame
-  check('...and settles lower in the hole', g.status === 'landed' && g.sh.y - by2 < World.surfaceR(b, Math.PI / 2) + g.S.radius - 0.5, `${g.status} at local y ${(g.sh.y - by2).toFixed(1)}`);
+  check('...and settles lower in the hole', g.status === 'landed' && up() < World.surfaceR(b, TH) + g.S.radius - 0.5, `${g.status} at local r ${up().toFixed(1)}`);
 }
 
 

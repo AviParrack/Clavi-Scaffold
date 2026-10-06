@@ -3,6 +3,9 @@
 *The contract between the core (written first) and the feature modules (built in parallel).
 Read this whole file before writing a module. Core files are read-only for module authors.*
 
+> **v4 stage 2:** [design/V4-CONTRACT.md](design/V4-CONTRACT.md) is binding and wins over this file where they differ (new modules haul, mochi, npcs; new S fields, keys, jobs).
+> Test loop: `for t in physics core economy stations eva mobs wrecks combat haul npcs mochi; do node tests/test_$t.js | tail -1; done`
+
 ## The game in one breath
 
 You are a cute alien prospector in a toon-shaded asteroid belt with **real orbital mechanics**.

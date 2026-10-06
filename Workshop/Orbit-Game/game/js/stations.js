@@ -12,13 +12,17 @@ const Stations = (() => {
   const VISIT_PX = 32;                   // station visitors (npcs) are drawn at least this tall [px]
   const DOCK_V = 1.5;                    // max speed relative to the port [m/s]
   const WARN_R = 32;                     // "slow down" prompt inside this [m]
-  const SIT = 4.6;                       // docked ship centre above the collar [m] (its legs rest on the collar)
+  const SIT = 4.6;                       // docked ship centre above the collar [m] (its legs rest on the collar), per 9 m of hull
   const CHAT_IN = 300, CHAT_OUT = 450;   // keeper chatter: say hi inside, reset the visit outside [m]
   const CHAT_GAP = 60;                   // real seconds between two lines from the same keeper
   const SAFE_R = 260;                    // pirates leave this bubble around Rust's alone [m]
   const BRAKE_R = 30;                    // final approach: brake to under DOCK_V inside this [m]
   const FAST_PASS = 8;                   // a closest approach faster than this [m/s] is too fast to stop at
   const SOFT_T = 1.5;                    // just undocked: the main engine runs at the fine throttle this long [s]
+  const QUIET_T = 5, QUIET_R = 20;       // just undocked: no "dock here" for this long, or until this far out [s, m]
+  const PAD_LEAD = 0.38;                 // undock -> touchdown by a brake-and-drop pilot: 22 deg further round (measured, ±0.3 deg)
+  const PAD_WIN = [-1, 2];               // the town pad's undock window, a second early to 2 s late (reaction time): -15 m..+29 m [s]
+  const PAD_REAL = 2, PAD_FIRST = 20;    // warp eases down so the window opens with >= this much real time to spare; pad hint outranks wrecks this long after undock [s]
   const WARP_TTC = 30;                   // warp capped at 4x within 2 station radii, or when you pass that close this soon [s]
   const ICON_PX = 10;                    // smaller than this on screen [px radius] -> drawn as an icon
   const RING_G = 2.0, RING_R = 8.9;      // hub habitat ring: spin gravity [m/s^2] at its floor radius [m]
@@ -101,12 +105,13 @@ const Stations = (() => {
   function list(g) {
     if (!on || !g || !g.w) return [];
     let L = cache.get(g.w);
-    if (!L) cache.set(g.w, (L = DEFS.filter((d) => (d.needs || [d.host]).every((id) => g.w.byId && g.w.byId[id])).map((d) => build(g.w, d))));
+    if (!L) { const ship = { len: 9 }; cache.set(g.w, (L = DEFS.filter((d) => (d.needs || [d.host]).every((id) => g.w.byId && g.w.byId[id])).map((d) => build(g.w, d, ship)))); L.ship = ship; }
+    L.ship.len = (g.S && g.S.length) || 9;
     return L;
   }
   const byId = (g, id) => list(g).find((s) => s.id === id) || null;
 
-  function build(w, d) {
+  function build(w, d, ship = { len: 9 }) {
     const host = w.byId[d.host], a = d.orbit(w), ph = d.phase(w), n = (d.rate && d.rate(w)) || Math.sqrt(host.mu / a ** 3);
     const st = { ...d, hostBody: host, orbitR: a, n, ph, period: 2 * Math.PI / n, blurb: '' };
     st.blurb = d.blurb(st, w);
@@ -123,7 +128,8 @@ const Stations = (() => {
     const pd = d.pdir || [0, 1], pa = Math.atan2(pd[1], pd[0]) - Math.PI / 2;
     st.pd = pd;
     st.portAng = (t) => n * t + ph + pa;                         // where a docked nose points (and the undock push goes)
-    st.portState = (t) => st.local(t, d.port[0] + pd[0] * SIT, d.port[1] + pd[1] * SIT);
+    const sit = () => SIT * Math.max(1, ship.len / 9);         // a longer hull sits further out: its tail on the collar, not in the ring (critic L4)
+    st.portState = (t) => st.local(t, d.port[0] + pd[0] * sit(), d.port[1] + pd[1] * sit());
     st.collar = (t) => st.local(t, d.port[0], d.port[1]);
     return st;
   }
@@ -226,9 +232,33 @@ const Stations = (() => {
     m.pending = null;
     if (st.id === 'hub') m.leftHub = true;
     m.left = { id: st.id, t: g.t };
+    if (padWait(g, st) !== null) aimPad(g);
     const [x, y] = st.collar(g.t);
     Game.popup(g, pick(st.bye, m.docks + Math.floor(g.t)), st.col, x, y, 20);
   }
+
+  // first trips down from the Hub: aim the closest-approach and ⊗ BRAKE markers at Mochi's town pad (mochi.js)
+  const padId = () => (typeof Mochi !== 'undefined' && Mochi && Mochi.PAD_ID) || null;
+  function aimPad(g) {
+    if (!padId() || !Game.navTargets(g).some((n) => n.id === padId())) return;
+    g.navId = padId(); Game.refresh(g);
+    Game.toast(g, 'TARGET: MOCHI PAD (TOWN)', '#7cf5d6', 'nav');
+  }
+  // seconds until the best undock for the pad (0: now), or null (not over Mochi, no pad, or already landed there)
+  function padWait(g, st) {
+    const host = st.hostBody;
+    if (!padId() || !g.mod.mochi || host.id !== 'mochi' || g.done.land_mochi !== undefined) return null;
+    const [sx, sy] = st.state(g.t), [hx, hy] = World.bodyState(g.w, host, g.t);
+    const late = wrap(Math.atan2(sy - hy, sx - hx) - (Math.PI / 2 - PAD_LEAD)) / st.n;   // Mochi never spins: the pad stays on top
+    return late > PAD_WIN[0] && late < PAD_WIN[1] ? 0 : ((-late % st.period) + st.period) % st.period;
+  }
+  function padCap(g) {                                                         // the window is 3 s wide: warp eases to 1x as it nears (newplayer H1)
+    const st = dockedAt(g), w = st ? padWait(g, st) : null;
+    if (w === null) return null;
+    const steps = CONFIG.sim.warps.filter((x) => x <= Math.max(1, w / PAD_REAL));
+    return { max: steps[steps.length - 1], why: 'town pad window', reset: true };
+  }
+  const justLeft = (g, st, q) => { const L = g.mod.stations.left; return !!L && L.id === st.id && g.t - L.t < QUIET_T && q.d < QUIET_R; };
 
   // a soft start: for SOFT_T s after the clamps let go a held W runs at the fine throttle, so "undock" is never "launch"
   function shipCtrl(g, ctrl) {
@@ -258,7 +288,7 @@ const Stations = (() => {
     const out = [];
     for (const st of list(g)) {
       const q = portInfo(g, st);
-      if (q.d > WARN_R && q.dc > st.r + 4) continue;
+      if (q.d > WARN_R && q.dc > st.r + 4 || justLeft(g, st, q)) continue;
       if (inZone(g, st, q) && q.v < DOCK_V) out.push({ key: 'KeyF', dist: q.d, col: '#8ff0b0', text: `Dock at ${st.name}`, act: (g2) => tryDock(g2, st) });
       else if (q.v >= DOCK_V && approach(g, st, q).closing > -0.3) out.push({ key: 'KeyF', dist: q.d, col: '#ffb36b', text: `Slow to under ${DOCK_V} m/s to dock (now ${q.v.toFixed(1)})`, act: (g2) => tryDock(g2, st) });
     }
@@ -306,6 +336,7 @@ const Stations = (() => {
   // 4x only right by a station (2 radii) or when you will pass that close within WARP_TTC s: the targeted port by the
   //  predicted closest approach, any port by a straight line where one holds (nearR). Phasing orbits keep full warp.
   function warpLimit(g) {
+    if (g.status === 'docked') return padCap(g);
     if (g.status !== 'flying' || g.mode !== 'ship') return null;
     const ap = g.approach, sh = g.sh;
     for (const st of list(g)) {
@@ -349,6 +380,9 @@ const Stations = (() => {
 
   function dockedHint(g, st) {
     const nose = st.pd[0] > 0.5 ? `the nose points retrograde, so W drops you toward ${st.hostBody.name}` : `the nose points away from ${st.hostBody.name}`;
+    const w = padWait(g, st);
+    if (w !== null) return w ? `Docked at ${st.name}. W drops you toward Mochi. For the town pad, undock in ${Math.ceil(w)} s (warp: . ).`
+                             : `Docked at ${st.name}. Tap W to undock now: the nose points retrograde, down to the town pad.`;
     if (!g.everFlew) return `Docked at ${st.name}. Tap W to undock: ${nose}.`;
     return `Docked at ${st.name}. F: ${econ() ? 'shop' : 'free refuel'}. W: undock. Warp ( . ) while docked to wait for a good moment.`;
   }
@@ -405,12 +439,14 @@ const Stations = (() => {
   }
 
   function idleHint(g) {
-    if (g.navId) return null;
+    const toPad = !!g.navId && g.navId === padId();
+    if (g.navId && !toPad) return null;
     if (g.status === 'landed') return cargoHint(g);
     if (g.status !== 'flying') return null;
     const np = nearestPort(g), m = g.mod.stations, landed = g.done.land_mochi !== undefined;
     if (np && m.left && m.left.id === np.st.id && np.q.d < 300 && (g.t - m.left.t < 25 || (!landed && np.st.id === 'hub')))
-      return { pri: 14, text: `Free flying! Retrograde (pink marker) drops you toward ${np.st.hostBody.name}; prograde (yellow) climbs.` };
+      return toPad ? { pri: g.t - m.left.t < PAD_FIRST ? 39 : 16, text: `Free flying! Retrograde (pink marker) drops you toward ${np.st.hostBody.name}'s town pad, your target.` }
+                   : { pri: 14, text: `Free flying! Retrograde (pink marker) drops you toward ${np.st.hostBody.name}; prograde (yellow) climbs.` };
     if (np && np.q.d < 150 && landed) return { pri: 14, text: `${np.st.name} is right here: press H to target its dock, match speed, then F.` };
     if (g.S && g.sh.cargoKg >= 0.9 * g.S.cargoCap) return { pri: 12, text: 'Hold is full! Press H to target a station, fly over and dock (F) to sell.' };
     return null;
@@ -667,7 +703,7 @@ const Stations = (() => {
     const c = P.c;
     for (const d of Npcs.DEFS) {
       const at = d.at; if (at.station !== P.st.id || at.keeper) continue;
-      const h = Npcs.heightOf ? Npcs.heightOf(d.race, d.look) : 1.6, s = Math.max(1, VISIT_PX * P.px / h);
+      const h = Npcs.heightOf ? Npcs.heightOf(d.race, d.look) : 1.6, s = Npcs.visitScale ? Npcs.visitScale(h, P.px) : Math.min(2.2, Math.max(1, VISIT_PX * P.px / h));
       const drift = at.float ? Math.sin(P.t * 0.7 + at.x) * 0.5 : 0, tilt = at.float ? Math.sin(P.t * 0.45 + at.y) * 0.22 : 0;
       const x = at.x, y = at.y + drift, dx = P.ship[0] - x, dy = P.ship[1] - (y + h * s * 0.6), dl = Math.hypot(dx, dy) || 1, f = dx < 0 ? -1 : 1;
       c.save(); c.translate(x, y); c.rotate(tilt); c.scale(s * f, s);
@@ -1045,16 +1081,16 @@ const Stations = (() => {
 
   function drawScreen(g, kit) {
     if (!g.mod.stations) return;
-    const at = dockedAt(g), tg = targeted(g);
+    const at = dockedAt(g), tg = targeted(g), towing = !!(g.mod.haul && g.mod.haul.tow);
     for (const st of list(g)) {
       const [x, y] = st.state(g.t), [sx, sy] = kit.toScreen(x, y), rs = st.r * kit.cam.zoom;
       if (!kit.onScreen(sx, sy, 0)) { if (st === tg && !kit.edgeArrow) edgeArrow(g, kit, st, sx, sy); continue; }   // the core lays out its own
-      if (rs > 110 || st === tg) continue;                          // big: the art speaks; targeted: the core labels it
+      if ((rs > 110 && !towing) || st === tg) continue;             // big: the art speaks (but a towed rock can hide its sign, ladder L10); targeted: the core labels it
       if (st.orbitR * kit.cam.zoom < 14) continue;                  // belt-scale map: it sits on its host's dot, whose label says enough
       let oy = Math.max(st.ext * kit.cam.zoom, ICON_PX) + 14;
       if (st === at) { const [, qy] = kit.toScreen(g.sh.x, g.sh.y); if (qy > sy) oy = -oy - 2; }    // keep the label off the docked ship
       const m = g.mod.stations, known = m.visited[st.id] || m.met[st.id];
-      kit.tag(sx, sy + oy, known ? st.name : `${st.name} ?`, st.col);
+      kit.tag(sx, Math.max(60, Math.min(kit.H - 150, sy + oy)), known ? st.name : `${st.name} ?`, st.col);
     }
   }
 
@@ -1074,7 +1110,7 @@ const Stations = (() => {
     if (!g.mod.stations || g.status !== 'flying' || g.mode !== 'ship' || g.ui) return;
     const np = nearestPort(g); if (!np) return;
     const { st, q } = np, tg = targeted(g) === st;
-    if (q.d > 90 && !(tg && q.d < 260)) return;
+    if (q.d > 90 && !(tg && q.d < 260) || justLeft(g, st, q)) return;
     const okR = inZone(g, st, q), okV = q.v < DOCK_V, a = approach(g, st, q), c = kit.ctx, w = 236, ap = g.approach;
     if (!tg && a.closing < -0.3 && !(okR && okV)) return;                          // just leaving: no nagging
     let y = kit.stackRight(w, 92, `DOCKING · ${st.name.toUpperCase()}`);

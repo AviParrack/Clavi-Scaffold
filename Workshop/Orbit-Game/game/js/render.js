@@ -13,7 +13,7 @@
 const Render = (() => {
 
   let ctx, W, H, stars, nebula;
-  const cam = { x: 0, y: 0, zoom: 2, rot: 0, userZoom: 1, map: 0, shx: 0, shy: 0 };   // map: 0 off · 1 local · 2 belt
+  const cam = { x: 0, y: 0, zoom: 2, rot: 0, userZoom: 1, map: 0, shx: 0, shy: 0, cy: 0, cyWant: 0 };   // map: 0 off · 1 local · 2 belt; cy: view centre lift [px]
   const MAP_NAMES = ['', 'MAP', 'BELT MAP'];
 
   const INK = '#1b1433', PAPER = '#fff4dc', PAPER2 = '#ffe2b0';
@@ -70,15 +70,30 @@ const Render = (() => {
       tx = bx; ty = by; tz = Math.min(W, H) * 0.45 / ext * cam.userZoom; snap = false;
     } else {                                                        // flight: bigger frames sit a little further back
       const f = flightView(g, k);
-      tx = g.sh.x + f.ox; ty = g.sh.y + f.oy; tz = f.zoom * cam.userZoom;
+      tx = g.sh.x + f.ox; ty = g.sh.y + f.oy; tz = f.zoom * cam.userZoom; tr = localUp(g);
     }
     cam.x += (tx - cam.x) * (snap ? 1 : k); cam.y += (ty - cam.y) * (snap ? 1 : k);
     cam.zoom = Math.exp(Math.log(cam.zoom) + (Math.log(tz) - Math.log(cam.zoom)) * k);
     let dr = ((tr - cam.rot) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
-    cam.rot += dr * Math.min(1, k * 1.5);
+    cam.rot = wrapA(cam.rot + dr * Math.min(1, k * 1.5));
+    cam.cy += ((cam.map ? 0 : cam.cyWant) - cam.cy) * k;
     const sk = g.shake * g.shake * 9;
     cam.shx = (Math.random() - 0.5) * sk; cam.shy = (Math.random() - 0.5) * sk;
   }
+
+  // landed, or skimming a surface: roll the view so the ground is down (on foot eva does the same), so the far
+  //  side of Mochi is not upside down. Full roll under UP_LO m of altitude, none above UP_HI; free flight stays north-up.
+  const UP_LO = 20, UP_HI = 60;
+  function localUp(g) {
+    if (g.mode !== 'ship' || g.status === 'docked' || g.status === 'dead') return 0;
+    const nb = g.landedOn ? null : Game.nearestBody(g, g.sh.x, g.sh.y), b = g.landedOn || (nb && nb.b);
+    if (!b || b.star) return 0;
+    const [bx, by] = World.bodyState(g.w, b, g.t), w = g.status === 'landed' ? 1 : Math.max(0, Math.min(1, (UP_HI - nb.alt) / (UP_HI - UP_LO)));
+    if (!w) return 0;
+    const up = Math.atan2(g.sh.y - by, g.sh.x - bx) - Math.PI / 2, near = cam.rot + wrapA(up - cam.rot);   // the turn nearest the view now
+    return w * near;
+  }
+  const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
   // while towing (Haul.towInfo), zoom out to fit ship and rock (1.5-4 px/m) and lean the view toward the rock; the
   //  offset eases, so a grapple slides the view over instead of jumping, and +/- still scale it
@@ -98,15 +113,15 @@ const Render = (() => {
 
   function toScreen(x, y) {
     const dx = x - cam.x, dy = y - cam.y, c = Math.cos(cam.rot), s = Math.sin(cam.rot);
-    return [W / 2 + (dx * c + dy * s) * cam.zoom + cam.shx, H / 2 - (-dx * s + dy * c) * cam.zoom + cam.shy];
+    return [W / 2 + (dx * c + dy * s) * cam.zoom + cam.shx, H / 2 + cam.cy - (-dx * s + dy * c) * cam.zoom + cam.shy];
   }
   function screenToWorld(sx, sy) {
-    const rx = (sx - W / 2 - cam.shx) / cam.zoom, ry = -(sy - H / 2 - cam.shy) / cam.zoom, c = Math.cos(cam.rot), s = Math.sin(cam.rot);
+    const rx = (sx - W / 2 - cam.shx) / cam.zoom, ry = -(sy - H / 2 - cam.cy - cam.shy) / cam.zoom, c = Math.cos(cam.rot), s = Math.sin(cam.rot);
     return [cam.x + rx * c - ry * s, cam.y + rx * s + ry * c];
   }
   const px = () => 1 / cam.zoom;                                    // one screen pixel in world units
   const screenAng = (a) => -(a - cam.rot);                          // world angle -> canvas rotation angle
-  function worldTransform() { ctx.translate(W / 2 + cam.shx, H / 2 + cam.shy); ctx.scale(cam.zoom, -cam.zoom); ctx.rotate(-cam.rot); ctx.translate(-cam.x, -cam.y); }
+  function worldTransform() { ctx.translate(W / 2 + cam.shx, H / 2 + cam.cy + cam.shy); ctx.scale(cam.zoom, -cam.zoom); ctx.rotate(-cam.rot); ctx.translate(-cam.x, -cam.y); }
   function viewRect(pad = 0) {
     const cs = [screenToWorld(0, 0), screenToWorld(W, 0), screenToWorld(0, H), screenToWorld(W, H)];
     return [Math.min(...cs.map((c) => c[0])) - pad, Math.min(...cs.map((c) => c[1])) - pad, Math.max(...cs.map((c) => c[0])) + pad, Math.max(...cs.map((c) => c[1])) + pad];
@@ -202,23 +217,10 @@ const Render = (() => {
   }
 
   function drawSpace(g) {
-    const gr = ctx.createLinearGradient(0, 0, 0, H);
-    gr.addColorStop(0, '#171238'); gr.addColorStop(1, '#2b1752');
-    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
-    const c = Math.cos(cam.rot), s = Math.sin(cam.rot), lx = LIGHT[0] * c + LIGHT[1] * s, ly = -LIGHT[0] * s + LIGHT[1] * c;   // Ember's way, on screen
-    const gx = W / 2 + lx * W * 0.55, gy = H / 2 - ly * H * 0.6;
-    const sun = ctx.createRadialGradient(gx, gy, 0, gx, gy, Math.max(W, H) * 0.7);
-    sun.addColorStop(0, 'rgba(255,214,140,0.35)'); sun.addColorStop(1, 'rgba(255,214,140,0)');
-    ctx.fillStyle = sun; ctx.fillRect(0, 0, W, H);
     starShift(g);
     const D = Math.hypot(W, H) * 1.05, now = g.real, ox = starOff[0], oy = starOff[1];
+    drawSky(D, ox, oy);
     ctx.save(); ctx.translate(W / 2, H / 2); ctx.rotate(cam.rot);
-    for (const n of nebula) {
-      const x = ((n.x * D - ox * 0.01) % D + D) % D - D / 2, y = ((n.y * D + oy * 0.01) % D + D) % D - D / 2;
-      const ng = ctx.createRadialGradient(x, y, 0, x, y, n.r * D);
-      ng.addColorStop(0, `rgba(${n.hue},0.10)`); ng.addColorStop(1, `rgba(${n.hue},0)`);
-      ctx.fillStyle = ng; ctx.fillRect(-D / 2, -D / 2, D, D);
-    }
     ctx.fillStyle = '#fff6e0';
     for (const st of stars) {
       const x = ((st.x * D - ox * 0.03) % D + D) % D - D / 2, y = ((st.y * D + oy * 0.03) % D + D) % D - D / 2;
@@ -228,6 +230,38 @@ const Render = (() => {
     }
     ctx.restore();
     ctx.globalAlpha = 1;
+  }
+
+  // ---------------- sky: the gradients and nebulae, painted at 1/SKY_K resolution and only when they move ----------------
+  //  (17 Mpx of full-size gradient fill per frame was the biggest render cost; now one blit, systems M1)
+
+  const SKY_K = 4;
+  let sky = null, skyKey = '';
+  function drawSky(D, ox, oy) {
+    const w = Math.ceil(W / SKY_K), h = Math.ceil(H / SKY_K), k = 1 / SKY_K;
+    const key = `${w} ${h} ${Math.round(cam.rot * 360)} ${Math.round(ox * 0.01 * k)} ${Math.round(oy * 0.01 * k)}`;
+    if (!sky) { const cv = document.createElement('canvas'); sky = { cv, c: cv.getContext('2d') }; }
+    if (key !== skyKey) { skyKey = key; if (sky.cv.width !== w || sky.cv.height !== h) { sky.cv.width = w; sky.cv.height = h; } paintSky(sky.c, k, D, ox, oy); }
+    ctx.imageSmoothingEnabled = true; ctx.drawImage(sky.cv, 0, 0, w * SKY_K, h * SKY_K);
+  }
+  function paintSky(c, k, D, ox, oy) {
+    c.setTransform(k, 0, 0, k, 0, 0);
+    const gr = c.createLinearGradient(0, 0, 0, H);
+    gr.addColorStop(0, '#171238'); gr.addColorStop(1, '#2b1752');
+    c.fillStyle = gr; c.fillRect(0, 0, W, H);
+    const cs = Math.cos(cam.rot), sn = Math.sin(cam.rot), lx = LIGHT[0] * cs + LIGHT[1] * sn, ly = -LIGHT[0] * sn + LIGHT[1] * cs;   // Ember's way, on screen
+    const gx = W / 2 + lx * W * 0.55, gy = H / 2 - ly * H * 0.6;
+    const sun = c.createRadialGradient(gx, gy, 0, gx, gy, Math.max(W, H) * 0.7);
+    sun.addColorStop(0, 'rgba(255,214,140,0.35)'); sun.addColorStop(1, 'rgba(255,214,140,0)');
+    c.fillStyle = sun; c.fillRect(0, 0, W, H);
+    c.translate(W / 2, H / 2); c.rotate(cam.rot);
+    for (const n of nebula) {
+      const x = ((n.x * D - ox * 0.01) % D + D) % D - D / 2, y = ((n.y * D + oy * 0.01) % D + D) % D - D / 2, r = n.r * D;
+      const ng = c.createRadialGradient(x, y, 0, x, y, r);
+      ng.addColorStop(0, `rgba(${n.hue},0.10)`); ng.addColorStop(1, `rgba(${n.hue},0)`);
+      c.fillStyle = ng; c.fillRect(x - r, y - r, 2 * r, 2 * r);
+    }
+    c.setTransform(1, 0, 0, 1, 0, 0);
   }
 
   // ---------------- toon body ----------------
@@ -387,6 +421,46 @@ const Render = (() => {
       ctx.beginPath(); ctx.arc(sx, sy, (lo + hi) / 2, 0, 2 * Math.PI);
       ctx.strokeStyle = 'rgba(169,155,200,0.10)'; ctx.lineWidth = hi - lo; ctx.stroke();
     }
+    drawDust(g, sx, sy, [...lanes.keys()]);
+    for (const sw of g.w.swarms) {                                 // each swarm a soft glowing cloud, so 7 dots read as places
+      const [x, y] = World.swarmState(g.w, sw, g.t), R = Math.max(16 * px(), sw.arc * 1.6);
+      const gr = ctx.createRadialGradient(x, y, 0, x, y, R);
+      gr.addColorStop(0, 'rgba(201,184,232,0.34)'); gr.addColorStop(1, 'rgba(201,184,232,0)');
+      ctx.fillStyle = gr; ctx.fillRect(x - R, y - R, 2 * R, 2 * R);
+    }
+  }
+
+  // ---------------- belt dust: puffs of specks along each lane, each speck on its own Kepler rate ----------------
+  //  Specks a few % inside a lane lap faster than those outside (n ~ a^-3/2), so every puff shears into a trailing arc:
+  //  at 1024x you watch the belt swirl. A puff lives DUST_LAPS lane laps, fading in and out (collision dust that spreads).
+  //  Cosmetic only: nothing collides with it.
+
+  const DUST_PUFFS = 14, DUST_N = 60, DUST_LAPS = 12, DUST_DA = 0.025;
+  let dust = null;
+  function dustOf(g, lanes) {
+    if (dust && dust.w === g.w) return dust.puffs;
+    const rand = World.rng(g.w.seed + 77), mu = g.w.root.mu, puffs = [];
+    for (const a of lanes) for (let i = 0; i < DUST_PUFFS; i++) {
+      const n0 = Math.sqrt(mu / a ** 3), P = DUST_LAPS * 2 * Math.PI / n0, sp = [];
+      for (let j = 0; j < DUST_N; j++) {
+        const aj = a * (1 + DUST_DA * (2 * rand() - 1)), dq = 0.004 * (2 * rand() - 1);
+        sp.push([aj, Math.sqrt(mu / aj ** 3), dq]);
+      }
+      puffs.push({ n0, P, t0: rand() * P, q0: rand() * 2 * Math.PI, sp });
+    }
+    dust = { w: g.w, puffs };
+    return puffs;
+  }
+  function drawDust(g, sx, sy, lanes) {
+    const s = 1.6 * px();
+    for (const f of dustOf(g, lanes)) {
+      const k = Math.floor((g.t - f.t0) / f.P), tb = f.t0 + k * f.P, tau = g.t - tb, alpha = Math.sin(Math.PI * tau / f.P);
+      if (alpha < 0.03) continue;
+      const qb = f.q0 + 2.39996 * k + f.n0 * tb;                    // where this puff is born (a new place every life)
+      ctx.beginPath();
+      for (const [a, n, dq] of f.sp) { const q = qb + dq + n * tau; ctx.rect(sx + a * Math.cos(q) - s / 2, sy + a * Math.sin(q) - s / 2, s, s); }
+      ctx.fillStyle = `rgba(225,214,250,${(0.55 * alpha).toFixed(3)})`; ctx.fill();
+    }
   }
 
   function drawBeltLabels(g) {
@@ -462,7 +536,10 @@ const Render = (() => {
 
   function drawRockAt(g, rk, x, y, ang = 0) {
     const R = rk.r, pr = R * cam.zoom, out = rk.out || ROUND;
-    if (pr < 1.2) { ctx.fillStyle = '#8f84a8'; ctx.fillRect(x - px(), y - px(), 2 * px(), 2 * px()); return; }
+    if (pr < 1.2) {                                                 // a speck; on the belt map swarm rocks a touch bigger and brighter
+      const big = cam.map === 2 && rk.swarm >= 0, h = (big ? 1.4 : 1) * px();
+      ctx.fillStyle = big ? '#d6cbf0' : '#8f84a8'; ctx.fillRect(x - h, y - h, 2 * h, 2 * h); return;
+    }
     const [pal, type, inf] = rockPal(g, rk);
     shapePath(out, x, y, R, ang);
     ctx.strokeStyle = INK; ctx.lineJoin = 'round';
@@ -974,7 +1051,10 @@ const Render = (() => {
     c.save(); c.translate(x, y); c.rotate(rot); c.scale(u, u);
     c.lineJoin = 'round'; c.lineCap = 'round'; c.strokeStyle = INK; c.lineWidth = SLW;
     const atTail = (fn) => { c.save(); c.translate(0, F.tail - 4); fn(); c.restore(); };
-    if (P.main) atTail(() => plume(c, E, P));
+    if (P.main && P.cant > 0.03) for (const sg of [-1, 1]) atTail(() => {   // towing: two jets canted off the rock (haul.js), each narrower
+      const y0 = E.exit ?? 4.6; c.translate(0, y0); c.rotate(sg * P.cant); c.scale(0.7, 1); c.translate(0, -y0); plume(c, E, P);
+    });
+    else if (P.main) atTail(() => plume(c, E, P));
     else if (P.ion) { c.fillStyle = 'rgba(124,245,214,0.55)'; atTail(() => { poly(c, [[-0.8, 4.6], [0, 7 + Math.random()], [0.8, 4.6]]); c.fill(); }); }
     F.legs(c, P, lit);
     atTail(() => { if (P.ground) { c.beginPath(); c.rect(-9, -9, 18, P.ground + 13 - F.tail); c.clip(); } E.nozzle(c, P, lit); });
@@ -992,7 +1072,7 @@ const Render = (() => {
     const S = g.S, d = g.dash, side = g.fired.side ?? 0;
     if (side) lastSide = side > 0 ? 1 : -1;
     const P = { frame: S.frameId ?? 'prospector', engine: S.engine ?? 'sparrow', fuel: S.fuelId ?? 'methalox', pods: (S.sideThrust ?? 0) > 0,
-                main: g.fired.main, ion: g.fired.ion, side, pilot: g.mode === 'ship', blink: (g.real % 3.7) < 0.12,
+                main: g.fired.main, cant: g.fired.cant ?? 0, ion: g.fired.ion, side, pilot: g.mode === 'ship', blink: (g.real % 3.7) < 0.12,
                 spin: Math.abs(g.sh.omega) > 2, real: g.real, duck: !!(g.done && g.done.tycoon), cargo: null, dash: null };
     if (d && d.until > 0) {                                         // the dash: a puff ring, speed lines trailing (side > 0 moves left)
       const T = S.dashT ?? 0.4, k = (g.t - (d.until - T)) / (T + 0.25);
@@ -1069,11 +1149,25 @@ const Render = (() => {
       if (cam.map === 2 || (b.star ? g.starR > 2 * CONFIG.sim.starWarn : dist > NEAR_ARROW && b !== g.ref && b !== fb && b !== home)) continue;
       queueEdge({ key: 'body:' + b.id, sx: x, sy: y, text: `${b.name} ${fmtDist(dist)}`, col: b.color[2], fill: b.color[0], d: dist });
     }
+    padTag(g);
+  }
+
+  // Mochi's town pad, a beacon on the local map and while you fly over it (until it is big enough to see for yourself)
+  function padTag(g) {
+    const pad = typeof Mochi !== 'undefined' && Mochi && g.mod.mochi && g.w.byId.mochi && Mochi.padAt ? Mochi.padAt(g.w.byId.mochi) : null;
+    if (!pad || cam.map === 2 || g.mode !== 'ship' || (g.status !== 'flying' && !cam.map) || cam.zoom > 6) return;
+    const [bx, by] = World.bodyState(g.w, g.w.byId.mochi, g.t), [x, y] = toScreen(bx + pad[0], by + pad[1]);
+    if (!onScreen(x, y, -10) || Math.hypot(g.sh.x - bx - pad[0], g.sh.y - by - pad[1]) < 40) return;
+    const a = screenAng(Math.atan2(pad[1], pad[0])), ux = Math.cos(a), uy = Math.sin(a), k = 0.6 + 0.4 * Math.sin(g.real * 4);
+    ctx.save(); ctx.translate(x + ux * 10, y + uy * 10); ctx.rotate(a + Math.PI / 2);           // a teal chevron pointing down at the pad
+    ctx.globalAlpha = k; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-7, -9); ctx.lineTo(0, -6); ctx.lineTo(7, -9); ctx.closePath();
+    ctx.fillStyle = '#7cf5d6'; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
+    freeTag(x + ux * 20, y + uy * 20, 12, 14, 'TOWN PAD', '#7cf5d6', hudRects());
   }
 
   // ---------------- off-screen arrows: queued while drawing, laid out after the HUD, clear of its panels ----------------
 
-  let edges = [], frameRects = [], tagRects = [];                 // tagRects: every tag() drawn this frame, so edge labels can dodge them
+  let edges = [], frameRects = [], tagRects = [], popRects = [];   // tagRects: every tag() drawn this frame, so edge labels can dodge them
 
   function queueEdge(e) {                                          // {key, sx, sy, text, col, fill, d, on?, tgt?}
     const old = edges.find((q) => q.key === e.key);
@@ -1093,11 +1187,16 @@ const Render = (() => {
     return r.width > 0 ? [r.left - c.left, r.top - c.top, r.right - c.left + 4, r.bottom - c.top + 4] : null;
   }
   function hudRects() { return [...frameRects, ...panels]; }
+  function focusRect(g) {                                          // you on screen (ship, or astronaut on foot), plus a margin [px]
+    const out = g.mode === 'eva' && g.astro && g.astro.on, [x, y] = toScreen(out ? g.astro.x : g.sh.x, out ? g.astro.y : g.sh.y);
+    const r = out ? 34 : Math.max(g.S.length * cam.zoom, 34) / 2 + 16;
+    return [x - r, y - r, x + r, y + r];
+  }
   const inRect = (x, y, r, p = 0) => x > r[0] - p && x < r[2] + p && y > r[1] - p && y < r[3] + p;
   const overlap = (a, b, p = 0) => a[0] < b[2] + p && a[2] > b[0] - p && a[1] < b[3] + p && a[3] > b[1] - p;
 
   function drawEdges(g) {
-    const obs = hudRects(), cx = W / 2, cy = H / 2, m = 16, pad = 12;
+    const obs = hudRects(), cx = W / 2, cy = H / 2 + cam.cy, m = 16, pad = 12, me = focusRect(g);
     const items = edges.filter((e) => !e.on || (e.tgt && obs.some((r) => inRect(e.sx, e.sy, r))));
     if (!items.length) return;
     for (const e of items) {                                       // where the line of sight leaves the free area
@@ -1125,7 +1224,7 @@ const Render = (() => {
     }
     ctx.font = `600 13px ${FONT}`;
     for (const q of groups) q.wMax = Math.max(...q.items.map((e) => ctx.measureText(e.text).width));
-    const placed = [...tagRects];
+    const placed = [...tagRects, me];                              // never over your own ship (newplayer M9)
     const boxOf = (q, ox, oy) => {                                 // label lines inward of the arrow, aligned by screen side
       const wMax = q.wMax, n = q.items.length, ax = q.ax + ox, ay = q.ay + oy;
       let x0, y0, al;
@@ -1151,6 +1250,7 @@ const Render = (() => {
       }
       if (!best) q.off = [0, 0];
       q.at = best || boxOf(q, 0, 0);
+      if (!best && (overlap(me, q.at.box) || overlap(me, q.at.arrow))) continue;
       placed.push(q.at.box, q.at.arrow); shown.push(q);
     }
     for (const q of shown) {
@@ -1183,7 +1283,7 @@ const Render = (() => {
     // ---- top & bottom lines ----
     ctx.textAlign = 'center'; ctx.font = `600 15px ${FONT}`;
     const capped = SIM().warps[g.warpIdx] > g.warp;
-    const top = `WARP ${g.warp}x${capped ? `  (max ${g.warpMax}x: ${g.warpWhy})` : ''}${cam.map ? `   ·   ${MAP_NAMES[cam.map]}` : ''}`;
+    const top = `WARP ${g.warp}x${capped ? `  (max ${g.warpMax}x: ${g.warpWhy})` : ''}${cam.map ? `   ·   ${MAP_NAMES[cam.map]}` : ''}${g.dev ? '   ·   DEV MODE, NO SAVING (type duck to leave)' : ''}`;
     outlinedText(top, W / 2, 26, g.warp > 1 ? COL.pro : capped ? COL.warn : '#d9cff5');
     const tw = ctx.measureText(top).width; frameRects.push([W / 2 - tw / 2 - 6, 8, W / 2 + tw / 2 + 6, 34]);
 
@@ -1194,25 +1294,17 @@ const Render = (() => {
     ctx.font = `500 ${C.cs}px ${FONT}`; ctx.fillStyle = '#d9cff5'; C.lines.forEach((l, i) => ctx.fillText(l, C.cx, cTop + i * 15));
     frameRects.push(pill);
 
-    const hint = Game.hint(g) || '';
-    let hs = 16, hl = [];
-    if (hint) for (;; hs--) { ctx.font = `500 ${hs}px ${FONT}`; hl = wrapText(hint, 2 * half); if (hl.length <= 3 || hs <= 13) break; }
+    const hint = Game.hint(g) || '', small = W < 1000 || H < 650;                // small windows: smaller type, so the ship stays in view
+    let hs = small ? 14.5 : 16, hl = [];
+    if (hint) for (;; hs--) { ctx.font = `500 ${hs}px ${FONT}`; hl = wrapText(hint, 2 * half); if (hl.length <= 3 || hs <= 12.5) break; }
     if (hl.length > 3) hl = [hl[0], hl[1], fit(hl.slice(2).join(' '), 2 * half)];
     const hTop = cTop - 26 - (hl.length - 1) * (hs + 6);
     hl.forEach((l, i) => outlinedText(l, W / 2, hTop + i * (hs + 6), '#fff4dc'));
     if (hl.length) { const hw = Math.max(...hl.map((l) => ctx.measureText(l).width)); frameRects.push([W / 2 - hw / 2 - 4, hTop - hs, W / 2 + hw / 2 + 4, cTop - 20]); }
 
     const pBase = (hl.length ? hTop : cTop) - 40;                  // one hint line: H - 84, as before; each extra line lifts the prompts
-    g.prompts.forEach((p, i) => {
-      const yy = pBase - i * 32, label = p.key.replace(/^Key|^Digit/, '');
-      ctx.font = `600 17px ${FONT}`; const w = ctx.measureText(p.text).width + 44;
-      ctx.fillStyle = INK; roundRect(W / 2 - w / 2 + 3, yy - 19, w, 28, 8); ctx.fill();
-      ctx.fillStyle = p.col || PAPER2; roundRect(W / 2 - w / 2, yy - 22, w, 28, 8); ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 2.5; ctx.stroke();
-      ctx.fillStyle = INK; roundRect(W / 2 - w / 2 + 5, yy - 18, 24, 20, 5); ctx.fill();
-      ctx.fillStyle = PAPER; ctx.font = `700 14px ${FONT}`; ctx.fillText(label, W / 2 - w / 2 + 17, yy - 3);
-      ctx.fillStyle = INK; ctx.font = `600 17px ${FONT}`; ctx.textAlign = 'left'; ctx.fillText(p.text, W / 2 - w / 2 + 36, yy - 2); ctx.textAlign = 'center';
-      frameRects.push([W / 2 - w / 2, yy - 22, W / 2 + w / 2 + 3, yy + 9]);
-    });
+    const stackTop = drawPrompts(g, pBase, small, 2 * half);
+    cam.cyWant = Math.max(-H * 0.16, Math.min(0, stackTop - 80 - H / 2));   // the stack climbs past the middle: lift the view over it
     drawEdges(g); ctx.textAlign = 'center';
 
     // ---- toast ----
@@ -1221,10 +1313,13 @@ const Render = (() => {
       const age = g.real - t0.t0;
       ctx.save(); ctx.globalAlpha = Math.min(1, (2.4 - age) * 2);
       const s = 1 + 0.25 * Math.max(0, 0.25 - age) / 0.25;
-      ctx.translate(W / 2, H * 0.24); ctx.scale(s, s); ctx.rotate(-0.03);
-      ctx.font = `700 ${t0.text.length > 26 ? 30 : 42}px ${FONT}`; ctx.lineWidth = 9; ctx.strokeStyle = INK; ctx.lineJoin = 'round';
-      let lines = [t0.text];                                      // long toasts break in two, clear of the side panels
-      const room = W - 2 * 300;
+      ctx.font = `700 ${t0.text.length > 26 ? 30 : 42}px ${FONT}`;
+      const ty = t0.tyWant = toastY(t0, ctx.measureText(t0.text).width);
+      t0.ty = t0.ty == null ? ty : t0.ty + (ty - t0.ty) * 0.2;
+      const [x0, x1] = freeSpan(t0.ty - 40, t0.ty + 40), room = Math.max(160, x1 - x0 - 24);   // between the side panels
+      ctx.translate(room > 160 ? (x0 + x1) / 2 : W / 2, t0.ty); ctx.scale(s, s); ctx.rotate(-0.03);
+      ctx.lineWidth = 9; ctx.strokeStyle = INK; ctx.lineJoin = 'round';
+      let lines = [t0.text];                                      // long toasts break in two
       if (ctx.measureText(t0.text).width > room) {
         let cut = t0.text.lastIndexOf(' ', Math.ceil(t0.text.length / 2) + 4); if (cut < 1) cut = Math.ceil(t0.text.length / 2);
         lines = [t0.text.slice(0, cut), t0.text.slice(cut + 1)];
@@ -1244,6 +1339,42 @@ const Render = (() => {
       ctx.font = `500 18px ${FONT}`; outlinedText('P or Esc to resume', W / 2, H / 2 + 36, '#fff4dc'); ctx.restore();
     }
     ctx.textAlign = 'left';
+  }
+
+  function toastY(t0, tw) {                                        // the toast's row: where it is, else the usual one, unless comic words are there (ladder L5)
+    for (const y of [t0.tyWant ?? H * 0.24, H * 0.24, H * 0.14, H * 0.34]) {
+      const [x0, x1] = freeSpan(y - 40, y + 40), room = Math.max(160, x1 - x0 - 24), cx = room > 160 ? (x0 + x1) / 2 : W / 2;
+      const hw = Math.min(tw > room ? tw / 1.8 : tw, room) / 2 + 8;
+      if (!popRects.some((r) => r[2] > cx - hw && r[0] < cx + hw && r[3] > y - 42 && r[1] < y + 42)) return y;
+    }
+    return t0.tyWant ?? H * 0.24;
+  }
+  function freeSpan(y0, y1) {                                      // [x0, x1]: the widest gap between the panels in rows y0..y1
+    let x0 = 0, x1 = W;
+    for (const p of panels) {
+      if (p[3] < y0 || p[1] > y1) continue;
+      if ((p[0] + p[2]) / 2 < W / 2) x0 = Math.max(x0, p[2]); else x1 = Math.min(x1, p[0]);
+    }
+    return [x0, x1];
+  }
+
+  // interaction prompts above the hint: side by side when they fit, else stacked upward. -> the top of the stack [px]
+  function drawPrompts(g, pBase, small, room) {
+    const fs = small ? 15 : 17, rowH = small ? 28 : 32, gap = 10, P = g.prompts;
+    ctx.font = `600 ${fs}px ${FONT}`;
+    const ws = P.map((p) => ctx.measureText(p.text).width + 44), one = ws.reduce((a, b) => a + b, 0) + gap * (P.length - 1) <= room;
+    let x = W / 2 - (ws.reduce((a, b) => a + b, 0) + gap * (P.length - 1)) / 2;
+    P.forEach((p, i) => {
+      const w = ws[i], yy = one ? pBase : pBase - i * rowH, x0 = one ? x : W / 2 - w / 2, label = p.key.replace(/^Key|^Digit/, '');
+      x += w + gap;
+      ctx.fillStyle = INK; roundRect(x0 + 3, yy - 19, w, 28, 8); ctx.fill();
+      ctx.fillStyle = p.col || PAPER2; roundRect(x0, yy - 22, w, 28, 8); ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.fillStyle = INK; roundRect(x0 + 5, yy - 18, 24, 20, 5); ctx.fill();
+      ctx.fillStyle = PAPER; ctx.font = `700 14px ${FONT}`; ctx.fillText(label, x0 + 17, yy - 3);
+      ctx.fillStyle = INK; ctx.font = `600 ${fs}px ${FONT}`; ctx.textAlign = 'left'; ctx.fillText(p.text, x0 + 36, yy - 2); ctx.textAlign = 'center';
+      frameRects.push([x0, yy - 22, x0 + w + 3, yy + 9]);
+    });
+    return P.length ? (one ? pBase : pBase - (P.length - 1) * rowH) - 22 : pBase + 18;
   }
 
   // ---------------- HUD panels (core) ----------------
@@ -1307,13 +1438,19 @@ const Render = (() => {
   function jobsPanel(g) {
     if (W <= 760) return;
     const left = Game.GOALS.filter((gl) => g.done[gl.id] === undefined), todo = left.slice(0, 5);
-    const y = stackRight(300, 26 + Math.max(1, todo.length) * 21, `JOBS ${Game.GOALS.length - left.length}/${Game.GOALS.length}`), gx = W - 300 - 12;
     ctx.font = `500 14px ${FONT}`; ctx.textAlign = 'left';
+    const pays = todo.map((gl) => (!gl.reward ? '' : gl.id === 'tycoon' ? '$1 (framed)' : `$${gl.reward.toLocaleString('en-US')}`));
+    const pw = (i) => (pays[i] ? ctx.measureText(pays[i]).width + 12 : 0);
+    const first = todo.length ? wrapText(`☆ ${todo[0].text}`, 276 - pw(0), ' ', false) : [];   // the next job in full: two lines if need be (newplayer L4)
+    const two = first.length > 1 ? [first[0], fit(first.slice(1).join(' '), 264)] : first, extra = Math.max(0, two.length - 1) * 18;
+    const y = stackRight(300, 26 + Math.max(1, todo.length) * 21 + extra, `JOBS ${Game.GOALS.length - left.length}/${Game.GOALS.length}`), gx = W - 300 - 12;
     if (!todo.length) { ctx.fillStyle = COL.good; ctx.fillText('★ All jobs done. Belt legend.', gx + 12, y); }
     todo.forEach((gl, i) => {
-      const pay = !gl.reward ? '' : gl.id === 'tycoon' ? '$1 (framed)' : `$${gl.reward.toLocaleString('en-US')}`, pw = pay ? ctx.measureText(pay).width + 12 : 0;
-      ctx.fillStyle = i ? COL.dim : INK; ctx.fillText(fit(`☆ ${gl.text}`, 276 - pw), gx + 12, y + i * 21);
-      if (pay) { ctx.textAlign = 'right'; ctx.fillStyle = COL.money; ctx.fillText(pay, gx + 288, y + i * 21); ctx.textAlign = 'left'; }
+      const yy = y + i * 21 + (i ? extra : 0);
+      ctx.fillStyle = i ? COL.dim : INK;
+      if (i) ctx.fillText(fit(`☆ ${gl.text}`, 276 - pw(i)), gx + 12, yy);
+      else two.forEach((l, k) => ctx.fillText(l, gx + 12 + (k ? 12 : 0), yy + k * 18));
+      if (pays[i]) { ctx.textAlign = 'right'; ctx.fillStyle = COL.money; ctx.fillText(pays[i], gx + 288, yy); ctx.textAlign = 'left'; }
     });
   }
 
@@ -1331,7 +1468,7 @@ const Render = (() => {
   }
   const SAYS = [/side pods|dash/, /Shift ← →/, /reel|let go|grapple/, /spacewalk/];
   function controlsText(g) {                                       // add only what the winning line does not already say
-    const ctl = Game.first(g, 'controls') || CONTROLS;
+    const any = Game.first(g, 'controls') || CONTROLS, ctl = (g.S.ionThrust ?? 0) > 0 ? any : any.replace(' · X ion', '');   // no ion drive, no X
     if (!/W (engine|burn)/.test(ctl)) return ctl;
     const more = shipKeys(g).filter((k) => !SAYS.some((re) => re.test(k) && re.test(ctl)));
     const base = (g.S.sideThrust ?? 0) > 0 ? ctl.replace('arrows nudge', '↑ ↓ nudge') : ctl;
@@ -1373,19 +1510,27 @@ const Render = (() => {
     return comicPanel(W - w - 12, y0, w, h, title);
   }
   function shiftTo(dx) { if (dx !== layout.dx) { ctx.translate(dx - layout.dx, 0); layout.dx = dx; } }
-  function wrapText(text, w, sep = ' ', even = true) {            // greedy wrap in the current font; even: same line count, balanced widths
+  const wraps = new Map();                                         // the hint and controls re-wrap only when they change (systems L1)
+  function wrapText(text, w, sep = ' ', even = true) {
+    const key = `${ctx.font}|${w}|${sep}|${even}|${text}`, hit = wraps.get(key);
+    if (hit) return hit.slice();
+    if (wraps.size > 400) wraps.clear();
+    const out = wrapRaw(text, w, sep, even); wraps.set(key, out); return out.slice();
+  }
+  function wrapRaw(text, w, sep, even) {                           // greedy wrap in the current font; even: same line count, balanced widths
     const out = []; let cur = '';
     for (const word of text.split(sep)) { const t = cur ? cur + sep + word : word; if (cur && ctx.measureText(t).width > w) { out.push(cur); cur = word; } else cur = t; }
     if (cur) out.push(cur);
     if (!even || out.length < 2) return out;
     let lo = 0, hi = w;
-    for (let k = 0; k < 8; k++) { const mid = (lo + hi) / 2; if (wrapText(text, mid, sep, false).length > out.length) lo = mid; else hi = mid; }
-    return wrapText(text, hi, sep, false);
+    for (let k = 0; k < 8; k++) { const mid = (lo + hi) / 2; if (wrapRaw(text, mid, sep, false).length > out.length) lo = mid; else hi = mid; }
+    return wrapRaw(text, hi, sep, false);
   }
 
   // comic words rise and fade; one that would land on an earlier word slides up above it (eased, so nothing jumps)
   function drawPopups(g) {
     const placed = [];
+    popRects = [];
     for (const p of g.popups) {
       const age = g.real - p.t0; if (age > 1.4) continue;
       const [x, y] = toScreen(p.x, p.y), sz = p.size || 26, fs = sz + 10 * Math.max(0, 0.15 - age) / 0.15;
@@ -1401,6 +1546,7 @@ const Render = (() => {
       p.nudge = p.nudge == null ? want : p.nudge + (want - p.nudge) * 0.3;
       const yy = py0 - p.nudge;
       placed.push({ x: px0, y: yy - h * 0.35, w, h });
+      if (age < 1.1) popRects.push([px0 - w / 2, yy - h * 0.85, px0 + w / 2, yy + h * 0.15]);
       ctx.save(); ctx.translate(px0, yy); ctx.rotate(-0.12); ctx.globalAlpha = Math.max(0, Math.min(1, 1.4 - age));
       ctx.textAlign = 'center'; ctx.lineWidth = sz / 4 + 1; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.strokeText(p.text, 0, 0);
       ctx.fillStyle = p.col; ctx.fillText(p.text, 0, 0);
@@ -1441,7 +1587,13 @@ const Render = (() => {
     if (val === '∞') { ctx.font = `800 24px ${FONT}`; ctx.fillText(val, x + 212, y + 5); ctx.textAlign = 'left'; return; }
     let px = 14; ctx.font = `600 ${px}px ${FONT}`;
     for (let w = ctx.measureText(val).width; w > room && px > 10.5; w = ctx.measureText(val).width) ctx.font = `600 ${px -= 0.5}px ${FONT}`;
-    ctx.fillText(val, x + 212, y); ctx.textAlign = 'left';
+    ctx.fillText(ellipsize(String(val), room), x + 212, y); ctx.textAlign = 'left';
+  }
+  function ellipsize(s, room) {                                        // still too long at the smallest size: cut with an ellipsis
+    if (ctx.measureText(s).width <= room) return s;
+    let n = s.length;
+    while (n > 1 && ctx.measureText(s.slice(0, n).trimEnd() + '…').width > room) n--;
+    return s.slice(0, n).trimEnd() + '…';
   }
   function bar(label, f, x, y, col, extra) {
     ctx.font = `600 12.5px ${FONT}`; ctx.fillStyle = COL.dim; ctx.textAlign = 'left'; ctx.fillText(label, x, y - 4);
@@ -1450,9 +1602,14 @@ const Render = (() => {
     ctx.fillStyle = col; roundRect(x, y, Math.max(0.001, 212 * Math.max(0, Math.min(1, f))), 11, 5); ctx.fill();
     ctx.strokeStyle = INK; ctx.lineWidth = 2; roundRect(x, y, 212, 11, 5); ctx.stroke();
   }
-  function tag(x, y, text, col) {
-    ctx.font = `600 13px ${FONT}`; ctx.textAlign = 'center'; outlinedText(text, x, y, col, 4); ctx.textAlign = 'left';
-    const w = ctx.measureText(text).width / 2; if (onScreen(x, y, 0)) tagRects.push([x - w, y - 11, x + w, y + 3]);
+  function tag(x, y, text, col) {                                  // a tag that lands on an earlier one steps down or up a line (ladder L11)
+    ctx.font = `600 13px ${FONT}`; ctx.textAlign = 'center';
+    const w = ctx.measureText(text).width / 2, box = (yy) => [x - w, yy - 11, x + w, yy + 3];
+    if (onScreen(x, y, 0)) {
+      const d = [0, 15, -15, 30, -30].find((dy) => !tagRects.some((r) => overlap(r, box(y + dy), 1)));
+      y += d ?? 0; tagRects.push(box(y));
+    }
+    outlinedText(text, x, y, col, 4); ctx.textAlign = 'left';
   }
   function outlinedText(text, x, y, col, lw = 5) {
     ctx.lineWidth = lw; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.strokeText(text, x, y);

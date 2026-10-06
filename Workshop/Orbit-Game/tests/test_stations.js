@@ -8,11 +8,12 @@
 
 const H = require('./harness');
 const SOLO = process.argv.includes('--solo');                 // child run: stations alone, no economy
-H.load({ only: SOLO ? 'stations' : 'economy,shop,stations' });
+const PAD = process.argv.includes('--pad');                   // child run: with Mochi's town (the pad target)
+H.load({ only: SOLO ? 'stations' : PAD ? 'economy,shop,stations,eva,mochi' : 'economy,shop,stations' });
 
 let nPass = 0, nFail = 0;
 function check(name, ok, info = '') {
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${(SOLO ? '[solo] ' : '') + name.padEnd(56)} ${info}`);
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${(SOLO ? '[solo] ' : PAD ? '[pad] ' : '') + name.padEnd(56)} ${info}`);
   ok ? nPass++ : nFail++;
 }
 const fresh = (spawn = null) => Game.create(7, spawn, { fresh: true });
@@ -36,6 +37,43 @@ function coorbit(g, st, ds, dv = 0) {
   Game.refresh(g);
 }
 const onPort = (g, st) => { const p = st.portState(g.t); return Math.hypot(g.sh.x - p[0], g.sh.y - p[1]) + Math.hypot(g.sh.vx - p[2], g.sh.vy - p[3]); };
+
+
+// ---------------- 15. pad child: with Mochi's town the Hub times your drop onto the pad (newplayer H1, L3) ----------------
+if (PAD) {
+  const late = fresh();                                                       // the window's last moment, for the landing check below
+  for (let n = 0; n < 60 * 140 && !/undock now/.test(Game.hint(late)); n++) H.run(late, 1, {});
+  for (let n = 0; n < 60 * 5 && /undock now/.test(Game.hint(late)); n++) H.run(late, 1, {});
+  const g = fresh(), hub = Stations.byId(g, 'hub'), mochi = g.w.byId.mochi;
+  check('docked: the hint gives the town pad\'s undock window', /For the town pad, undock in \d+ s|undock now/.test(Game.hint(g)), Game.hint(g));
+  let n = 0;
+  for (; n < 60 * 140 && !/undock now/.test(Game.hint(g)); n++) H.run(g, 1, {});
+  check('...which comes round within one Hub lap', n / 60 <= hub.period + 0.1, `${(n / 60).toFixed(0)} s (lap ${hub.period.toFixed(0)} s): ${Game.hint(g)}`);
+  const gw = fresh(), top = CONFIG.sim.warps.length - 1; gw.warpIdx = top; H.run(gw, 2, {});
+  const w0 = CONFIG.sim.warps[gw.warpIdx]; let nw = 0;
+  for (; nw < 60 * 60 && !/undock now/.test(Game.hint(gw)); nw++) H.run(gw, 1, {});
+  check('warp to the window: the warp eases down and the window opens at 1x (newplayer H1 at warp)', w0 > 4 && /undock now/.test(Game.hint(gw)) && CONFIG.sim.warps[gw.warpIdx] === 1,
+        `${w0}x at first, window after ${(nw / 60).toFixed(1)} s real at ${CONFIG.sim.warps[gw.warpIdx]}x`);
+  H.run(g, 6, { keys: ['KeyW'] }); H.run(g, 30, {});
+  check('undocking targets the town pad', g.navId === Mochi.PAD_ID && /Pad/.test(Game.navTarget(g).name), `${g.navId}`);
+  check('just undocked: no "Dock at" prompt (READY panel hidden too)', !g.prompts.some((p) => /Dock at/.test(p.text)), g.prompts.map((p) => p.text).join(' | '));
+  check('...and the hint says the pad is your target', /town pad, your target/.test(Game.hint(g)), Game.hint(g));
+  check('...over a wreck\'s "Tab to target it" for the first 20 s (pad hint pri 39)', Game.mods.find((x) => x.id === 'stations').hint(g).pri === 39);
+  H.run(late, 6, { keys: ['KeyW'] });
+  const drop = (g2) => {                                                       // a newcomer's brake-and-drop: nose against the motion, W while fast
+    for (let i = 0; i < 60 * 300 && g2.status === 'flying'; i++) {
+      const o = Physics.orbitRel(g2.sh, mochi, g2.t, g2.w);
+      g2.sh.ang = Math.atan2(-o.vy, -o.vx); g2.sh.omega = 0;
+      Game.update(g2, H.input({ keys: Math.hypot(o.vx, o.vy) > Math.min(8, 1.5 + o.alt / 12) ? ['KeyW'] : [] }), 1 / 60);
+    }
+    const [px, py] = Game.navTargets(g2).find((t) => t.id === Mochi.PAD_ID).state(g2.t);
+    return { ok: g2.status === 'landed' && g2.done.land_mochi !== undefined, gap: Math.hypot(g2.sh.x - px, g2.sh.y - py) };
+  };
+  const a = drop(g), b = drop(late);
+  check('a brake-and-drop from either end of the window lands by the pad: land_mochi done', a.ok && b.ok && Math.max(a.gap, b.gap) < Mochi.PAD_NEAR, `${a.gap.toFixed(0)} m / ${b.gap.toFixed(0)} m from the pad`);
+  console.log(`\n${nPass} passed, ${nFail} failed`);
+  process.exit(nFail ? 1 : 0);
+}
 
 
 // ======================================================================
@@ -188,6 +226,9 @@ const closeShop = (g) => { if (Econ.closeShop) Econ.closeShop(g); g.ui = null; }
   check('Leviathan (r 11 m): dock zone 21 m, prompt at 19 m', Stations.dockR(g) === 21 && promptF(g) && promptF(g).text === 'Dock at Mochi Hub', `dockR ${Stations.dockR(g)}; ${promptF(g) ? promptF(g).text : 'none'}`);
   nearPort(g, hub, 23, 0.4); H.run(g, 1, {});
   check('...and still none at 23 m', !promptF(g), promptF(g) ? promptF(g).text : 'none');
+  const seat = (len) => { g.S.length = len; Stations.list(g); const [px, py] = hub.portState(g.t), [cx, cy] = hub.collar(g.t); return Math.hypot(px - cx, py - cy); };
+  const s9 = seat(9), s26 = seat(26); g.S.length = 9; Stations.list(g);
+  check('a docked hull sits by its length: 4.6 m off the collar at 9 m, 13.3 m at 26 m (critic L4: no tail in the ring)', Math.abs(s9 - 4.6) < 1e-6 && Math.abs(s26 - 4.6 * 26 / 9) < 1e-6, `${s9.toFixed(2)} / ${s26.toFixed(2)} m`);
   const tabs = ['hub', 'outpost', 'rusts'].map((id) => Stations.byId(g, id).tabs);
   check('hub, outpost and rusts tabs include haul', tabs.every((t) => t.includes('haul')), tabs.map((t) => t.join('/')).join(' · '));
   const MOODS = ['chat', 'hint', 'joke', 'gossip', 'lore', 'warn', 'grumpy', 'sad', 'want', 'happy'], bad = [];
@@ -379,7 +420,7 @@ for (const id of ['outpost', 'rusts']) {
   g.everFlew = true; g.navId = 'station:hub'; Game.refresh(g); H.run(g, 1, {});
   check('clockwise orbit: "Wrong way round!" and how to flip it', /^Wrong way round! Mochi Hub goes counter-clockwise: burn at the pink marker/.test(own(g).text), own(g).text);   // (the core's range-rate rock alarm may outrank it)
   const g2 = fresh('orbit'); nearPort(g2, Stations.byId(g2, 'hub'), 70, 9.5); g2.navId = 'station:hub'; Game.refresh(g2); H.run(g2, 1, {});   // 70 m behind, catching up at 9.5 m/s
-  check('a 9.5 m/s pass right by the port: "too fast to stop"', /^Pass in \d+ s at \d+ m\/s: too fast to stop\./.test(Game.hint(g2)), Game.hint(g2));
+  check('a 9.5 m/s pass right by the port: "too fast to stop"', /^Pass in \d+ s at \d+ m\/s: too fast to stop\./.test(own(g2).text), own(g2).text);   // the core's rubble-ring heads-up (41) may outrank it
   const g3 = fresh('pad'); g3.navId = 'station:hub'; Game.refresh(g3); H.run(g3, 1, {});
   check('on the pad, hub targeted: tip the nose left (Mochi turns counter-clockwise)', /^Take off \(hold W\), tip the nose left with A and burn sideways: Mochi Hub goes counter-clockwise/.test(Game.hint(g3)), Game.hint(g3));
   const g4 = fresh(); H.run(g4, 2, {}); H.run(g4, 6, { keys: ['KeyW'] }); H.run(g4, 60 * 40, {});
@@ -472,7 +513,8 @@ for (const id of ['outpost', 'rusts']) {
   const g2 = fresh('orbit');
   const [, , mvx2, mvy2] = World.bodyState(g2.w, g2.w.byId.mochi, g2.t);             // 10 % faster than circular, relative to Mochi
   Object.assign(g2.sh, { vx: mvx2 + 1.1 * (g2.sh.vx - mvx2), vy: mvy2 + 1.1 * (g2.sh.vy - mvy2) }); g2.everFlew = true; g2.navId = 'station:hub'; Game.refresh(g2); H.run(g2, 1, {});
-  check('eccentric orbit crossing the station: timing advice', /crosses Mochi Hub's/.test(Game.hint(g2)) || (g2.approach.d < 60 && /Closest approach/.test(Game.hint(g2))), Game.hint(g2));
+  const own2 = (Game.mods.find((x) => x.id === 'stations').hint(g2) || {}).text || '';           // the core's rubble-ring heads-up may outrank it
+  check('eccentric orbit crossing the station: timing advice', /crosses Mochi Hub's/.test(own2) || (g2.approach.d < 60 && /Closest approach/.test(own2)), own2);
   const g3 = fresh('orbit'), hub3 = Stations.byId(g3, 'hub');
   coorbit(g3, hub3, -420 * 0.9); g3.navId = 'station:hub'; Game.refresh(g3); H.run(g3, 1, {});
   check('same circular orbit, station ahead: lower orbits are faster', /ahead\. Lower orbits are faster/.test(Game.hint(g3)), Game.hint(g3));
@@ -536,6 +578,9 @@ for (const id of ['outpost', 'rusts']) {
   const r = spawnSync(process.execPath, [__filename, '--solo'], { encoding: 'utf8' });
   process.stdout.write(r.stdout.split('\n').filter((l) => /PASS|FAIL/.test(l)).map((l) => l + '\n').join(''));
   check('without the economy, docking is a free refuel (child run)', r.status === 0, r.status ? r.stderr.slice(0, 300) : '');
+  const r2 = spawnSync(process.execPath, [__filename, '--pad'], { encoding: 'utf8' });
+  process.stdout.write(r2.stdout.split('\n').filter((l) => /PASS|FAIL/.test(l)).map((l) => l + '\n').join(''));
+  check('with Mochi\'s town: undock window, pad target, landing by the pad (child run)', r2.status === 0, r2.status ? r2.stderr.slice(0, 300) : '');
 }
 
 console.log(`\n${nPass} passed, ${nFail} failed${MOCK ? '  (economy not built yet: Econ mocked)' : ''}`);

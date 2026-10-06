@@ -1,7 +1,7 @@
 // ======================================================================
 //  MOCHI  —  Downtown (tunnels carved at build), the Clunk Lift, outposts on
 //  Mochi and the belt, spots for NPCs, signs, map boards.
-//  API: Mochi.spots(g), airAt(g, x, y), zoneAt(g, x, y), outposts(g), noon(g) 0..1, TOWN, ST
+//  API: Mochi.spots(g), airAt(g, x, y), nearestAir(g, x, y), zoneAt(g, x, y), outposts(g), noon(g) 0..1, PAD_ID, padAt(b), TOWN, ST
 //  Design: design/mochi.md · contract: design/V4-CONTRACT.md
 // ======================================================================
 
@@ -39,11 +39,11 @@ const Mochi = (() => {
     { id: 'workings', name: 'Old Workings',     r: 236, x0: -63,  x1: -50, h: 4,   p: 3,   air: false, unlined: true },   // the mine face
   ];
   const RAMPS = [
-    { id: 'weststair', name: 'West Stair',   a: [-44, 297.6], b: [-13.5, F1], h: 3.5, air: false },
+    { id: 'weststair', name: 'West Stair',   a: [-44, 297.6], b: [-13.5, F1], h: 3.5, air: true },     // an airlock at the top
     { id: 'workings0', name: 'Old Workings', a: [-30, F3],    b: [-52, 236],  h: 3.2, air: false, unlined: true },
   ];
   const SHAFTS = [
-    { id: 'lift',    name: 'Clunk Lift', th: LIFT.th,         w: LIFT.w, r0: F3 - 0.5, r1: ROOF, air: false },
+    { id: 'lift',    name: 'Clunk Lift', th: LIFT.th,         w: LIFT.w, r0: F3 - 0.5, r1: ROOF, air: true },     // gated, roofed: pumped
     { id: 'skyhole', name: 'Skylight',   th: thAt(77.5, F1), w: 3.0,    r0: F1 + 5,   r1: 302,  air: false },
   ];
   const CAVES = [
@@ -52,6 +52,7 @@ const Mochi = (() => {
   ];
   const TOWN_X = [-70, 90], TOWN_R = [205, 312];                   // Downtown's box (x, r): wake the lift, draw props
   const STAIR_MOUTH = [-40, 297.4];                                // nav target "Downtown"
+  const PAD_ID = 'mochi:pad', PAD_NEAR = 60;                       // the town pad's nav target; core counts a landing within PAD_NEAR m
 
   // ---------------- per world: the town hangs under this seed's pad ----------------
   //  The numbers above are for seed 7 (pad radius SURF0). Another seed shifts the whole town by DR (whole cells),
@@ -249,7 +250,7 @@ const Mochi = (() => {
     });
     return out;
   }
-  const freshLift = () => ({ r: TOP, target: TOP, v: 0, q: null, cells: [], gates: {}, orig: new Map(), idle: 0, ka: 0, sleep: false, dep: TOP });
+  const freshLift = () => ({ r: TOP, target: TOP, v: 0, q: null, cells: [], gates: {}, orig: new Map(), idle: 0, ka: 0, sleep: false, dep: TOP, rider: null });
   const stopOf = (r) => LIFT.stops.find((s) => Math.abs(s.r - r) < 0.01) || null;
 
   function placeDeck(T, L, rTop) {
@@ -304,15 +305,38 @@ const Mochi = (() => {
     return k >= 0 && T.zone[k] ? T.zones[T.zone[k] - 1] : null;
   }
   const airAt = (g, x, y) => { const z = zoneAt(g, x, y); return !!(z && z.air); };
+
+  // the nearest breathable place on Mochi -> { name, x, y, d } (world, straight line), or null.
+  // Outside the tunnels only the two ways in count; inside, any hall with air (sampled every 2 m).
+  const DOORS = [['the West Stair', -38, 295.7], ['the Clunk Lift', 21, 'lift']];
+  function airPoints(T) {
+    if (T.airPts) return T.airPts;
+    const pts = T.airPts = [], S = 4;
+    for (let j = 0; j < T.N; j += S) for (let i = 0; i < T.N; i += S) {
+      const z = T.zone[j * T.N + i]; if (!z || !T.zones[z - 1].air) continue;
+      pts.push([-T.half + (i + 0.5) * Terrain.CELL, -T.half + (j + 0.5) * Terrain.CELL, T.zones[z - 1].name]);
+    }
+    return pts;
+  }
+  function nearestAir(g, x, y) {
+    const b = g.w.byId.mochi, T = b && b.ter; if (!T || !T.zone) return null;
+    const [lx, ly, r, xe] = mochiLocal(g, x, y), [bx, by] = World.bodyState(g.w, b, g.t);
+    const pts = DOORS.map(([name, dx, dr]) => { const [px, py] = floorAt(dx, dr === 'lift' ? TOP - 2 : dr); return [px, py, name]; });
+    if (zoneAt(g, x, y) || r < SD(xe) - 2) pts.push(...airPoints(T));
+    let best = null;
+    for (const [px, py, name] of pts) { const d = Math.hypot(px - lx, py - ly); if (!best || d < best.d) best = { name, x: bx + px, y: by + py, d }; }
+    return best;
+  }
   const inTown = (x, r) => x > TOWN_X[0] && x < TOWN_X[1] && r > TOWN_R[0] && r < TOWN_R[1];
 
   // [lx, ly, ux, uy] of a floor point x east of the pad on radius r (body-local)
   function floorAt(x, r) { const th = thAt(x, r), R = r + DR; return [R * Math.cos(th), R * Math.sin(th), Math.cos(th), Math.sin(th)]; }
+  const padAt = (b) => [0, World.surfaceR(b, TH0) + 1.2];         // the top of the pad's deck (body-local; render.drawPad)
 
-  const astroOut = (g) => g.mode === 'eva' && g.astro && g.astro.on;
+  const astroOut = (g) => g.mode === 'eva' && g.astro && g.astro.on, STAND = 0.75;   // STAND: eva's torso centre above the feet
   function astroAt(g) {                                            // the astronaut's feet in town coords, or null
     if (!astroOut(g) || !g.w.byId.mochi) return null;
-    const A = g.astro, [, , r, x] = mochiLocal(g, A.x, A.y), feet = r - 0.75;
+    const A = g.astro, [, , r, x] = mochiLocal(g, A.x, A.y), feet = r - STAND;
     return { x, r, feet, z: zoneAt(g, A.x, A.y), grounded: !!(g.mod.eva && g.mod.eva.grounded) };
   }
   function onDeck(g) {
@@ -380,7 +404,24 @@ const Mochi = (() => {
   //  PER STEP / PER FRAME: the lift, auto-call, zones you walk into
   // ======================================================================
 
-  const step = (g, dt) => { setWorld(g.w.byId.mochi); stepLift(g, M(g).lift, dt); };
+  const step = (g, dt) => { setWorld(g.w.byId.mochi); const L = M(g).lift; stepLift(g, L, dt); carry(g, L); };
+
+  // ---------------- riding: whoever starts a ride on the deck stays on it ----------------
+  //  The deck is re-cut from square cells every 0.5 m and its stair-step top used to shuffle riders off the edge.
+  //  So a rider is carried: feet on the deck, held where they stood (inside the foot's reach of the rim), no walking.
+  const RIDE_OFF = LIFT.deck / 2 - 0.45;
+  function board(g, L) {
+    if (L.rider && L.v) return;                                    // a new floor mid-ride: hold on
+    const a = onDeck(g) && astroAt(g);
+    L.rider = a ? { off: Math.max(-RIDE_OFF, Math.min(RIDE_OFF, a.x - xAt(LIFT.th, a.r))) } : null;
+  }
+  function carry(g, L) {
+    if (!L.rider) return;
+    if (!astroOut(g) || L.q === null) { L.rider = null; return; }
+    const b = g.w.byId.mochi, [bx, by, bvx, bvy] = World.bodyState(g.w, b, g.t), r = L.q + 0.02 + STAND, th = LIFT.th - L.rider.off / r;
+    Object.assign(g.astro, { x: bx + (r + DR) * Math.cos(th), y: by + (r + DR) * Math.sin(th), vx: bvx, vy: bvy });
+    if (L.v === 0 && L.r === L.target) L.rider = null;
+  }
 
   function frame(g, inp, dt, simDt) {
     const m = M(g), L = m.lift, a = astroAt(g);
@@ -397,10 +438,12 @@ const Mochi = (() => {
     const z = a && a.z, id = z ? (z.id === 'workings0' ? 'workings' : z.id) : null;
     if (id === m.zone) return;
     m.zone = id;
-    if (!id || m.seen[id] || z.kind === 'shaft') return;
-    m.seen[id] = 1;
-    if (z.kind !== 'street') Game.toast(g, `FOUND: ${z.name.toUpperCase()}`, z.air ? '#8ff0b0' : '#ffd166', 'mochiZone');
-    Game.log(g, `mochi: found ${z.name}`);
+    if (!id) return;
+    if (!m.seen[id] && z.kind !== 'shaft') {
+      m.seen[id] = 1;
+      if (z.kind !== 'street') Game.toast(g, `FOUND: ${z.name.toUpperCase()}`, z.air ? '#8ff0b0' : '#ffd166', 'mochiZone');
+      Game.log(g, `mochi: found ${z.name}`);
+    }
   }
 
   // idle 3 s with you on a stop's floor (or by the lift house) and not on the deck: the car comes to you
@@ -416,7 +459,7 @@ const Mochi = (() => {
   function go(g, L, stop, why) {
     if (L.target === stop.r && L.v !== 0) return;
     const from = stopOf(L.r), d = Math.abs(stop.r - L.r), t = d >= 6 ? d / LIFT.vmax + LIFT.vmax / LIFT.acc : 2 * Math.sqrt(d / LIFT.acc);
-    L.target = stop.r; L.idle = 0; L.dep = L.r; L.ka = L.r;
+    L.target = stop.r; L.idle = 0; L.dep = L.r; L.ka = L.r; board(g, L);
     Game.log(g, `mochi lift ${from ? from.id : L.r.toFixed(1)} -> ${stop.id} (${d.toFixed(0)} m, ${t.toFixed(1)} s, ${why})`);
   }
 
@@ -497,6 +540,7 @@ const Mochi = (() => {
   }
 
   function onKey(g, code) {
+    if (code === 'Escape' && M(g).map) { M(g).map = false; return true; }  // Esc closes the map board, not the game
     const k = /^(Digit|Numpad)([1-4])$/.exec(code);
     if (!k || g.ui || !onDeck(g)) return false;
     go(g, M(g).lift, LIFT.stops[+k[2] - 1], `key ${k[2]}`);
@@ -532,8 +576,9 @@ const Mochi = (() => {
   function navTargets(g) {
     const b = g.w.byId.mochi; if (!b) return null;
     const pt = (body, lx, ly) => (t) => { const s = World.bodyState(g.w, body, t); return [s[0] + lx, s[1] + ly, s[2], s[3]]; };
-    const [sx, sy] = floorAt(...STAIR_MOUTH);
-    const list = [{ id: 'mochi:downtown', name: 'Downtown (West Stair)', col: '#b9a6f2', r: 2, state: pt(b, sx, sy) }];
+    const [sx, sy] = floorAt(...STAIR_MOUTH), [px, py] = padAt(b);
+    const list = [{ id: PAD_ID, name: 'Mochi Pad (town)', col: '#7cf5d6', r: 10, kind: 'pad', state: pt(b, px, py) },
+                  { id: 'mochi:downtown', name: 'Downtown (West Stair)', col: '#b9a6f2', r: 2, state: pt(b, sx, sy) }];
     for (const o of outposts(g)) {
       const body = g.w.byId[o.body], [bx, by] = World.bodyState(g.w, body, g.t);
       if (g.navId !== 'mochi:' + o.id && Math.hypot(g.sh.x - bx - o.lx, g.sh.y - by - o.ly) > 3000) continue;
@@ -549,8 +594,11 @@ const Mochi = (() => {
     if (!a) {
       const lo = g.status === 'landed' && landedOutpost(g);
       if (lo && econ(g)) return { pri: 34, text: `${ST[lo.id].name}: press F to trade with ${ST[lo.id].keeper}. ${OUT_HINT[lo.id]}` };
-      if (g.status === 'landed' && g.landedOn && g.landedOn.id === 'mochi' && !m.seen.pantry && g.done.mine !== undefined)
-        return { pri: 30, text: 'Downtown is under your feet: the West Stair (44 m west) or the Clunk Lift (21 m east). E to step out.' };
+      const x = landedX(g), town = !m.seen.pantry && g.done.mine !== undefined;
+      if (x === null || !(town || g.done.land_mochi === undefined)) return null;
+      if (Math.abs(x) > PAD_NEAR) return { pri: 31, text: hopHint(g, x) };
+      if (town)
+        return { pri: 30, text: `Downtown is under your feet: E to step out, then walk ${way(x + 44)} to the West Stair or ${way(x - 21)} to the Clunk Lift.` };
       return null;
     }
     const z = a.z, x = a.x;
@@ -573,6 +621,23 @@ const Mochi = (() => {
     return null;
   }
   const mins = (t) => (t < 90 ? `${Math.ceil(t)} s` : `${Math.round(t / 60)} min`);
+  const way = (dx) => `${Math.abs(dx).toFixed(0)} m ${dx > 0 ? 'left' : 'right'}`;   // dx = you - there (x east = right when upright)
+
+  // landed on Mochi: the ship's x east of the pad (the short way round), else null
+  function landedX(g) {
+    const b = g.w.byId.mochi;
+    if (g.status !== 'landed' || g.mode !== 'ship' || !g.landedOn || g.landedOn !== b) return null;
+    const [bx, by] = World.bodyState(g.w, b, g.t);
+    return -dth(Math.atan2(g.sh.y - by, g.sh.x - bx), TH0) * World.surfaceR(b, TH0);
+  }
+  // landed far from town: a hop. Minimum-energy ballistic hop over chord c on a sphere of radius R:
+  //  v^2 = mu (2/R - 4/(2R + c)); twice that for the landing. 100 m: 13 m/s, 460 m: 22, 730 m: 24 (stock tank: ~390)
+  function hopHint(g, x) {
+    const b = g.w.byId.mochi, R = World.surfaceR(b, TH0), c = 2 * R * Math.sin(Math.abs(x) / R / 2);
+    const dv = 2 * Math.sqrt(b.mu * (2 / R - 4 / (2 * R + c))), dir = x > 0 ? 'left' : 'right', key = x > 0 ? 'A' : 'D';
+    const tab = g.navId === PAD_ID ? '' : ' (Tab: Mochi Pad)';
+    return `Town pad: ${Math.abs(x).toFixed(0)} m to your ${dir}${tab}. Hop: W up, tip ${dir} (${key}), burn till your path ends on the pad, brake at ⊗ BRAKE. ~${Math.ceil(dv / 5) * 5} m/s of fuel.`;
+  }
   const OUT_HINT = { frostbite: 'Ice sells at 1.1x here.', clank: 'Repairs at 3/4 price, iron at 1.1x.', pump9: 'The cheapest fuel in the belt.',
                      pitstop: 'Fuel and a kettle.', forge: 'The cheapest repairs in the belt.', brinepit: 'Black market: no names, no receipts.' };
 
@@ -648,9 +713,20 @@ const Mochi = (() => {
     if (outline) { ctx.lineWidth = outline * 20 / size; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.strokeText(s, 0, 0); }
     ctx.fillStyle = col; ctx.fillText(s, 0, 0); ctx.restore();
   }
+  const GLOWS = new Map();                                         // one pre-painted glow per colour, stamped per lamp (systems M3)
   function glow(x, y, R, rgb, a) {
-    const gr = ctx.createRadialGradient(x, y, 0, x, y, R); gr.addColorStop(0, `rgba(${rgb},${a})`); gr.addColorStop(1, `rgba(${rgb},0)`);
-    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill();
+    if (typeof document === 'undefined') {
+      const gr = ctx.createRadialGradient(x, y, 0, x, y, R); gr.addColorStop(0, `rgba(${rgb},${a})`); gr.addColorStop(1, `rgba(${rgb},0)`);
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill(); return;
+    }
+    let cv = GLOWS.get(rgb);
+    if (!cv) {
+      cv = document.createElement('canvas'); cv.width = cv.height = 64;
+      const c = cv.getContext('2d'), gr = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, `rgba(${rgb},1)`); gr.addColorStop(1, `rgba(${rgb},0)`); c.fillStyle = gr; c.fillRect(0, 0, 64, 64);
+      GLOWS.set(rgb, cv);
+    }
+    const a0 = ctx.globalAlpha; ctx.globalAlpha = a0 * a; ctx.drawImage(cv, x - R, y - R, 2 * R, 2 * R); ctx.globalAlpha = a0;
   }
 
   // ---------------- alien script on signs (Npcs.script when present; Murk-ish dots without it) ----------------
@@ -1039,7 +1115,7 @@ const Mochi = (() => {
     ['sign', -48.5, S_, { text: 'DOWNTOWN', arrow: 'e', w: 3.4, race: 'murk', word: 'down' }], ['mapBoard', -55.5, S_, {}],
     ['postLamp', -45.4, S_, {}], ['postLamp', 16, S_, {}],
     // ---- West Stair
-    ['lamp', -36, WS, { h: 3.4 }], ['lamp', -27, WS, { h: 3.4 }], ['lamp', -18.5, WS, { h: 3.4 }], ['airlock', -13.8, F1, {}],
+    ['airlock', -41.6, WS, {}], ['lamp', -36, WS, { h: 3.4 }], ['lamp', -27, WS, { h: 3.4 }], ['lamp', -18.5, WS, { h: 3.4 }],
     // ---- The Pantry
     ['banner', 0, F1, { y: 6.7, text: 'THE PANTRY', race: 'oggle', word: 'pantry', w: 4.4 }],
     ['window', -5.5, F1, { y: 4.9 }], ['window', 6.8, F1, { y: 5.1, cur: '#7cf5d6' }],
@@ -1051,7 +1127,7 @@ const Mochi = (() => {
     ['stall', 9.5, F1, { sign: 'SNACKS', w: 2.6, awn: ['#ffd166', '#ff9f43'], goods: 3, gc: ['#9df07a', '#ffd166', '#ff9f43'] }],
     ['crates', 12.3, F1, {}],
     // ---- Main Street east, the Noodle Hole, the Dig Hall, the Skylight
-    ['sign', 16.0, F1, { text: 'NOODLES', arrow: 'w', w: 2.6 }], ['plaque', 16.6, F1, { word: 'noodles east' }],
+    ['sign', 16.0, F1, { text: 'NOODLES', arrow: 'w', w: 3.0 }], ['plaque', 16.6, F1, { word: 'noodles east' }],
     ['lamp', 28, F1, {}], ['lamp', 38, F1, {}], ['noodle', 33, F1, {}], ['menu', 39.6, F1, {}],
     ['sign', 43.5, F1, { text: 'DIG HALL', arrow: 'e', w: 2.8, race: 'crustling', word: 'dig' }],
     ['banner', 56, F1, { y: 6.3, text: 'THE DIG HALL', race: 'crustling', word: 'dig hall', w: 4.6 }],
@@ -1150,9 +1226,44 @@ const Mochi = (() => {
     LT = INDOOR;
     if (!far) {
       for (const ln of LINES) drawLine(b, bx, by, ln);
-      for (const it of items) { light(it); it.o.L = M(g).lift; at(bx, by, thAt(it.x, it.r), it.r + DR, () => P[it.name](it.o)); }
+      for (const it of items) { light(it); it.o.L = M(g).lift; at(bx, by, thAt(it.x, it.r), it.r + DR, () => (still(it) ? stamp(it) : P[it.name](it.o))); }
     }
     drawLift(g, kit, bx, by, far);
+  }
+
+  // ---------------- props that never change: painted once per zoom step, then stamped (systems M3) ----------------
+  //  Indoors only (the light is fixed there); anything that moves or blinks is painted live every frame.
+
+  const ANIM = new Set(['lamp', 'mapBoard', 'noodle', 'idol', 'drip', 'padMarks', 'kettle', 'derrick', 'shack']);
+  const still = (it) => !it.out && !ANIM.has(it.name) && typeof document !== 'undefined';
+  let BAKE = { z: 0, map: new Map() };
+  function stamp(it) {
+    const z = Math.pow(2, Math.ceil(Math.log2(1 / PX) * 4) / 4);   // the zoom, rounded up to a quarter octave [px/m]
+    if (BAKE.z !== z) BAKE = { z, map: new Map() };
+    if (!BAKE.map.has(it)) BAKE.map.set(it, bake(it, z));
+    const k = BAKE.map.get(it);
+    if (!k) { P[it.name](it.o); return; }
+    ctx.save(); ctx.translate(k.x0, k.y1); ctx.scale(1 / z, -1 / z); ctx.drawImage(k.cv, 0, 0); ctx.restore();
+  }
+  function paintInto(c, px, fn) {                                  // run a painter on another canvas at another scale
+    const c0 = ctx, p0 = PX; ctx = c; PX = px;
+    try { fn(); } finally { ctx = c0; PX = p0; }
+  }
+  function bake(it, z) {
+    const S = 8, mw = 192, mh = 128, mx = 12, my = 13, probe = document.createElement('canvas');   // find its box at 8 px/m in -12..12 x -3..13 m
+    probe.width = mw; probe.height = mh;
+    const pc = probe.getContext('2d'); pc.setTransform(S, 0, 0, -S, mx * S, my * S);
+    paintInto(pc, 1 / z, () => P[it.name](it.o));
+    const a = pc.getImageData(0, 0, mw, mh).data; let u0 = mw, u1 = -1, v0 = mh, v1 = -1;
+    for (let v = 0; v < mh; v++) for (let u = 0; u < mw; u++) if (a[(v * mw + u) * 4 + 3]) { u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+    if (u1 < 0 || u0 === 0 || v0 === 0 || u1 === mw - 1 || v1 === mh - 1) return null;   // empty, or bigger than the probe: paint it live
+    const x0 = u0 / S - mx - 0.4, x1 = (u1 + 1) / S - mx + 0.4, y1 = my - v0 / S + 0.4, y0 = my - (v1 + 1) / S - 0.4;
+    const w = Math.ceil((x1 - x0) * z), h = Math.ceil((y1 - y0) * z);
+    if (w * h > 1600 * 1600) return null;
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const c = cv.getContext('2d'); c.setTransform(z, 0, 0, -z, -x0 * z, y1 * z);
+    paintInto(c, 1 / z, () => P[it.name](it.o));
+    return { cv, x0, y1 };
   }
 
   function drawLine(b, bx, by, [kind, x0, x1, f, y]) {
@@ -1276,10 +1387,10 @@ const Mochi = (() => {
     const m = M(g), a = astroAt(g); if (!a) return;
     const c = kit.ctx;
     if (a.z) {
-      const t = `${a.z.name} · ${a.z.air ? 'air' : 'no air'}`;
+      const t = `${a.z.name} · ${a.z.air ? 'air: refills your suit' : 'NO AIR'}`;
       c.font = `600 15px ${kit.FONT}`; const w = c.measureText(t).width + 28, x = kit.W / 2 - w / 2, y = 40;
       c.fillStyle = kit.INK; kit.roundRect(x + 3, y + 3, w, 26, 13); c.fill();
-      c.fillStyle = a.z.air ? '#8ff0b0' : '#ffb347'; kit.roundRect(x, y, w, 26, 13); c.fill(); c.strokeStyle = kit.INK; c.lineWidth = 2.5; c.stroke();
+      c.fillStyle = a.z.air ? '#8ff0b0' : '#ff8a80'; kit.roundRect(x, y, w, 26, 13); c.fill(); c.strokeStyle = kit.INK; c.lineWidth = 2.5; c.stroke();
       c.fillStyle = kit.INK; c.textAlign = 'center'; c.fillText(t, kit.W / 2, y + 18);
     }
     if (onDeck(g) || landingNear(g, 5)) liftPanel(g, kit, m.lift);
@@ -1309,7 +1420,7 @@ const Mochi = (() => {
   Game.addSpawn('tunnels', 'Downtown (the Pantry)', placeTunnels);
   Game.addGoals([{ id: 'downtown', order: 34, reward: 75, text: 'Ride the Clunk Lift down to the Cellar', test: inCellar }]);
 
-  return { spots, airAt, zoneAt, outposts, noon, TOWN: { F1, F2, F3, get TOP() { return TOP; }, get ROOF() { return ROOF; }, get DR() { return DR; }, surface: (x) => SD(x), LIFT, STREETS, ROOMS, RAMPS, SHAFTS, CAVES, OUTPOSTS, thAt, xAt, floorAt }, ST };
+  return { spots, airAt, nearestAir, zoneAt, outposts, noon, PAD_ID, PAD_NEAR, padAt, TOWN: { F1, F2, F3, get TOP() { return TOP; }, get ROOF() { return ROOF; }, get DR() { return DR; }, surface: (x) => SD(x), LIFT, STREETS, ROOMS, RAMPS, SHAFTS, CAVES, OUTPOSTS, thAt, xAt, floorAt }, ST };
 })();
 
 if (typeof module !== 'undefined') module.exports = Mochi;

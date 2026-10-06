@@ -17,7 +17,9 @@ const Npcs = (() => {
   const HAND_R = 40;                         // hand-ins come from the ship's hold within this [m]
   const NEAR_R = 200;                        // update and draw only NPCs this close to the camera [m]
   const MIN_PX = 22, VISIT_PX = 32;          // smallest on-screen NPC (station visitors) [px]
-  const DRAW_ZOOM = 1.5;                     // sprites only above this zoom [px/m]
+  const UP_MAX = 1.6, VISIT_UP = 2.2;        // ...but never more than this times life size (crowds; station visitors)
+  const DOT_PX = 9, BMP_PX = 30;             // on screen: under DOT_PX a dot, under BMP_PX a cached bitmap, else the full painter [px]
+  const DRAW_ZOOM = 1.5, CROWD_ZOOM = 3;     // sprites only above this zoom; crowd extras only above CROWD_ZOOM [px/m]
   const BUB_W = 236, GLYPH_H = 13, LINE_H = 20, MAX_WORLD = 3, FADE_R = 60, RADIO_MAX = 4, RADIO_Y = 84;
   const HEARD_MAX = 400, FIRST_HINT_T = 14;
   const SNAP_UP = 1.2, SNAP_DOWN = 4;        // feet snap: raycast from this far up, this far down [m]
@@ -76,8 +78,8 @@ const Npcs = (() => {
     { id: 'dot', name: 'Dockmaster Dot', short: 'Dot', race: 'pipkin', look: { ripe: 'pink', cloth: 'blue', acc: 'headset' }, at: { station: 'hub', keeper: true } },
     { id: 'peri', name: 'Peri', race: 'orbiloon', look: { pal: 'sky', acc: 'wand' }, at: { station: 'hub', x: -9, y: 19 }, lines: [
       ['hint', "Inside 4 km, Mochi is the boss of you. Outside, Ember is. That's the Hill sphere."],
-      ['hint', 'Leaving Mochi from the Hub costs 8.6 m/s. Add a lane change down here: 0.05 more.'],
-      ['hint', 'From low Mochi orbit, 15 m/s at once leaves at 19 m/s. Split up, at 5. Oberth!'],
+      ['hint', 'Leaving from the Hub costs 8.6 m/s. A lane change on top, burned down here: 0.05 more.'],
+      ['hint', 'One 15 m/s burn low leaves Mochi at 19 m/s. Escape first, 5 later: you leave at 5. Oberth!'],
       ['joke', "I don't float. I fall very politely, and burp now and then."],
       ['chat', 'Traffic is light. Traffic is always light. I am still very busy.']] },
     { id: 'thud', name: 'Sergeant Thud', short: 'Thud', race: 'oggle', look: { pal: 'teal', iris: '#ffd166', acc: 'cap' }, at: { station: 'hub', x: 6, y: -27, float: true }, lines: [
@@ -121,7 +123,7 @@ const Npcs = (() => {
     // ---- Mochi's tunnels ----
     { id: 'grubb', name: 'Cookie Grubb', short: 'Grubb', race: 'oggle', look: { pal: 'tangerine', iris: '#ffd166', acc: 'apron' },
       at: { spot: 'canteen', k: 0, fallback: { body: 'mochi', th: PI2 + 0.38 } }, lines: [
-      ['joke', 'Every fry on Mochi Hub comes from my fryer. Fuel and fixes came later.'],
+      ['joke', 'Every fry on Mochi comes from my fryer. Up the Hub too. They send a drone.'],
       ['lore', 'I cooked for Captain Crunch. He was cereal-ously bad at tipping.'],
       ['gossip', "Pirates eat here on Tuesdays. Truce day. Don't start anything on a Tuesday."],
       ['hint', 'Low on fuel out in the outer lane? Rust sells it dear. Dear beats drifting.']],
@@ -138,7 +140,7 @@ const Npcs = (() => {
       ['joke', 'I was here before the Hub. Before the tunnels. I am... the wall.']] },
     { id: 'velvet', name: 'Velvet', race: 'murk', look: { pal: 'plum', eye: '#7cf5d6', acc: 'monocle' },
       at: { spot: 'cellar', k: 0, fallback: { body: 'mochi', th: PI2 - 0.3 } }, lines: [
-      ['gossip', 'Void opals on Glimmer. Platinum on Truffle. Pirates on both. Choose.'],
+      ['gossip', "Void opals on Glimmer, guns included. Truffle's quiet. For now. Choose."],
       ['gossip', "Rust holds the pirates' pension fund. That's why Rust's is neutral."],
       ['gossip', 'Pirates radio in Belt Common so you understand the threats. Considerate.'],
       ['lore', 'We read with our fingers. Ink is shouting. Receipts are very rude.']],
@@ -242,7 +244,7 @@ const Npcs = (() => {
       ['lore', 'The Free Company of the Crumb. I founded it. Gary just works here. Badly.'],
       ['gossip', 'Kessler Kate wants more debris. Nobody wants more debris. Except Kate.'],
       ['joke', 'One-Eyed Wally has two eyes. Wears a patch to fit in. We let him.'],
-      ['hint', "Out by Mochi's outer ring we hunt in pairs. Watch your back. Then your front."]],
+      ['hint', 'Out past Biscotti we hunt in pairs. Watch your back. Then your front.']],
       favour: 'union',
       offer: ['want', "Gary's been skimming. Knock down three pirates and I'll pay their bounty again."],
       wait: ['grumpy', 'Three pirates. Any three. Gary would be nice.'],
@@ -266,7 +268,7 @@ const Npcs = (() => {
       ['chat', 'STATUS: UNPAID. MORALE: HIGH. CONFUSING.']] },
     { id: 'radish', name: 'Radish', race: 'pipkin', look: { ripe: 'plum', cloth: 'orange', acc: 'goggles', helmet: true }, at: { body: 'truffle', th: 1.9 }, after: 'scoop', lines: [
       ['joke', 'I said one more scoop. The vein said no. The pirates said yes. I left.'],
-      ['lore', 'Lulu fished me out of the dark off Glimmer. Purple and furious. Mostly purple.'],
+      ['lore', 'Lulu of the Lantern, way out, fished me out of the dark off Glimmer. Purple and furious.'],
       ['hint', "Truffle has void opals and nobody shooting. Don't tell everyone. Tell Pip."],
       ['chat', 'Same make as my old ship! Be kind to her. She hates crumbs in the vents.']] },
   ];
@@ -328,13 +330,13 @@ const Npcs = (() => {
   //  item + qty: a hand-in · check(g): an event (then tell the giver) · keeper: a station keeper (dock there; no F)
   //  needs: modules it relies on (never offered without them) · mvp: on in every build; the rest are stretch, also on
   const FAVOURS = {
-    salt:    { giver: 'mumble', item: 'salt', qty: 2, reward: 150, ask: '2 salt crystals', mvp: true },
-    noodles: { giver: 'grubb', item: 'ice', qty: 25, reward: 80, ask: '25 kg of ice', mvp: true },
-    shiny:   { giver: 'chive', item: 'amber', qty: 1, reward: 140, ask: '1 Kiwi amber', mvp: true },
-    forge:   { giver: 'annie', item: 'nickel', qty: 30, reward: 220, ask: '30 kg of nickel', mvp: true },
+    salt:    { giver: 'mumble', item: 'salt', qty: 2, reward: 150, ask: '2 salt crystals', where: 'dig Mochi, 2-10 m down', mvp: true },
+    noodles: { giver: 'grubb', item: 'ice', qty: 25, reward: 80, ask: '25 kg of ice', where: 'Mochi is full of it', mvp: true },
+    shiny:   { giver: 'chive', item: 'amber', qty: 1, reward: 140, ask: '1 Kiwi amber', where: 'dig Kiwi', mvp: true },
+    forge:   { giver: 'annie', item: 'nickel', qty: 30, reward: 220, ask: '30 kg of nickel', where: 'Dorito has it', mvp: true },
     drawer:  { giver: 'fern', keeper: 'outpost', needs: ['wrecks'], wreck: 'lettuce', reward: 250, ask: 'salvage Lettuce Pray', tell: 'dock at Kiwi Outpost', mvp: true },
-    rig:     { giver: 'okra', item: 'iron', qty: 40, reward: 110, ask: '40 kg of iron' },
-    fire:    { giver: 'velvet', item: 'opal', qty: 1, reward: 380, ask: '1 fire opal' },
+    rig:     { giver: 'okra', item: 'iron', qty: 40, reward: 110, ask: '40 kg of iron', where: 'Mochi or Dorito' },
+    fire:    { giver: 'velvet', item: 'opal', qty: 1, reward: 380, ask: '1 fire opal', where: 'Seed, Pickle or Big Potato' },
     dorito:  { giver: 'queso', needs: ['wrecks'], wreck: 'coolranch', reward: 200, ask: 'salvage the Cool Ranch Express' },
     exposure: { giver: 'sizzy', needs: ['wrecks'], wreck: 'longexp', reward: 300, ask: 'salvage Long Exposure' },
     scoop:   { giver: 'pip', needs: ['wrecks'], wreck: 'finders', reward: 300, ask: 'salvage Finders Keepers on Glimmer' },
@@ -649,9 +651,10 @@ const Npcs = (() => {
     const fx = sway * 0.3;
     c.beginPath(); c.ellipse(fx, 1.38, 0.3, 0.23, 0, 0, 2 * Math.PI); c.fillStyle = '#120d1e'; c.fill(); c.strokeStyle = INK; c.lineWidth = lw * 0.7; c.stroke();
     const blink = blinkAt(t, lk.off || 1.1, 3.7), sq = st.talk > 0 ? 0.5 + 0.5 * Math.abs(Math.sin(t * 8)) : 1, ex = (st.look ? st.look[0] : 0) * 0.04;
-    c.save(); c.shadowColor = eye; c.shadowBlur = 8;
-    for (const s of [-1, 1]) {
+    c.save();
+    for (const s of [-1, 1]) {                                     // the glow: a soft halo, not shadowBlur (systems M2)
       const x = fx + s * 0.12 + ex, y = 1.38, h = blink ? 0.012 : 0.075 * sq;
+      c.globalAlpha = 0.28; c.beginPath(); c.ellipse(x, y, 0.16, h * 1.6 + 0.05, 0, 0, 2 * Math.PI); c.fillStyle = eye; c.fill(); c.globalAlpha = 1;
       c.beginPath(); c.moveTo(x - 0.1, y); c.quadraticCurveTo(x, y + h * 1.4, x + 0.1, y); c.quadraticCurveTo(x, y - h * 0.8, x - 0.1, y); c.closePath(); c.fillStyle = eye; c.fill();
     }
     c.restore();
@@ -1189,7 +1192,7 @@ const Npcs = (() => {
     const m = g.mod.npcs, F = FAVOURS[f], n = findNpc(g, F.giver), who = n ? n.short : DEF[F.giver].short || DEF[F.giver].name;
     m.fav[f] = 'active';
     m.favData[f] = { t: g.t, ...(F.kills && on(g, 'combat') ? { kills0: g.mod.combat.kills || 0 } : {}) };
-    Game.toast(g, (F.item ? `FAVOUR: BRING ${who} ${F.ask} ($${F.reward})` : `FAVOUR: ${F.ask} FOR ${who} ($${F.reward})`).toUpperCase(), '#ffd166', 'favour');
+    Game.toast(g, (F.item ? `FAVOUR: BRING ${who} ${F.ask} ($${F.reward})${F.where ? `: ${F.where}` : ''}` : `FAVOUR: ${F.ask} FOR ${who} ($${F.reward})`).toUpperCase(), '#ffd166', 'favour');
     Game.log(g, `npc favour ${f} accepted`);
     if (n) say(g, n, ...thanks(n));
     return true;
@@ -1291,7 +1294,7 @@ const Npcs = (() => {
     if (n) n.talkUntil = g.real + typeT + 0.3;
     if (n && n.kind === 'keeper') m.met[n.id] = true;
     if (!n && d) m.met[d.id] = true;
-    if (race !== 'pipkin' && !all && !m.firstAt) { m.firstAt = g.real; m.firstWho = name; m.firstRace = race; }
+    if (race !== 'pipkin' && !all && !m.firstDone && !(m.firstFrom && m.firstAt)) { m.firstAt = m.firstAt || g.real; m.firstWho = name; m.firstRace = race; }   // the latest, until the hint shows
     if (radioWanted(g, n)) { b.t0 = null; m.radio.push(b); if (m.radio.length > RADIO_MAX) m.radio.splice(1, 1); }
     else {
       m.bubbles = m.bubbles.filter((o) => o.id !== b.id);
@@ -1512,9 +1515,9 @@ const Npcs = (() => {
     const m = g.mod.npcs; if (!m) return;
     m.view = { rect: kit.viewRect(4), zoom: kit.cam.zoom };
     if (kit.cam.zoom < DRAW_ZOOM) return;
-    const c = kit.ctx, px = kit.px(), view = kit.viewRect(4), A = astroOut(g) ? g.astro : null;
+    const c = kit.ctx, px = kit.px(), view = kit.viewRect(4), A = astroOut(g) ? g.astro : null, crowd = kit.cam.zoom >= CROWD_ZOOM;
     for (const n of near(g)) {
-      if (n.kind === 'keeper' || n.kind === 'visitor' || !n.body) continue;
+      if (n.kind === 'keeper' || n.kind === 'visitor' || !n.body || (n.kind === 'extra' && !crowd)) continue;
       const h = n.h, cx = n.x + n.up[0] * h / 2, cy = n.y + n.up[1] * h / 2;
       if (cx + h < view[0] || cx - h > view[2] || cy + h < view[1] || cy - h > view[3]) continue;
       drawNpc(g, kit, c, n, px, A);
@@ -1522,12 +1525,14 @@ const Npcs = (() => {
   }
 
   function drawNpc(g, kit, c, n, px, A) {
-    const s = Math.max(1, MIN_PX * px / n.h), rot = Math.atan2(n.up[1], n.up[0]) - Math.PI / 2;
+    const s = upScale(n.h, px), tall = n.h * s / px, rot = Math.atan2(n.up[1], n.up[0]) - Math.PI / 2;
+    if (tall < DOT_PX) { dot(c, n, s, px); return; }
     const cr = Math.cos(-rot), sr = Math.sin(-rot), toL = (x, y) => [x * cr - y * sr, x * sr + y * cr];
     const [hx, hy] = headOf(n), target = A || g.sh, [dx, dy] = toL(target.x - hx, target.y - hy), d = Math.hypot(dx, dy) || 1;
     if (d < 8) n.face = dx < 0 ? -1 : 1;
     const f = n.face || (hash32(n.id) % 2 ? 1 : -1);
     const [Lx, Ly] = toL(kit.LIGHT[0], kit.LIGHT[1]);
+    if (tall < BMP_PX && !(n.talkUntil > g.real) && typeof document !== 'undefined') { blit(c, n, f, [Lx * f, Ly], s, tall, rot); return; }
     c.save(); c.translate(n.x, n.y); c.rotate(rot); c.scale(s * f, s);
     drawSprite(c, n.race, n.look, { t: g.real, talk: n.talkUntil > g.real ? 1 : 0, mood: talkMood(g, n), look: [dx / d * f, dy / d],
                                     L: [Lx * f, Ly], lw: 2.4 * px / s, helmet: RACES[n.race].breathes && !n.air });
@@ -1535,20 +1540,51 @@ const Npcs = (() => {
   }
   const talkMood = (g, n) => { const b = g.mod.npcs.bubbles.find((o) => o.npc === n); return b ? b.mood : 'chat'; };
 
+  // ---------------- level of detail (systems M2): people are never giants, small ones are dots or cached bitmaps ----------------
+
+  const upScale = (h, px, min = MIN_PX, max = UP_MAX) => Math.min(max, Math.max(1, min * px / h));   // sprite scale over life size
+  function dot(c, n, s, px) {
+    const h = n.h * s, r = Math.max(1.6 * px, h * 0.32);
+    c.beginPath(); c.arc(n.x + n.up[0] * h * 0.45, n.y + n.up[1] * h * 0.45, r, 0, 2 * Math.PI);
+    c.fillStyle = RACES[n.race].col; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.2 * px; c.stroke();
+  }
+  //  a still pose, painted once per (npc, facing, size step, light octant, helmet) and stamped with one drawImage
+  const BMP = new Map();
+  function blit(c, n, f, L, s, tall, rot) {
+    const step = Math.ceil(tall / 6) * 6, oct = Math.round(Math.atan2(L[1], L[0]) / (Math.PI / 4)), helmet = RACES[n.race].breathes && !n.air;
+    const key = `${n.id}|${f}|${step}|${oct}|${helmet}`;
+    let b = BMP.get(key);
+    if (!b) {
+      if (BMP.size > 600) BMP.clear();
+      const k = step / n.h, cv = document.createElement('canvas'), w = Math.ceil(1.9 * step) + 4, h = Math.ceil(1.6 * step) + 4;
+      cv.width = w; cv.height = h;
+      const cc = cv.getContext('2d'), ox = w / 2, oy = h - Math.ceil(0.2 * step) - 2, a = oct * Math.PI / 4;
+      cc.setTransform(k, 0, 0, -k, ox, oy);
+      drawSprite(cc, n.race, n.look, { t: 1.3 + (hash32(n.id) % 97) / 10, look: [0.6, 0], L: [Math.cos(a), Math.sin(a)], lw: 2.2 / k, helmet });
+      b = { cv, ox, oy, step }; BMP.set(key, b);
+    }
+    const m = s * n.h / b.step;                                    // world metres per bitmap pixel
+    c.save(); c.translate(n.x, n.y); c.rotate(rot); c.scale(f * m, -m);
+    c.drawImage(b.cv, -b.ox, -b.oy);
+    c.restore();
+  }
+
   // speech bubbles (screen px, crisp at any zoom), newest on top; older ones slide up out of the way
   function drawScreen(g, kit) {
     const m = g.mod.npcs; if (!m || g.ui) return;
     g0 = g;
-    const placed = [], todo = [];
+    const me = meRect(g, kit), placed = [me], todo = [];               // bubbles keep off you (newplayer M9)
+    let byMe = 0;
     for (let i = m.bubbles.length - 1; i >= 0; i--) {
       const b = m.bubbles[i], n = b.npc; if (!n) continue;
       where(g, n);
       if (!Number.isFinite(n.x)) continue;
-      const sc = n.kind === 'keeper' ? 1 : Math.max(1, (n.kind === 'visitor' ? VISIT_PX : MIN_PX) * kit.px() / n.h), top = n.h * sc + 0.25;
+      const sc = n.kind === 'keeper' ? 1 : n.kind === 'visitor' ? upScale(n.h, kit.px(), VISIT_PX, VISIT_UP) : upScale(n.h, kit.px()), top = n.h * sc + 0.25;
       const tip = [n.x + n.up[0] * top, n.y + n.up[1] * top], [tx, ty] = kit.toScreen(tip[0], tip[1]);
       const dc = Math.hypot(n.x - kit.cam.x, n.y - kit.cam.y), age = g.real - b.t0;
       const alpha = Math.min(1, (b.life + 0.4 - age) / 0.4, age * 6) * Math.max(0, Math.min(1, 1 - (dc - FADE_R) / 20));
       if (alpha <= 0.01 || !kit.onScreen(tx, ty, 60)) continue;
+      if (g.mode === 'ship' && Math.hypot(tx - (me[0] + me[2]) / 2, ty - (me[1] + me[3]) / 2) < 240 && byMe++) continue;   // one at a time by your ship
       const L = layout(kit.ctx, b), bw = L.bw, bh = L.bh;
       const bx = Math.max(10, Math.min(kit.W - bw - 14, tx - 30));
       let want = 0;
@@ -1565,6 +1601,12 @@ const Npcs = (() => {
     for (let i = todo.length - 1; i >= 0; i--) drawBubble(g, kit, ...todo[i].slice(0, 4), false);   // oldest first: the newest sits on top
     const r = m.radio[0];
     if (r && r.t0 != null) drawBubble(g, kit, r, 0, 0, Math.min(1, (r.life + 0.4 - (g.real - r.t0)) / 0.4, (g.real - r.t0) * 5), true);
+  }
+
+  function meRect(g, kit) {                                        // you on screen, with a margin [px]
+    const out = astroOut(g), [x, y] = kit.toScreen(out ? g.astro.x : g.sh.x, out ? g.astro.y : g.sh.y);
+    const r = out ? 30 : Math.max((g.S.length || 9) * kit.cam.zoom, 34) / 2 + 10;
+    return [x - r, y - r, x + r, y + r];
   }
 
   // the FAVOURS panel: only while one is active (max 3 rows), always in English
@@ -1592,11 +1634,12 @@ const Npcs = (() => {
 
   function hint(g) {
     const m = g.mod.npcs; if (!m || g.ui || g.status === 'dead') return null;
-    if (m.firstAt && !m.firstDone && g.real - m.firstAt < FIRST_HINT_T && translator(g) < 2) {
+    if (m.firstAt && !m.firstDone && g.mode === 'eva' && translator(g) < 2) {      // on foot only: never over flight coaching (newplayer M5)
+      m.firstFrom = m.firstFrom || g.real;
       const R = RACES[m.firstRace];
-      return { pri: 26, text: `${m.firstWho} speaks ${R.lang}. A translator (Suit tab at Mochi Hub) turns the ${R.glyphs} into words.` };
+      if (g.real - m.firstFrom < FIRST_HINT_T) return { pri: 26, text: `${m.firstWho} speaks ${R.lang}. A translator (Suit tab at Mochi Hub) turns the ${R.glyphs} into words.` };
+      m.firstDone = true;
     }
-    if (m.firstAt && g.real - m.firstAt >= FIRST_HINT_T) m.firstDone = true;
     for (const f of activeFavours(g)) {
       const F = FAVOURS[f]; if (!ready(g, f)) continue;
       const d = DEF[F.giver], who = d.short || d.name;
@@ -1646,11 +1689,15 @@ const Npcs = (() => {
   }
   function load(g, d) {
     const m = g.mod.npcs; if (!m || !d || typeof d !== 'object') return;
-    const ok = (id) => !!DEF[id] || NAMED_EXTRAS.some((x) => x.id === id) || /^x:[a-z-]+:\d+$/.test(id);
-    if (d.met && typeof d.met === 'object') for (const id in d.met) if (ok(id) && d.met[id]) m.met[id] = true;
-    if (d.line && typeof d.line === 'object') for (const id in d.line) if (ok(id) && Number.isFinite(d.line[id])) m.line[id] = Math.max(0, Math.floor(d.line[id]));
-    if (d.fav && typeof d.fav === 'object') for (const f in d.fav) if (FAVOURS[f] && ['offered', 'active', 'done'].includes(d.fav[f])) m.fav[f] = d.fav[f];
-    if (d.favData && typeof d.favData === 'object') for (const f in d.favData) if (FAVOURS[f] && d.favData[f] && typeof d.favData[f] === 'object') m.favData[f] = { ...d.favData[f] };
+    const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k), num = (v) => (Number.isFinite(v) ? v : undefined);   // "constructor" is no NPC
+    const ok = (id) => own(DEF, id) || NAMED_EXTRAS.some((x) => x.id === id) || /^x:[a-z-]+:\d+$/.test(id);
+    if (d.met && typeof d.met === 'object') for (const id of Object.keys(d.met)) if (ok(id) && d.met[id]) m.met[id] = true;
+    if (d.line && typeof d.line === 'object') for (const id of Object.keys(d.line)) if (ok(id) && Number.isFinite(d.line[id])) m.line[id] = Math.max(0, Math.floor(d.line[id]));
+    if (d.fav && typeof d.fav === 'object') for (const f of Object.keys(d.fav)) if (own(FAVOURS, f) && ['offered', 'active', 'done'].includes(d.fav[f])) m.fav[f] = d.fav[f];
+    if (d.favData && typeof d.favData === 'object') for (const f of Object.keys(d.favData)) {
+      const x = d.favData[f]; if (!own(FAVOURS, f) || !x || typeof x !== 'object') continue;
+      m.favData[f] = JSON.parse(JSON.stringify({ t: num(x.t) ?? 0, kills0: num(x.kills0), saidHi: x.saidHi === true || undefined }));
+    }
     if (Array.isArray(d.heard)) m.heard = d.heard.filter(Number.isFinite).slice(-HEARD_MAX);
     m.metAlien = Object.keys(m.met).some((id) => DEF[id] && DEF[id].race !== 'pipkin');
     if (m.metAlien) m.firstDone = true;
@@ -1668,7 +1715,8 @@ const Npcs = (() => {
                    test: (g) => !!(g.mod.npcs && g.mod.npcs.met.mumble) }]);
 
   return { list, say, drawSprite, script, readable, translator, talking, keeperOf: (id) => KEEPER_OF[id] || null,
-           RACES, DEFS, FAVOURS, NAMED_EXTRAS, CROWD, MOODS, PALS, decodeBot, sound, canRead, hash32, heightOf };
+           RACES, DEFS, FAVOURS, NAMED_EXTRAS, CROWD, MOODS, PALS, decodeBot, sound, canRead, hash32, heightOf,
+           visitScale: (h, px) => upScale(h, px, VISIT_PX, VISIT_UP) };
 })();
 
 if (typeof module !== 'undefined') module.exports = Npcs;

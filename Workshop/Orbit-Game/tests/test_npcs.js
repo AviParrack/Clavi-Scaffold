@@ -60,6 +60,15 @@ if (MODE === 'full') {
     check('job "meet" at order 33 pays $50', meet && meet.order === 33 && meet.reward === 50, meet ? meet.text : 'missing');
   }
 
+  {
+    const all = Npcs.DEFS.flatMap((d) => (d.lines || []).map((L) => `${d.id}: ${L[1]}`)), say = (id, re) => all.some((l) => l.startsWith(id + ':') && re.test(l));
+    check('lore matches the world (critic L10-L14): Truffle quiet, Marge at Biscotti, Lulu of the Lantern, Grubb on Mochi',
+      !say('velvet', /Pirates on both/) && say('velvet', /Truffle's quiet/) && say('marge', /past Biscotti/) && !all.some((l) => /outer ring/.test(l)) &&
+      say('radish', /Lulu of the Lantern/) && say('grubb', /Every fry on Mochi comes/) && say('peri', /Escape first, 5 later/), '');
+    const vs = [0.01, 0.05, 0.2, 1, 10].map((px) => Npcs.visitScale(1.5, px));
+    check('station visitors: life size up close, at most 2.2x when zoomed out (critic L5)', vs[0] === 1 && vs.every((v, i) => v >= 1 && v <= 2.2 && (!i || v >= vs[i - 1])) && vs[4] === 2.2, vs.map((v) => v.toFixed(2)).join(' '));
+  }
+
   // ---------------- 2. scripts ----------------
   {
     const J = (r, w) => JSON.stringify(Npcs.script(r, w, 44, 13));
@@ -120,6 +129,15 @@ if (MODE === 'full') {
     const h = hook('npcs', 'hint')(g);
     check('first contact hint names the language and where translators are', h && /Mumble speaks Murk\. A translator \(Suit tab at Mochi Hub\) turns the dots into words\./.test(h.text), h ? h.text : 'none');
     check('the hint is one line (<= 100 chars)', h && h.text.length <= 100, h ? `${h.text.length}` : '');
+    {
+      const gs = fresh(); H.run(gs, 3);                                   // newplayer M5: a radio line while flying waits for your feet
+      Npcs.say(gs, 'velvet', 'Void opals on Glimmer, guns included.');
+      const fly = hook('npcs', 'hint')(gs);
+      check('translator ad never shows while flying (newplayer M5)', gs.mode === 'ship' && !(fly && /translator/i.test(fly.text)) && !M(gs).firstFrom, fly ? fly.text : 'none');
+      H.run(gs, 4, { pressed: ['KeyE'] }); H.run(gs, 20);
+      const foot = hook('npcs', 'hint')(gs);
+      check('...and shows once you step out, naming the speaker', gs.mode === 'eva' && foot && /^Velvet speaks .*translator/.test(foot.text), foot ? foot.text : gs.mode);
+    }
 
     // ---------------- 5. favour: salt (hand-in) ----------------
     pressF(g);
@@ -150,6 +168,15 @@ if (MODE === 'full') {
     const g3 = Game.create(7, null, {});
     check('...and ignores junk and unknown ids', M(g3).met.mumble && !M(g3).met.nobody && !('fake' in M(g3).fav) && !M(g3).fav.salt && M(g3).line.pip === 2 && M(g3).heard.join() === '1,3',
           JSON.stringify({ met: M(g3).met, fav: M(g3).fav, line: M(g3).line }));
+    const proto = JSON.parse(store[Object.keys(store)[0]]);           // keys every object inherits are not NPCs or favours (systems)
+    proto.mods.npcs = JSON.parse('{"met":{"constructor":1,"toString":1},"line":{"hasOwnProperty":3},"fav":{"constructor":"active","__proto__":"done"},' +
+      '"favData":{"constructor":{"t":1},"salt":{"t":"x","kills0":-1e999,"evil":{"a":1},"saidHi":"yes"}}}');
+    store[Object.keys(store)[0]] = JSON.stringify(proto);
+    const g4 = Game.create(7, null, {}), own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+    H.run(g4, 3);
+    check('...and prototype keys ("constructor", "__proto__") and junk favour data', !own(M(g4).met, 'constructor') && !own(M(g4).met, 'toString') && !own(M(g4).line, 'hasOwnProperty') &&
+          !own(M(g4).fav, 'constructor') && Object.getPrototypeOf(M(g4).fav) === Object.prototype && !own(M(g4).favData, 'constructor') &&
+          JSON.stringify(M(g4).favData.salt) === '{"t":0}' && !g4.err, JSON.stringify({ fav: M(g4).fav, favData: M(g4).favData }));
     Game.wipeSave(); delete global.localStorage;
   }
 

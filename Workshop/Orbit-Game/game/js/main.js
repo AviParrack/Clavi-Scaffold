@@ -1,7 +1,8 @@
 // ======================================================================
 //  MAIN  —  input (keys, mouse, touch, warp buttons), URL params, loop
 //  ?debug=1 or #debug   overlay + self-test        ?seed=N   world layout
-//  ?dev=1 or #dev       dev mode: $50k, no save, T cycles spawn points
+//  ?dev=1 or #dev       dev mode: $50k, no save, T cycles spawn points (?dev=0 forces it off)
+//  type "duck"          dev mode on / off, remembered in this browser (localStorage); reloads the page
 //  ?spawn=hub|outpost|rusts|pad|orbit|belt|kiwi|pretzel|potato|glimmer|swarm  (or #kiwi etc.)
 //  ?fresh=1             ignore the saved game
 //  ?build=beast         dev: start from a build preset (dinky tow brick mule hauler barge beast; econ), or #build-beast
@@ -12,7 +13,8 @@
 
   const params = new URLSearchParams(location.search), hash = location.hash.slice(1), hashBuild = /^build-([\w-]+)$/.exec(hash);
   const DEBUG = params.get('debug') === '1' || hash === 'debug';
-  const DEV = params.get('dev') === '1' || hash === 'dev' || !!hashBuild;
+  const DEV_KEY = 'pocket-orbit-dev', store = (k, v) => { try { return v === undefined ? localStorage.getItem(k) : (v ? localStorage.setItem(k, v) : localStorage.removeItem(k)); } catch (e) { return null; } };
+  const DEV = params.get('dev') !== '0' && (params.get('dev') === '1' || hash === 'dev' || !!hashBuild || store(DEV_KEY) === '1');
   const SEED = parseInt(params.get('seed') || '7', 10);
   const spawn = params.get('spawn') || (Game.SPAWNS[hash] ? hash : null);
   const fresh = params.get('fresh') === '1';
@@ -43,6 +45,7 @@
     keys.add(e.code);
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
     if (e.repeat) return;
+    if (duck(e.code)) return;
     if (e.code === 'KeyM') { Render.cycleMap(); return; }
     if (e.code === 'Equal' || e.code === 'NumpadAdd') { zoom(1.25); return; }
     if (e.code === 'Minus' || e.code === 'NumpadSubtract') { zoom(0.8); return; }
@@ -52,6 +55,23 @@
   window.addEventListener('blur', () => { keys.clear(); mouse.down = false; });
   canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
   function zoom(f) { Render.cam.userZoom = Math.min(10, Math.max(0.02, Render.cam.userZoom * f)); }
+
+  // ---------------- "duck" typed within 2 s: the Debug Duck wakes (dev mode on) or naps (off) ----------------
+
+  const typed = [];
+  function duck(code) {
+    typed.push([code, performance.now()]); if (typed.length > 4) typed.shift();
+    if (typed.map((k) => k[0]).join() !== 'KeyD,KeyU,KeyC,KeyK' || typed[3][1] - typed[0][1] > 2000) return false;
+    typed.length = 0;
+    const on = !g.dev;
+    store(DEV_KEY, on ? '1' : null);
+    Game.toast(g, on ? 'DEBUG DUCK AWAKE: DEV MODE ON (NO SAVING). RELOADING...' : 'DEBUG DUCK NAPS: DEV MODE OFF. RELOADING...', '#ffd166', 'dev');
+    setTimeout(() => {
+      const u = new URL(location.href); u.searchParams.delete('dev'); if (u.hash === '#dev' || /^#build-/.test(u.hash)) u.hash = '';
+      history.replaceState(null, '', u.href); location.reload();
+    }, 900);
+    return true;
+  }
 
   // ---------------- mouse (world coords filled in each frame) ----------------
 

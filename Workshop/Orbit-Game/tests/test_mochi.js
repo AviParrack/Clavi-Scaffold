@@ -159,6 +159,24 @@ EVA.stepOut(g); H.run(g, 30, {});
 }
 
 
+// ---------------- 5b. riders stay on: every stop to every other, standing anywhere on the deck ----------------
+{
+  const L = g.mod.mochi.lift, stops = TW.LIFT.stops.map((q) => q.r), bad = [];
+  let rides = 0, worst = 0;
+  for (const from of stops) for (const to of stops) for (const off of [-1.2, 0, 1.2]) {
+    if (from === to) continue;
+    park(g, from); put(g, TW.xAt(TW.LIFT.th, from + 1) + off, from);
+    const hp0 = g.astro.hp;
+    H.run(g, 1, { pressed: ['Digit' + (stops.indexOf(to) + 1)] });
+    for (let n = 0; n < 60 * 40 && !(L.v === 0 && L.r === to); n++) { H.run(g, 1, {}); g.mod.eva.o2 = 1e9; }
+    H.run(g, 20, {});
+    const p = townPos(g), x = p.x - TW.xAt(TW.LIFT.th, p.r);
+    worst = Math.max(worst, Math.abs(x - off));
+    rides++; if (Math.abs(p.feet - to) > 0.4 || Math.abs(x) > TW.LIFT.deck / 2 || g.astro.hp !== hp0) bad.push(`${from}->${to}@${off}: feet ${p.feet.toFixed(1)} x ${x.toFixed(2)}`);
+  }
+  check(`lift: ${rides} rides, every pair of stops from x -1.2/0/+1.2: all arrive`, bad.length === 0, bad.slice(0, 3).join(' | ') || `worst sideways drift ${worst.toFixed(2)} m`);
+}
+
 // ---------------- 6. gates ----------------
 {
   park(g, TW.F3);
@@ -198,6 +216,12 @@ EVA.stepOut(g); H.run(g, 30, {});
   }
   check('spots: floor within 1 m below and 1.6 m clear above', bad.length === 0, bad.join(' ') || 'all standable across their width');
   check('airAt: the Pantry has air, the Skylight none', Mochi.airAt(g, ...world(g, 0, TW.F1 + 1)) && !Mochi.airAt(g, ...world(g, 76, TW.F1 + 1)));
+  const axis = TW.xAt(TW.LIFT.th, TW.F2);
+  check('airAt: the Clunk Lift shaft and the West Stair have air (newplayer H3)', Mochi.airAt(g, ...world(g, axis, TW.F2 + 6)) && Mochi.airAt(g, ...world(g, -30, 292.4)));
+  const na = (x, r) => Mochi.nearestAir(g, ...world(g, x, r)) || { name: 'none', d: NaN };
+  const n1 = na(-60, TW.surface(-60) + 1), n2 = na(40, TW.surface(40) + 1), n3 = na(76, TW.F1 + 1);
+  check('nearestAir: the stair from the west, the lift from the east, a hall from the Skylight', n1.name === 'the West Stair' && n2.name === 'the Clunk Lift' && n3.d < 8,
+    `${n1.name} ${n1.d.toFixed(0)} m · ${n2.name} ${n2.d.toFixed(0)} m · ${n3.name} ${n3.d.toFixed(1)} m`);
 }
 function world(g2, x, r) { const [lx, ly] = TW.floorAt(x, r), [bx, by] = World.bodyState(g2.w, g2.w.byId.mochi, g2.t); return [bx + lx, by + ly]; }
 
@@ -255,6 +279,27 @@ for (const o of TW.OUTPOSTS) {
   put(g2, -11, TW.F1);
   const mb = g2.prompts.find((q) => q.text === 'Read the map'); if (mb) mb.act(g2);
   check('map board: F opens the map, a walk key closes it', mb && g2.mod.mochi.map && (H.run(g2, 2, { keys: ['KeyD'] }), !g2.mod.mochi.map));
+  put(g2, -11, TW.F1); if (mb) mb.act(g2);
+  H.run(g2, 1, { pressed: ['Escape'] });
+  check('Esc closes the map board, and does not pause the game', mb && !g2.mod.mochi.map && !g2.paused, `map ${g2.mod.mochi.map}, paused ${g2.paused}`);
+}
+
+
+// ---------------- 11b. the town pad: a nav target, and the way back when you land far from it (newplayer H1) ----------------
+{
+  const g2 = fresh(), b = g2.w.byId.mochi, pad = Game.navTargets(g2).find((t) => t.id === Mochi.PAD_ID);
+  const [px, py, pvx, pvy] = pad ? pad.state(g2.t) : [0, 0, 0, 0], [bx, by, bvx, bvy] = World.bodyState(g2.w, b, g2.t);
+  check('nav: "Mochi Pad" is a target on top of the pad, riding Mochi', pad && /Pad/.test(pad.name) && Math.abs(Math.hypot(px - bx, py - by) - World.surfaceR(b, Math.PI / 2) - 1.2) < 1e-6 && pvx === bvx && pvy === bvy,
+    pad ? `${pad.name}, ${(Math.hypot(px - bx, py - by)).toFixed(1)} m from Mochi's centre` : 'missing');
+  const rows = [];
+  for (const [th, dir] of [[Math.PI / 2 + 0.5, 'right'], [Math.PI / 2 - 1.2, 'left']]) {
+    const g3 = fresh(); Game.landAt(g3, g3.w.byId.mochi, th); g3.everFlew = true; H.run(g3, 5, {});
+    const d = Math.round(Math.abs(th - Math.PI / 2) * World.surfaceR(g3.w.byId.mochi, Math.PI / 2)), h = Game.hint(g3);
+    rows.push(new RegExp(`^Town pad: ${d} m to your ${dir}.*~\\d+ m/s of fuel`).test(h) ? 'ok' : h);
+  }
+  check('landed far from the pad: how far, which way, and what the hop costs', rows.every((r) => r === 'ok'), rows.join(' | '));
+  const g4 = fresh(); Game.landAt(g4, g4.w.byId.mochi, Math.PI / 2 + 0.1); g4.done.mine = g4.t; H.run(g4, 5, {});
+  check('landed by the pad after mining: Downtown with the real walking distances', /walk 14 m left to the West Stair or 51 m right to the Clunk Lift/.test(Game.hint(g4)), Game.hint(g4));
 }
 
 

@@ -1,8 +1,9 @@
 // ======================================================================
 //  TERRAIN  —  diggable cell grid per body (Worms / Noita style)
 //  Local coords: metres from the body centre (bodies never rotate).
-//  Cell values: 0 space · 1 dug (cave backwall) · 2 regolith · 3+ ores
-//  Built lazily on first use: Terrain.of(body).
+//  Cell values: 0 space · 1 dug (cave backwall) · 2 regolith · 3+ ores and built stone
+//  Built lazily on first use: Terrain.of(body). Carvers (mochi.js) shape a body at build:
+//  Terrain.addCarver(bodyId, fn(T, b)). Fixed mats (wall, slab, deck) never break.
 // ======================================================================
 
 const Terrain = (() => {
@@ -12,7 +13,7 @@ const Terrain = (() => {
   const CELL = 0.5;               // cell size [m]
   const CHUNK = 24;               // cells per chunk side (12 m)
   const PXC = 6;                  // baked pixels per cell
-  const BAKES_PER_FRAME = 6, CACHE_MAX = 220;
+  const BAKES_PER_FRAME = 6, CACHE_MAX = 320;   // Mochi's town alone has ~210 content chunks
 
   const SPACE = 0, DUG = 1, REG = 2;
   const MATS = [
@@ -23,12 +24,21 @@ const Terrain = (() => {
     { id: 'iron',     hard: 2.2, kg: 7, item: 'iron',     col: ['#d98a5f', '#93502f', '#ffd0a8'] },
     { id: 'nickel',   hard: 2.8, kg: 7, item: 'nickel',   col: ['#bccb94', '#77854f', '#f1fbd2'] },
     { id: 'platinum', hard: 3.6, kg: 3, item: 'platinum', col: ['#eef1ff', '#9aa2cc', '#ffffff'] },
+    { id: 'wall',     hard: Infinity, kg: 0, fixed: true, col: ['#a99cc8', '#6f6496', '#d9d0f2'] },   // Murk-stone: town lining, lift gates
+    { id: 'slab',     hard: Infinity, kg: 0, fixed: true, col: ['#cfc6b8', '#8f8577', '#f2ece2'] },   // pad concrete: outpost plinths
+    { id: 'deck',     hard: Infinity, kg: 0, fixed: true, col: ['#ffd166', '#c9961f', '#fff3c4'] },   // lift steel: the Clunk Lift's floor
   ];
   const MAT_ID = Object.fromEntries(MATS.map((m, i) => [m.id, i]));
   const GEM_COL = { salt: ['#f4f0ff', '#a99cd6'], amber: ['#ffb347', '#b8620f'], opal: ['#ff7eb6', '#b0306e'], voidopal: ['#8f6bff', '#3b1f9e'] };
   const INK_RGB = [27, 20, 51];
+  const FIXED = MATS.map((m) => !!m.fixed);
 
   let bakeBudget = BAKES_PER_FRAME;
+
+  // ---------------- carvers: modules that shape a body when its grid is built ----------------
+
+  const CARVERS = {};                                             // bodyId -> [fn(T, b)]
+  function addCarver(id, fn) { (CARVERS[id] = CARVERS[id] || []).push(fn); }
 
   // ---------------- build ----------------
 
@@ -73,6 +83,7 @@ const Terrain = (() => {
       if (rs > 0.5) T.gems.push({ type: gs.type, lx: rs * Math.cos(th), ly: rs * Math.sin(th), state: 'buried', seen: false, body: b });
     }
 
+    for (const fn of CARVERS[b.id] || []) fn(T, b);                // after ores and gems, so the rng layout never shifts
     for (let c = 0; c < NC * NC; c++) T.has[c] = chunkHasContent(T, c % NC, Math.floor(c / NC)) ? 1 : 0;
     return T;
   }
@@ -141,13 +152,14 @@ const Terrain = (() => {
 
   // ---------------- dig ----------------
   //  power: dig units per call (a cell with hardness h breaks after h units)
-  //  returns { yield: { item: kg }, gems: [freed gems], cells, mats: { matId: count } }
+  //  returns { yield: { item: kg }, gems: [freed gems], cells, mats: { matId: count }, fixed: fixed cells hit }
 
   function dig(T, lx, ly, r, power) {
-    const out = { yield: {}, gems: [], cells: 0, mats: {} };
+    const out = { yield: {}, gems: [], cells: 0, mats: {}, fixed: 0 };
     forCells(T, lx, ly, r, (k) => {
       const m = T.grid[k];
       if (m < REG) return;
+      if (FIXED[m]) { out.fixed++; return; }                     // built stone: CLINK, no wear
       const M = MATS[m], w = T.wear[k] + Math.max(1, Math.round(255 * power / M.hard));
       if (w < 255) { T.wear[k] = w; return; }
       T.grid[k] = DUG; T.wear[k] = 0; out.cells++; T.touched = T.snapDirty = true;
@@ -172,10 +184,10 @@ const Terrain = (() => {
     const gems = [];
     T.gems.forEach((gm, i) => { if (gm.state !== 'buried') gems.push(i); });
     if (!T.touched && !gems.length) return null;
-    const dug = [], G = T.grid;
+    const dug = [], G = T.grid, Z = T.zone;                       // carved cells (zone) are part of the build: never saved
     for (let k = 0; k < G.length; k++) {
-      if (G[k] !== DUG) continue;
-      const k0 = k; while (k + 1 < G.length && G[k + 1] === DUG) k++;
+      if (G[k] !== DUG || (Z && Z[k])) continue;
+      const k0 = k; while (k + 1 < G.length && G[k + 1] === DUG && !(Z && Z[k + 1])) k++;
       dug.push(k0, k - k0 + 1);
     }
     return { dug, gems };
@@ -187,7 +199,7 @@ const Terrain = (() => {
     for (let i = 0; i + 1 < r.length; i += 2) {
       const k0 = Math.max(0, r[i] | 0), k1 = Math.min(G.length, k0 + Math.max(0, r[i + 1] | 0));
       for (let k = k0; k < k1; k++) {
-        if (G[k] < REG) continue;
+        if (G[k] < REG || FIXED[G[k]] || (T.zone && T.zone[k])) continue;   // never undo the build
         G[k] = DUG; T.wear[k] = 0;
         const c = Math.floor(Math.floor(k / N) / CHUNK) * T.NC + Math.floor((k % N) / CHUNK);
         T.dirty.add(c); T.has[c] = 1;
@@ -195,6 +207,14 @@ const Terrain = (() => {
     }
     for (const i of Array.isArray(s.gems) ? s.gems : []) if (T.gems[i]) T.gems[i].state = 'taken';
     T.touched = T.snapDirty = true;
+  }
+
+  // mark the chunks of these cell indexes for re-bake (a module rewrote them: the lift deck, its gates)
+  function touchCells(T, ks) {
+    for (const k of ks) {
+      const c = Math.floor(Math.floor(k / T.N) / CHUNK) * T.NC + Math.floor((k % T.N) / CHUNK);
+      T.dirty.add(c); T.has[c] = 1;
+    }
   }
 
   function touchChunks(T, lx, ly, r) {
@@ -246,10 +266,15 @@ const Terrain = (() => {
     ctx.globalAlpha = 1;
   }
 
+  // one ImageData shared by every bake (each cache entry keeps only its canvas)
+  let IMG = null;
+  const WALL = MAT_ID.wall, DECK = MAT_ID.deck;
+
   function bake(T, cx, cy, e) {
     const S = CHUNK * PXC + 2;
-    if (!e) { const cv = document.createElement('canvas'); cv.width = cv.height = S; const c2 = cv.getContext('2d'); e = { cv, c2, img: c2.createImageData(S, S) }; }
-    const D = e.img.data, N = T.N, g = T.grid, back = T.back, back2 = T.back2;
+    if (!e) { const cv = document.createElement('canvas'); cv.width = cv.height = S; e = { cv, c2: cv.getContext('2d') }; }
+    if (!IMG || IMG.width !== S) IMG = e.c2.createImageData(S, S);
+    const D = IMG.data, N = T.N, g = T.grid, back = T.back, back2 = T.back2, Z = T.zone;
     const cell = (i, j) => (i < 0 || j < 0 || i >= N || j >= N ? 0 : g[j * N + i]);
     for (let py = 0; py < S; py++) {
       const v = cy * CHUNK + (py - 0.5) / PXC - 0.5, j0 = Math.floor(v), fv = v - j0;
@@ -265,25 +290,50 @@ const Terrain = (() => {
         const dug = a === DUG || b1 === DUG || c === DUG || d === DUG;
         let col = null, al = 255;
         if (sol < 0.5) {
-          col = sol > 0.28 ? INK_RGB : sol > 0.14 ? back2 : back;
+          const zi = Z ? Z[Math.min(N - 1, Math.max(0, Math.round(v))) * N + Math.min(N - 1, Math.max(0, Math.round(u)))] : 0;
+          const zn = zi ? T.zones[zi - 1] : null;
+          if (zn && zn.lit) col = sol > 0.28 ? INK_RGB : sol > 0.14 ? (T.townBack2 || TOWN_WALL.back2) : townWall(T, zn, u, v);   // lamplit town backwall
+          else col = sol > 0.28 ? INK_RGB : sol > 0.14 ? back2 : back;
         } else {
           const m = fu < 0.5 ? (fv < 0.5 ? a : c) : (fv < 0.5 ? b1 : d);
           const ore = (a > REG ? w0 : 0) + (b1 > REG ? w1 : 0) + (c > REG ? w2 : 0) + (d > REG ? w3 : 0);
           if (m > REG) {
             const q = (a === m ? w0 : 0) + (b1 === m ? w1 : 0) + (c === m ? w2 : 0) + (d === m ? w3 : 0), M = MATS[m].col;
-            const ci = Math.round(u), cj = Math.round(v), h = hash(ci, cj);
-            const fx = u - ci, fy = v - cj, speck = q > 0.95 && h < 0.22 && fx * fx + fy * fy < 0.04 + 0.05 * h;
-            col = q >= 0.75 ? (speck ? hexRGB(M[2]) : hexRGB(M[0])) : hexRGB(M[1]);
+            const ci = Math.round(u), cj = Math.round(v), h = hash(ci, cj), fx = u - ci, fy = v - cj;
+            if (m === WALL) {                                        // Murk-stone: square blocks, some with a raised touch-dot
+              const joint = Math.abs(fx) > 0.4 || Math.abs(fy) > 0.4, dot = h < 0.3 && fx * fx + fy * fy < 0.02;
+              col = q < 0.75 || joint ? hexRGB(M[1]) : dot ? hexRGB(M[2]) : hexRGB(M[0]);
+            } else if (m === DECK) {                                 // lift steel: hazard stripes
+              col = q < 0.75 ? hexRGB(M[1]) : ((Math.floor((u + v) * 1.5) & 1) ? hexRGB(M[0]) : INK_RGB);
+            } else {
+              const speck = q > 0.95 && h < 0.22 && fx * fx + fy * fy < 0.04 + 0.05 * h;
+              col = q >= 0.75 ? (speck ? hexRGB(M[2]) : hexRGB(M[0])) : hexRGB(M[1]);
+            }
+            if (FIXED[m] && org < 0.72) col = INK_RGB;              // built stone standing in space gets an ink edge
           } else if (ore >= 0.26) { col = INK_RGB; al = 220; }
           if (dug && sol < 0.72) { col = INK_RGB; al = 255; }
+          else if (!col && dug && sol < 0.9) { col = INK_RGB; al = 110; }   // a soft ink rim round every crater
         }
         if (!col) continue;
         D[p] = col[0]; D[p + 1] = col[1]; D[p + 2] = col[2]; D[p + 3] = al;
       }
     }
-    e.c2.putImageData(e.img, 0, 0);
+    e.c2.putImageData(IMG, 0, 0);
     return e;
   }
+
+  // the town backwall: stone courses round the body, staggered joints, a wood wainscot along each level floor
+  function townWall(T, zn, u, v) {
+    const x = -T.half + (u + 0.5) * CELL, y = -T.half + (v + 0.5) * CELL, r = Math.hypot(x, y), s = Math.atan2(y, x) * r;
+    const W = T.townWall || TOWN_WALL, back = T.townBack || W.back;
+    if (zn.rf && r - zn.rf < 1.1) {
+      if (r - zn.rf > 0.95) return W.rail;
+      return ((s / 0.7) % 1 + 1) % 1 < 0.12 ? W.plank2 : W.plank;
+    }
+    const row = Math.floor(r / 0.9), fr = r / 0.9 - row, fs = (((s + (row & 1) * 0.8) / 1.6) % 1 + 1) % 1;
+    return fr < 0.1 || fs < 0.06 ? W.mortar : back;
+  }
+  const TOWN_WALL = { mortar: [80, 59, 87], plank: [118, 78, 70], plank2: [92, 60, 58], rail: [158, 110, 88], back: [94, 71, 99], back2: [122, 95, 122] };
 
   // ---------------- helpers ----------------
 
@@ -293,7 +343,7 @@ const Terrain = (() => {
   function mixRGB(a, b, f) { return a.map((v, i) => Math.round(v * (1 - f) + b[i] * f)); }
 
   return { of, mat, solid, collideCircle, raycast, dig, snapshot, restore, draw, drawGem, frameStart, forCells, index,
-           CELL, MATS, MAT_ID, GEM_COL, SPACE, DUG, REG };
+           addCarver, touchCells, CARVERS, CELL, MATS, MAT_ID, GEM_COL, SPACE, DUG, REG };
 })();
 
 if (typeof module !== 'undefined') module.exports = Terrain;

@@ -246,6 +246,10 @@ safely('nav names', () => {
   park(g, 'tuesday', 600); g.navId = null; H.run(g, 1, {}); g.navId = 'wreck:tuesday'; H.run(g, 1, {});
   const h2 = mod.hint(g);
   check('...far away, the fact explains L4 honestly (Routh, Kiwi)', h2 && /L4/.test(h2.text) && /Routh/.test(h2.text) && /Kiwi/.test(h2.text), h2 && h2.text.slice(0, 90));
+  park(g, 'tuesday', 200); g.navId = null; H.run(g, 1, {});
+  const hn = mod.hint(g); g.navId = 'body:pretzel'; H.run(g, 1, {});
+  const hp = mod.hint(g);
+  check('"Wreck nearby" yields to a target you chose (pri 38 -> 16)', hn && hn.pri === 38 && /Wreck nearby/.test(hn.text) && hp && hp.pri === 16, `${hn && hn.pri} -> ${hp && hp.pri}`);
   const gs = fresh('pad'); gs.navId = 'wreck:longexp'; H.run(gs, 2, {});
   const h3 = mod.hint(gs);
   check('targeting an unseen one: "fly within 400 m to identify it"', h3 && /Unknown signal on|Unknown signal Glimmer|identify/.test(h3.text), h3 && h3.text);

@@ -15,6 +15,11 @@ const Game = (() => {
   const FRAME_MAX = 1 / 20;                             // a slower frame lets sim time slip: one frame covers at most FRAME_MAX x warp
   const WARN_T = 0.95 * SIM.impactWarnT;                // big-warp frames stop this far short of a warning, so the next frame catches it
   const ROCK_LOOK = SIM.impactWarnT + FRAME_MAX * SIM.warps[SIM.warps.length - 1] + 5;   // rocks on a hit course are tracked this far ahead [s]
+  const ROCK_HINT = 15, ROCK_1X = 10;                   // "Rock ahead" shows this many s before contact; warp drops to 1x at ROCK_1X
+  const BUMP_CD = 0.5;
+  const RATTLE_T = 1;                                  // one rock dents the hull at most once per this many sim s (a resting touch is not a new crash)
+  const PAD_R = 60;                                     // the land_mochi job wants the ship within this of Mochi's pad [m]
+  const NAV_HOLD = 4;                                   // Tab keeps one target order this many real s, so cycling never skips
 
 
   // ======================================================================
@@ -115,7 +120,7 @@ const Game = (() => {
 
   function place(g, id) {
     if (!SPAWNS[id]) id = 'pad';
-    g.spawn = id; g.status = 'flying'; g.landedOn = null; g.land = null; g.attach = null; g.trail = [];
+    g.spawn = id; g.status = 'flying'; g.landedOn = null; g.land = null; g.attach = null; g.trail = []; g.wreckOn = null;
     Object.assign(g.sh, { vx: 0, vy: 0, omega: 0, ang: Math.PI / 2 });
     SPAWNS[id].place(g);
   }
@@ -132,7 +137,7 @@ const Game = (() => {
       S: null, sh: null, status: 'flying', mode: 'ship',
       landedOn: null, land: null, attach: null, everFlew: false,
       warpIdx: 0, warp: 1, warpMax: SIM.warps[SIM.warps.length - 1], warpWhy: '', paused: false, ui: null,
-      fired: { main: 0, ion: 0, rot: 0, trans: 0, side: 0 }, ionOn: false,
+      fired: { main: 0, ion: 0, rot: 0, trans: 0, side: 0, cant: 0 }, ionOn: false, bumpAt: {}, wreckOn: null, navOrder: null,
       dash: { until: -1, readyAt: 0, dir: 0, tapDir: 0, tapAt: -9 },  // side-pod dash: boosted until, next one ready at (sim s)
       pred: null, ref: w.byId.mochi || w.root, frame: null, orb: null, nearDist: Infinity, navId: null, approach: null,
       money: 300, cargo: {}, pack: {},
@@ -205,7 +210,7 @@ const Game = (() => {
     g.real += frameDt;
     tickFx(g, frameDt);
 
-    for (const code of inp.pressed || []) handleKey(g, code);
+    for (const code of inp.pressed || []) handleKey(g, code, inp);
     if (inp.mouse && (inp.mouse.pressed || inp.mouse.released)) handleMouse(g, inp.mouse);
 
     // -------- ship controls --------
@@ -232,24 +237,29 @@ const Game = (() => {
     each(g, 'frame', inp, frameDt, simDt);
 
     // -------- physics steps --------
-    const fired = { main: 0, ion: 0, rot: 0, trans: 0, side: 0 }, stepMods = mods.filter((m) => m.step);
+    const fired = { main: 0, ion: 0, rot: 0, trans: 0, side: 0, cant: 0 }, stepMods = mods.filter((m) => m.step);
     let after = null;                                                             // a dash ends on the step, not the frame
     for (let i = 0; i < n; i++) {
       if (g.status === 'docked') { g.t += h; holdAttach(g); }
       else if (g.status !== 'dead') {
         const c = ctrl.dash && g.t >= g.dash.until - 1e-6 ? (after = after || { ...ctrl, side: ctrl.sideHeld || 0, dash: false }) : ctrl;
         const f = Physics.step(g.sh, c, g.t, h, g.w, g.S);
-        for (const k in fired) fired[k] = k === 'side' ? f.side || fired.side : Math.max(fired[k], f[k]);
+        for (const k in fired) fired[k] = k === 'side' || k === 'cant' ? f[k] || fired[k] : Math.max(fired[k], f[k]);
         g.t += h;
         if (g.status === 'landed') holdLanded(g, i); else contacts(g, cullValid(g, cull));
-      } else g.t += h;
+      } else { driftWreck(g, h); g.t += h; }
+      const px = g.sh.x, py = g.sh.y;
       for (const m of stepMods) call(g, m, 'step', h);
+      if (g.status === 'flying' && (g.sh.x !== px || g.sh.y !== py)) contacts(g, cullValid(g, cull), true);   // the tow rope may not pull the ship into a rock
     }
     g.fired = fired; g.stepsLastFrame = n; g.stepDt = h; g.rockCand = cull.rocks;
     if (g.ionOn && g.sh.xe <= 0) { g.ionOn = false; toast(g, 'ION TANK EMPTY', '#ff9f1c'); }
     const rcsF = g.sh.rcs / Math.max(1e-9, g.S.rcs);
     const rcsLvl = rcsF <= 0 ? 2 : rcsF < 0.2 ? 1 : 0;                            // warn once at 20 %, once more at empty
-    if (rcsLvl > (g.rcsWarned || 0) && g.status !== 'dead') toast(g, rcsLvl === 2 ? 'RCS EMPTY: SLOW REACTION WHEEL ONLY' : 'RCS LOW', '#ff9f1c', 'rcs');
+    if (rcsLvl > (g.rcsWarned || 0) && g.status !== 'dead') {
+      toast(g, rcsLvl === 2 ? 'RCS EMPTY: SLOW REACTION WHEEL ONLY' : 'RCS LOW', '#ff9f1c', 'rcs');
+      if (rcsLvl === 2) g.rcsEmptyAt = g.real;
+    }
     if (rcsLvl > (g.rcsWarned || 0) || rcsF > 0.3) g.rcsWarned = rcsLvl;
     if ((g.S.sideThrust ?? 0) > 0 && !g.podsTaught && g.mode === 'ship') {     // the first time pods are fitted: teach the keys
       g.podsTaught = true;
@@ -371,14 +381,14 @@ const Game = (() => {
 
   // -------- keys: modules first (return true to consume), then interaction prompts, then core --------
 
-  function handleKey(g, code) {
+  function handleKey(g, code, inp) {
     for (const m of mods) if (call(g, m, 'onKey', code)) return;
     const it = g.prompts.find((p) => p.key === code);
     if (it) { it.act(g); g.prompts = gatherPrompts(g); return; }
     if (code === 'KeyP' || code === 'Escape') g.paused = !g.paused;
     if (code === 'Period') warpStep(g, +1);
     if (code === 'Comma') warpStep(g, -1);
-    if (code === 'Tab') cycleNav(g);
+    if (code === 'Tab') cycleNav(g, inp && inp.keys && (inp.keys.has('ShiftLeft') || inp.keys.has('ShiftRight')) ? -1 : 1);
     if (code === 'KeyX' && g.mode === 'ship') toggleIon(g);
     if (code === 'KeyR') {
       if (g.status === 'docked') toast(g, 'ALREADY DOCKED: NO TOW NEEDED', '#ffd166', 'tow');
@@ -427,13 +437,15 @@ const Game = (() => {
   function setWarp(g, x) { const i = SIM.warps.indexOf(x); if (i >= 0) g.warpIdx = i; }
 
   function applyWarpCaps(g, ctrl, frameDt = 1 / 60) {
-    const caps = [], fly = g.status === 'flying', small = ctrl.rot || ctrl.kill || ctrl.fwd || ctrl.left || ctrl.side || ctrl.dash;
+    const caps = [], fly = g.status === 'flying';
+    const small = g.mode === 'ship' && (ctrl.rot || ctrl.kill || ctrl.fwd || ctrl.left || ctrl.side || ctrl.dash);   // out on a tether the ship only holds attitude
     const bw = ctrl.main && !small ? burnWarp(g) : 1;                    // a long, gentle burn (a rock in tow) may warp
     if (ctrl.main && bw > 1) caps.push({ max: Math.min(bw, g.S.warpBurnMax ?? 16), why: 'long burn' });
     else if (ctrl.main || small) caps.push({ max: 1, why: 'thrusters firing', reset: true });
     if (ctrl.ion) caps.push({ max: g.S.warpBurnMax, why: 'ion drive burning' });
+    if (g.status === 'dead') caps.push({ max: 1, why: 'wrecked: press R', reset: true });
     if (fly && (g.nearDist < 8 || g.rockTTC < 20)) caps.push({ max: SIM.nearWarp, why: 'close to rocks' });
-    if (g.rockTTC < 5) caps.push({ max: 1, why: 'rock ahead', reset: true, toast: 'ROCK AHEAD' });
+    if (g.rockTTC < ROCK_1X) caps.push({ max: 1, why: 'rock ahead', reset: true, toast: 'ROCK AHEAD' });
     if (fly && g.pred && g.pred.impact && g.pred.impact.t - g.t < SIM.impactWarnT)
       caps.push({ max: 1, why: 'impact ahead', reset: true, toast: 'IMPACT AHEAD' });
     const modCaps = [];
@@ -469,7 +481,7 @@ const Game = (() => {
     const P = g.pred && g.pred.pts;
     if (g.pred && g.pred.impact) cap(g.pred.impact.t - g.t - WARN_T, 'impact ahead');
     else if (P && P.length) cap(P[P.length - 1][2] - g.t - SIM.impactWarnT, 'looking ahead');
-    if (g.rockTTC < Infinity) cap(g.rockTTC - (g.rockTTC > 20 ? WARN_T : 0.95 * 5), 'rock ahead');   // the 4x and 1x rock caps
+    if (g.rockTTC < Infinity) cap(g.rockTTC - (g.rockTTC > 20 ? WARN_T : 0.95 * ROCK_1X), 'rock ahead');   // the 4x and 1x rock caps
     for (const c of modCaps) if (c.within != null) cap(c.within, c.why);
     return caps;
   }
@@ -510,7 +522,9 @@ const Game = (() => {
     if (a.onRelease) a.onRelease(g);
   }
 
-  function contacts(g, rocks = g.w.rocks) {
+  // settle: a module (the tow rope) moved the ship this step. Push it back out and stop it there: no landing, no dent
+  //  (the impact itself was counted by the normal pass), and no bounce, so a rope and a rock can never pump the ship
+  function contacts(g, rocks = g.w.rocks, settle = false) {
     const sh = g.sh, S = g.S, w = g.w, st = World.states(w, g.t);
     for (const b of w.bodies) {
       const [bx, by, bvx, bvy] = st[b.idx], lx = sh.x - bx, ly = sh.y - by, d = Math.hypot(lx, ly);
@@ -520,7 +534,9 @@ const Game = (() => {
       if (!hit) continue;
       sh.x += hit.nx * hit.depth; sh.y += hit.ny * hit.depth;
       const rvx = sh.vx - bvx, rvy = sh.vy - bvy, vn = rvx * hit.nx + rvy * hit.ny, v = Math.hypot(rvx, rvy);
+      g.brace = { t: g.t, b };
       if (vn >= 0) return;
+      if (settle) { sh.vx -= vn * hit.nx; sh.vy -= vn * hit.ny; return; }
       const upright = (lx * hit.nx + ly * hit.ny) / d;                     // contact normal vs local up
       if (v < S.landSpeed && upright > 0.3) {
         g.land = { lx: sh.x - bx, ly: sh.y - by, nx: hit.nx, ny: hit.ny };
@@ -531,7 +547,7 @@ const Game = (() => {
       } else if (v < S.crashSpeed) {
         sh.vx -= (1 + S.bounce) * vn * hit.nx; sh.vy -= (1 + S.bounce) * vn * hit.ny;
         sh.omega += (Math.random() - 0.5) * Math.min(3, Math.abs(vn));
-        hurtShip(g, S.bumpDamage * v, 'BONK!');
+        knock(g, S.bumpDamage * v, 'BONK!');
         burst(g, 'dust', sh.x - hit.nx * S.radius, sh.y - hit.ny * S.radius, 10, { vx: bvx, vy: bvy, col: b.color[1] });
       } else {
         die(g, `hit ${b.name} at ${v.toFixed(1)} m/s`);
@@ -547,13 +563,50 @@ const Game = (() => {
       const dx = sh.x - rx, dy = sh.y - ry, d = Math.hypot(dx, dy), hitR = rk.r * 0.9 + S.radius * 0.8;
       if (d >= hitR) continue;
       const nx = dx / d, ny = dy / d, vn = (sh.vx - rvx) * nx + (sh.vy - rvy) * ny;
+      g.brace = { t: g.t, rk };
+      if (settle) {
+        sh.x = rx + nx * (hitR + 0.05); sh.y = ry + ny * (hitR + 0.05);
+        if (vn < 0) { sh.vx -= vn * nx; sh.vy -= vn * ny; }
+        return;
+      }
       if (vn >= 0) continue;
       sh.vx -= (1 + S.bounce) * vn * nx; sh.vy -= (1 + S.bounce) * vn * ny;
       sh.x = rx + nx * (hitR + 0.05); sh.y = ry + ny * (hitR + 0.05);
       sh.omega += (Math.random() - 0.5) * Math.min(3, Math.abs(vn));
-      hurtShip(g, Math.min(45, S.bumpDamage * -vn), ['CLANK!', 'BONK!', 'THUD!'][Math.floor(Math.random() * 3)]);   // capped: rubble dents, it does not one-shot
+      if (freshBump(g, rk.id)) knock(g, Math.min(45, S.bumpDamage * -vn), ['CLANK!', 'BONK!', 'THUD!'][Math.floor(Math.random() * 3)]);   // capped: rubble dents, it does not one-shot
       return;
     }
+  }
+
+  // the ship pressed against a rail rock or the ground (touched in the last 0.25 s, still within a few cm of it)
+  //  -> the outward normal [nx, ny], else null. A free rock or the rope pushing the ship that way meets a wall (haul)
+  function braced(g) {
+    const B = g.brace, sh = g.sh;
+    if (!B || g.t - B.t > 0.25 || g.status !== 'flying') return null;
+    if (B.rk) {
+      const [rx, ry] = World.rockState(g.w, B.rk, g.t), dx = sh.x - rx, dy = sh.y - ry, d = Math.hypot(dx, dy) || 1e-9;
+      return !B.rk.gone && d < B.rk.r * 0.9 + g.S.radius * 0.8 + 0.15 ? [dx / d, dy / d] : null;
+    }
+    const [bx, by] = World.bodyState(g.w, B.b, g.t), hit = Terrain.collideCircle(Terrain.of(B.b), sh.x - bx, sh.y - by, g.S.radius + 0.15);
+    return hit ? [hit.nx, hit.ny] : null;
+  }
+
+  // true at most once per BUMP_CD for each rock (rail or free): a scrape along a rock dents the hull once
+  function freshBump(g, id) {
+    const B = g.bumpAt || (g.bumpAt = {}), last = B[id] ?? -Infinity;
+    B[id] = g.t;
+    if (Object.keys(B).length > 24) for (const k in B) if (g.t - B[k] > BUMP_CD) delete B[k];
+    return g.t - last > BUMP_CD;
+  }
+
+  // a knock on the hull from a bump (ground, rubble, a towed rock, a wreck). A rattle (knocks less than RATTLE_T apart:
+  //  a light ship between a wall and a heavy rock bounces back and forth like Galperin's billiard balls counting out π)
+  //  costs only its worst knock, not the sum
+  function knock(g, dmg, word) {
+    const R = g.rattle && g.t - g.rattle.t < RATTLE_T ? g.rattle : (g.rattle = { d: 0 });
+    R.t = g.t;
+    if (dmg <= R.d) return;
+    hurtShip(g, dmg - R.d, word); R.d = dmg;
   }
 
   // instant velocity change (Orion pulse, explosions); lifts the ship off the ground or a dock
@@ -601,13 +654,28 @@ const Game = (() => {
 
   function die(g, why, word = 'KABOOM!') {
     if (g.status === 'dead') return;
-    g.sh.hull = Math.max(0, g.sh.hull); g.crashMsg = why; g.deadAt = g.real;
+    const nb = nearestBody(g, g.sh.x, g.sh.y);
+    g.wreckOn = nb.alt < g.S.radius + 2 ? { b: nb.b, lx: nb.lx, ly: nb.ly } : null;          // a crash stays where it hit; else the wreck coasts
+    g.sh.hull = 0; g.crashMsg = why; g.deadAt = g.real; g.warpIdx = 0;
     g.landedOn = null; g.land = null; g.attach = null; g.ionOn = false;
     setStatus(g, 'dead', why);
     popup(g, word, '#ff6b6b', g.sh.x, g.sh.y); g.shake = 1;
     burst(g, 'boom', g.sh.x, g.sh.y, 70, { vx: g.sh.vx * 0.3, vy: g.sh.vy * 0.3, speed: 14 });
     each(g, 'died', why);
     save(g);
+  }
+
+  // the wreck rides the rock it hit, or coasts on gravity until it comes to rest on one
+  function driftWreck(g, h) {
+    const sh = g.sh, W = g.wreckOn;
+    if (W) {
+      const [bx, by, bvx, bvy] = World.bodyState(g.w, W.b, g.t + h);
+      Object.assign(sh, { x: bx + W.lx, y: by + W.ly, vx: bvx, vy: bvy, omega: 0 });
+      return;
+    }
+    Physics.step(sh, ZERO, g.t, h, g.w, g.S);
+    const nb = nearestBody(g, sh.x, sh.y, g.t + h);
+    if (!nb.b.star && nb.alt < g.S.radius * 0.5) g.wreckOn = { b: nb.b, lx: nb.lx, ly: nb.ly };
   }
 
   function targets(g) {
@@ -831,6 +899,7 @@ const Game = (() => {
       const T = g.orb.E < 0 ? g.orb.T * 0.98 : SIM.predictMax * 0.6;
       g.pred = Physics.predict(sh, t, w, Math.min(SIM.predictMax, Math.max(SIM.predictMin, T)), SIM.predictSteps, g.S.radius * 0.8);
     }
+    if (g.pred && g.pred.impact && climbing(g, g.pred.impact.body)) { g.pred.held = g.pred.impact; g.pred.impact = null; }
     let near = Infinity, star = Infinity, sun = null;
     const st = World.states(w, t);
     for (const b of w.bodies) {
@@ -890,6 +959,16 @@ const Game = (() => {
     }
   }
 
+  // the engine is holding the ship up (thrust along local up beats weight) and it is going up: the coasting path's
+  //  impact is where you would land if you let go of W, not a warning (a liftoff is not an "impact course")
+  function climbing(g, b) {
+    if (!g.fired.main || b.star || g.status !== 'flying' || g.mode !== 'ship') return false;
+    const [bx, by, bvx, bvy] = World.bodyState(g.w, b, g.t), sh = g.sh, dx = sh.x - bx, dy = sh.y - by, r = Math.hypot(dx, dy) || 1e-9;
+    const up = (Math.cos(sh.ang) * dx + Math.sin(sh.ang) * dy) / r, push = g.S.thrust * g.fired.main * Math.cos(g.fired.cant || 0) * up;
+    return (sh.vx - bvx) * dx + (sh.vy - bvy) * dy > 0 && push > Physics.mass(sh, g.S) * b.mu / (r * r);
+  }
+  const liftOn = (g, b) => g.S.thrust / (Physics.mass(g.sh, g.S) * b.mu / (b.R * b.R));   // thrust-to-weight on b's surface
+
   // along the path preview: when the ship first comes within reach of a moving thing (state(t) -> [x, y, ...]: a rock, a wreck)
   //  -> sim time, null (not before tEnd) or undefined (no preview, or it ends first)
   function pathTouch(g, state, reach, tEnd) {
@@ -939,12 +1018,36 @@ const Game = (() => {
                 : { id: 'body:' + ref.id, name: ref.name, body: ref, state: (t) => World.bodyState(g.w, ref, t) };
   }
   const navTarget = (g) => (g.navId ? navTargets(g).find((n) => n.id === g.navId) || null : null);
-  function cycleNav(g) {
-    const list = navTargets(g), i = list.findIndex((n) => n.id === g.navId);
-    g.navId = i + 1 >= list.length ? null : list[i + 1].id;
-    toast(g, g.navId ? `TARGET: ${list[i + 1].name.toUpperCase()}` : 'TARGET CLEARED', '#7cf5d6', 'nav');
+
+  // Tab (Shift+Tab backwards): what you need next first (buyers by distance while towing, else the next job's place),
+  //  then everything else by distance, unidentified signals last. One order holds while you keep tapping.
+  function cycleNav(g, dir = 1) {
+    const O = g.navOrder, list = O && g.real - O.at < NAV_HOLD ? O.list : navOrder(g), i = list.findIndex((n) => n.id === g.navId);
+    const j = i < 0 ? (dir > 0 ? 0 : list.length - 1) : i + dir, nt = list[j] || null;
+    g.navOrder = { list, at: g.real };
+    g.navId = nt ? nt.id : null;
+    toast(g, nt ? `TARGET: ${nt.name.toUpperCase()}` : 'TARGET CLEARED', '#7cf5d6', 'nav');
     refresh(g);
   }
+  function navOrder(g) {
+    const sh = g.sh, first = navFirst(g), gap = (n) => { const [x, y] = n.state(g.t); return Math.hypot(x - sh.x, y - sh.y) - (n.r || 0); };
+    const rank = (n) => (first.includes(n.id) ? first.indexOf(n.id) : n.kind === 'wreck' && /^Unknown/.test(n.name) ? 2e3 : 1e3);
+    return navTargets(g).map((n) => ({ id: n.id, name: n.name, k: rank(n), d: gap(n) })).sort((a, b) => a.k - b.k || a.d - b.d);
+  }
+  const JOB_NAV = { land_mochi: ['mochi:pad', 'body:mochi'], downtown: ['mochi:downtown'], pretzel: ['body:pretzel'], kiwi: ['body:kiwi'],
+                    seed: ['body:seed'], glimmer: ['body:glimmer'], haul: ['crusher'], whale: ['crusher'] };
+  function navFirst(g) {
+    const ids = new Set(navTargets(g).map((n) => n.id));
+    if (typeof Haul !== 'undefined' && Haul && Haul.towInfo && Haul.towInfo(g)) {
+      const sp = Haul.sellPoints(g).sort((a, b) => Math.hypot(a.x - g.sh.x, a.y - g.sh.y) - Math.hypot(b.x - g.sh.x, b.y - g.sh.y));
+      return sp.map((p) => (ids.has(p.id) ? p.id : 'station:' + p.id)).filter((id) => ids.has(id));
+    }
+    const job = nextJob(g, (gl) => (JOB_NAV[gl.id] || []).some((id) => ids.has(id)));
+    return job ? [JOB_NAV[job.id].find((id) => ids.has(id))] : [];
+  }
+  // the first of the JOBS panel's five undone jobs that passes ok(goal)
+  const nextJob = (g, ok = () => true) => GOALS.filter((gl) => g.done[gl.id] === undefined).slice(0, 5).find(ok) || null;
+  const padTarget = (g) => navTargets(g).find((n) => n.id === 'mochi:pad') || null;
 
   function gatherPrompts(g) {
     const byKey = {};
@@ -965,8 +1068,8 @@ const Game = (() => {
   function addGoals(list) { for (const gl of list) if (!GOALS.some((x) => x.id === gl.id)) GOALS.push(gl); GOALS.sort((a, b) => a.order - b.order); }
 
   addGoals([
-    { id: 'land_mochi', order: 20, reward: 50,  text: 'Fly down and land on Mochi',
-      test: (g) => g.status === 'landed' && g.landedOn.id === 'mochi' && g.everFlew },
+    { id: 'land_mochi', order: 20, reward: 50,  get text() { return padOn() ? 'Land on Mochi\'s pad (Tab: Mochi Pad)' : 'Fly down and land on Mochi'; },
+      test: (g) => g.status === 'landed' && g.landedOn.id === 'mochi' && g.everFlew && padGap(g) < PAD_R },
     { id: 'pretzel',    order: 55, reward: 150, text: 'Hop over to Pretzel and land (Tab targets it)',
       test: (g) => g.status === 'landed' && g.landedOn.id === 'pretzel' },
     { id: 'kiwi',       order: 60, reward: 150, text: 'Land on Kiwi (the green one)',
@@ -976,6 +1079,15 @@ const Game = (() => {
     { id: 'glimmer',    order: 90, reward: 600, text: 'Land on Glimmer, down in the inner lane',
       test: (g) => g.status === 'landed' && g.landedOn.id === 'glimmer' },
   ]);
+
+  // Mochi's pad (mochi.js 'mochi:pad'): how far the ship is from it [m]; 0 when there is no pad to aim for
+  const padOn = () => typeof Mochi !== 'undefined' && !!Mochi && mods.some((m) => m.id === 'mochi');
+  function padGap(g) {
+    const p = padOn() && padTarget(g);
+    if (!p) return 0;
+    const [x, y] = p.state(g.t);
+    return Math.hypot(g.sh.x - x, g.sh.y - y);
+  }
 
   function goal(g, id) {
     if (g.done[id] !== undefined) return false;
@@ -1017,10 +1129,13 @@ const Game = (() => {
   }
   function applySave(g, d, phase) {
     if (phase === 'pre') {
-      g.money = d.money ?? g.money; g.done = d.done || {}; g.cargo = d.cargo || {}; g.pack = d.pack || {};
+      const bag = (o) => (o && typeof o === 'object' ? Object.fromEntries(Object.entries(o).filter(([k, q]) => Object.hasOwn(ITEMS, k) && Number.isFinite(q) && q > 0)) : {});
+      const money = typeof d.money === 'string' && d.money.trim() ? Number(d.money) : d.money;   // an old or hand-edited save may hold "1234"
+      if (Number.isFinite(money)) g.money = money;
+      g.done = d.done && typeof d.done === 'object' ? d.done : {}; g.cargo = bag(d.cargo); g.pack = bag(d.pack);
       for (const m of mods) if (d.mods && d.mods[m.id] !== undefined) call(g, m, 'load', d.mods[m.id]);
     } else if (d.ship) {
-      for (const k of ['fuel', 'xe', 'rcs', 'hull']) if (typeof d.ship[k] === 'number') g.sh[k] = Math.min(d.ship[k], k === 'xe' ? g.S.ionTank : g.S[k]);
+      for (const k of ['fuel', 'xe', 'rcs', 'hull']) if (Number.isFinite(d.ship[k])) g.sh[k] = Math.max(0, Math.min(d.ship[k], k === 'xe' ? g.S.ionTank || 0 : g.S[k]));
       if (g.sh.hull <= 0) g.sh.hull = g.S.hull * 0.5;
       g.sh.cargoKg = kgOf(g.cargo);
     }
@@ -1143,26 +1258,83 @@ const Game = (() => {
 
   function hint(g) {
     if (g.status === 'dead') return `Kaboom (${g.crashMsg}). Press R to get towed back to base. Upgrades are kept, cargo is lost.`;
-    const cands = [];
-    if (g.pred && g.pred.impact && g.status === 'flying' && g.everFlew) {
-      const dt = g.pred.impact.t - g.t, b = g.pred.impact.body;
-      cands.push({ pri: 80, text: b.star ? `Path dives into ${b.name} in ${fmtT(dt)}. Nothing lands on a star: nose on the BURN marker (prograde) and hold W to swing past it!`
-        : `Path hits ${b.name} in ${dt.toFixed(0)} s. ${dt > 8 ? 'To land, point the nose at the ⊗ BRAKE marker and burn until under 2.5 m/s. To miss it, burn sideways.' : 'Brake now: nose on ⊗ BRAKE, hold W!'}` });
-    }
-    if (g.starR < SIM.starWarn && g.status === 'flying') cands.push({ pri: 85, text: `Too close to the star: ${g.starR.toFixed(1)} radii out, and paint blisters at ${SIM.starKill}. Burn away from it!` });
-    if (g.rockTTC < 8 && g.mode === 'ship') cands.push({ pri: 82, text: `Rock ahead: contact in ${g.rockTTC.toFixed(0)} s. Dodge with the arrow keys${(g.S.dashBoost ?? 0) > 0 ? ' (double-tap ← / → to dash)' : ''} or a short sideways burn.` });
-    if (g.sh.rcs <= 0 && g.mode === 'ship' && g.status !== 'dead') cands.push({ pri: 75, text: 'RCS empty: only the slow reaction wheel turns you, and the arrow keys do nothing. Dock or use a pad depot to restock.' });
-    if (Math.abs(g.sh.omega) > 1.2 && g.mode === 'ship' && g.status !== 'dead') cands.push({ pri: 70, text: 'You are spinning fast. Tap the opposite way, or hold S to stop it.' });
+    const cands = [], ship = g.mode === 'ship', fly = g.status === 'flying';
+    if (g.pred && g.pred.impact && fly && g.everFlew) cands.push({ pri: 80, text: impactHint(g, g.pred.impact) });
+    if (g.starR < SIM.starWarn && fly) cands.push({ pri: 85, text: `Too close to the star: ${g.starR.toFixed(1)} radii out, and paint blisters at ${SIM.starKill}. Burn away from it!` });
+    if (g.rockTTC < ROCK_HINT && ship) cands.push({ pri: 82, text: `Rock ahead: contact in ${g.rockTTC.toFixed(0)} s. Dodge with ${dodgeKeys(g)} or a short sideways burn.` });
+    if (g.sh.rcs <= 0 && ship && fly) cands.push({ pri: g.real - (g.rcsEmptyAt ?? -99) < 8 ? 60 : 22, text: rcsHint(g) });
+    if (Math.abs(g.sh.omega) > 1.2 && ship && g.status !== 'dead') cands.push({ pri: 70, text: 'You are spinning fast. Tap the opposite way, or hold S to stop it.' });
     for (const m of mods) {
       const r = call(g, m, 'hint');
       if (r) cands.push(typeof r === 'string' ? { pri: 50, text: r } : r);
     }
     if (g.status === 'landed' && !g.everFlew) cands.push({ pri: 10, text: 'Hold W to fire the engine and lift off. Once airborne, A/D spin you with thrusters and S stops the spin.' });
+    if (fly && ship) for (const c of [ringHint(g), jobHint(g)]) if (c) cands.push(c);
     if (g.navId && g.approach && g.approach.i >= 0) cands.push({ pri: 15, text: `Closest approach to ${g.approach.tg.name}: ${fmtDist(g.approach.d)} in ${(g.approach.t - g.t).toFixed(0)} s. Tab cycles targets.` });
     cands.push({ pri: 1, text: 'Tab (or click a rock) picks a target and shows your closest approach. , and . change warp.' });
     cands.sort((a, b) => b.pri - a.pri);
     return cands[0].text;
   }
+
+  const pods = (g) => (g.S.sideThrust ?? 0) > 0;
+  const dodgeKeys = (g) => (pods(g) ? `the ← / → side pods${(g.S.dashBoost ?? 0) > 0 ? ' (double-tap to dash)' : ''}` : 'the arrow keys');
+  const rcsHint = (g) => (pods(g) ? 'RCS empty: A/D turn you slowly on the reaction wheel, and ↑ / ↓ and Shift + ← / → do nothing; the ← / → side pods still work. Dock or use a pad depot to restock.'
+                                  : 'RCS empty: A/D turn you slowly on the reaction wheel, and the arrow keys do nothing. Dock or use a pad depot to restock.');
+
+  // on a collision course with a body: brake to land (where, if the next job wants Mochi's pad), or honestly say the engine cannot
+  function impactHint(g, imp) {
+    const dt = imp.t - g.t, b = imp.body;
+    if (b.star) return `Path dives into ${b.name} in ${fmtT(dt)}. Nothing lands on a star: nose on the BURN marker (prograde) and hold W to swing past it!`;
+    const lift = liftOn(g, b);
+    if (lift < 1) return `Path hits ${b.name} in ${dt.toFixed(0)} s, and your engine cannot hold this ship up here (lift ${lift.toFixed(2)}x): braking only slows the fall. Burn sideways now to miss it, and land on a smaller rock.`;
+    const pad = b.id === 'mochi' && g.done.land_mochi === undefined ? padMiss(g, imp) : null;
+    const on = pad && Math.abs(pad.miss) < PAD_R, where = !pad ? '' : on ? ', right by the pad' : `, ${fmtDist(Math.abs(pad.miss))} ${pad.miss > 0 ? 'past' : 'short of'} the pad`;
+    if (dt <= 8) return `Path hits ${b.name} in ${dt.toFixed(0)} s${where}. Brake now: nose on ⊗ BRAKE, hold W!`;
+    const fix = !pad || on ? '' : pad.miss < 0 ? ' A short prograde burn (yellow marker) stretches it toward the pad.'
+      : pad.ahead ? ' Brake a little harder (⊗ BRAKE) to come down sooner.' : ' The pad is behind you: land where you can and hop over, or burn prograde to go round again.';
+    return `Path hits ${b.name} in ${dt.toFixed(0)} s${where}.${fix} To land, point the nose at the ⊗ BRAKE marker and burn until under 2.5 m/s. To miss it, burn sideways.`;
+  }
+  // where the path comes down vs the pad: miss = arc from the pad to the impact along the way you fly [m] (> 0: past it);
+  //  ahead = the pad is still in front of the ship
+  function padMiss(g, imp) {
+    const p = padOn() && padTarget(g);
+    if (!p) return null;
+    const b = imp.body, ang = (x, y, t) => { const s = World.bodyState(g.w, b, t); return Math.atan2(y - s[1], x - s[0]); };
+    const [cx, cy, cvx, cvy] = World.bodyState(g.w, b, g.t), sh = g.sh, dir = (sh.x - cx) * (sh.vy - cvy) - (sh.y - cy) * (sh.vx - cvx) >= 0 ? 1 : -1;
+    const pt = p.state(imp.t), pn = p.state(g.t);
+    return { miss: wrapPi(ang(imp.x, imp.y, imp.t) - ang(pt[0], pt[1], imp.t)) * dir * b.R, ahead: wrapPi(ang(pn[0], pn[1], g.t) - ang(sh.x, sh.y, g.t)) * dir > 0 };
+  }
+  const wrapPi = (a) => ((a % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+
+  // coasting toward a moon's rubble ring: say so while there is time to plan the dodge
+  function ringHint(g) {
+    for (const s of CONFIG.rubble || []) {
+      const b = !s.swarm && s.rMin ? g.w.byId[s.around] : null;
+      if (!b || !b.par || (b !== g.ref && b !== g.ref.par)) continue;
+      const band = (x, y, t) => { const c = World.bodyState(g.w, b, t), r = Math.hypot(x - c[0], y - c[1]); return r > s.rMin - 10 && r < s.rMax + 10; };
+      const what = `${b.name}'s rubble ring (${s.rMin}-${s.rMax} m)`;
+      if (band(g.sh.x, g.sh.y, g.t)) return { pri: 20, text: `Inside ${what}. "Rock ahead" warns ${ROCK_HINT} s before a hit: nudge clear with ${dodgeKeys(g)}.` };
+      if (g.fired.main || !g.pred) continue;
+      const P = g.pred.pts;
+      for (let i = 0; i < P.length && P[i][2] - g.t < 90; i += 8) {
+        if (band(P[i][0], P[i][1], P[i][2])) return { pri: 41, text: `Heads up: your path crosses ${what} in ${fmtT(P[i][2] - g.t)}. Watch for "Rock ahead" and nudge clear with ${dodgeKeys(g)}.` };
+      }
+    }
+    return null;
+  }
+
+  // the next job is a landing and its rock is the target: rendezvous coaching in stages (aim, coast, brake, touch down)
+  function jobHint(g) {
+    const ap = g.approach, tg = ap && ap.tg, b = tg && tg.body, job = b && nextJob(g, (gl) => (JOB_NAV[gl.id] || [])[0] === 'body:' + b.id);
+    if (!job || g.pred && g.pred.impact) return null;
+    const name = b.name, far = ap.dNow > 1000;
+    if (!far && ap.vNow > 5) return { pri: 43, text: `${name} is ${fmtDist(ap.dNow)} away and you close at ${ap.vNow.toFixed(1)} m/s: nose on ⊗ BRAKE and burn until under 5 m/s.` };
+    if (!far) return { pri: 42, text: `${name}: ${fmtDist(ap.dNow)} to go. Point at it, tap W for a few m/s, then brake at ⊗ BRAKE to touch down under 2.5 m/s.` };
+    if (ap.i >= 0 && ap.d < 300) return { pri: 42, text: `On course for ${name}: closest approach ${fmtDist(ap.d)} in ${fmtT(ap.t - g.t)}. Coast (warp is fine); inside 1 km, nose on ⊗ BRAKE and burn until under 5 m/s.` };
+    const how = b.par === g.ref ? `burn prograde (yellow) to raise your orbit toward ${name}'s ${fmtDist(b.a)}` : `point at ${name}'s arrow and tap W`;
+    return { pri: 42, text: `Next job: ${name}. To get there, ${how} until "closest approach" reads under 300 m (now ${ap.i >= 0 ? fmtDist(ap.d) : 'none in view'}).` };
+  }
+
   const fmtDist = (m) => !isFinite(m) ? '∞' : Math.abs(m) >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(0)} m`;
   const fmtT = (t) => !isFinite(t) ? '—' : t >= 60 ? `${Math.floor(t / 60)} min ${String(Math.floor(t % 60)).padStart(2, '0')} s` : `${t.toFixed(0)} s`;
 
@@ -1170,7 +1342,7 @@ const Game = (() => {
   return Object.assign(api, {
     register, mods, call, each, gather, first,
     create, update, recalc, respawn, place, landAt, circularAround, addSpawn, SPAWNS, SPAWN_ORDER, defaultSpawn,
-    dock, release, impulse, hurtShip, hurtAstro, healShip, die, targets, dealDamage, raycast,
+    dock, release, impulse, hurtShip, knock, hurtAstro, healShip, die, freshBump, braced, targets, dealDamage, raycast,
     nearestBody, dig, addCargo, removeCargo, addPack, unloadPack, kgOf, spawnPickup,
     refresh, navTargets, navTarget, cycleNav, warpStep, setWarp, toggleIon, pathTouch,
     GOALS, addGoals, goal, save, wipeSave, readSave,

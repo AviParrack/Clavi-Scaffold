@@ -533,7 +533,7 @@ const Wrecks = (() => {
     sh.vx -= (1 + e) * vn * nx; sh.vy -= (1 + e) * vn * ny;
     sh.omega += (Math.random() - 0.5) * Math.min(2, -vn);
     Game.burst(g, 'spark', x + nx * wr.hitR, y + ny * wr.hitR, 6, { vx, vy, speed: 3, life: 0.4 });
-    if (-vn > BUMP_V) Game.hurtShip(g, Math.min(45, (g.S.bumpDamage || 6) * -vn), 'CLANG!');   // capped like rubble: a dent, not a one-shot
+    if (-vn > BUMP_V) (Game.knock || Game.hurtShip)(g, Math.min(45, (g.S.bumpDamage || 6) * -vn), 'CLANG!');   // capped like rubble: a dent, not a one-shot
     else Game.popup(g, 'bonk', '#ffd166', sh.x, sh.y, 18);
   }
 
@@ -739,7 +739,7 @@ const Wrecks = (() => {
     }
     if (!wr || q.d >= HINT_R) return null;
     const name = wr.name;
-    if (tg !== wr) return { pri: 38, text: `Wreck nearby: ${name}. Tab (or click it) to target it, then match speed: nose on the ⊗ BRAKE marker and burn.` };
+    if (tg !== wr) return { pri: g.navId ? 16 : 38, text: `Wreck nearby: ${name}. Tab (or click it) to target it, then match speed: nose on the ⊗ BRAKE marker and burn.` };
     if (q.d < SALVAGE_R && q.v < SALVAGE_V) return { pri: 48, text: `In range and slow: press F to salvage ${name}!` };
     if (q.v >= SALVAGE_V) return { pri: 46, text: `Relative speed ${q.v.toFixed(1)} m/s: point the nose at the ⊗ BRAKE marker and burn until it reads under ${SALVAGE_V}.` };
     return { pri: 44, text: `Speed matched. Close in: ${q.d.toFixed(0)} m to go (salvage within ${SALVAGE_R} m). Point at ${name}, tap W, then brake at the ⊗ BRAKE marker.` };

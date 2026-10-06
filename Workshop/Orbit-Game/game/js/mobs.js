@@ -528,13 +528,20 @@ const Mobs = (() => {
   function hint(g) {
     const M = g.mod.mobs; if (!M) return null;
     if (M.goldNear) return { pri: 57, text: 'A golden muncher! It is shy and fast. Zap it for a jelly jackpot.' };
-    if (M.nearAstro) return { pri: 56, text: 'Bugs! Zap them with the laser; they drop jelly worth cash.' };
+    if (M.nearAstro) { const sp = speciesHere(g); return { pri: 56, text: `Bugs! Hold left click on them before they reach you${sp ? ` (a bite costs ${sp.bite} suit)` : ''}. Squished, they drop jelly worth cash.` }; }
     if (M.chewing) {
       const eva = Game.mods.some((m) => m.id === 'eva');
       return { pri: 58, text: g.astro.on ? 'Bugs are nibbling your parked ship! Go back and zap them.'
         : eva ? 'Bugs are nibbling your hull! Lift off (W), or hop out (E) and zap them.' : 'Bugs are nibbling your hull! Lift off (W) to shake them off.' };
     }
+    const sp = g.mode === 'ship' && g.status === 'landed' && Game.mods.some((m) => m.id === 'eva') ? speciesHere(g) : null;
+    if (sp) return { pri: g.done.bug === undefined ? 32 : 10, text: `${sp.plural[0].toUpperCase() + sp.plural.slice(1)} live on ${g.landedOn.name}: ${sp.bite} suit a bite. Step out (E) ready to hold left click on any bug before it reaches you.` };
     return null;
+  }
+  // the species living where you are (landed, or out on foot) -> SPECIES entry | null
+  function speciesHere(g) {
+    const b = g.status === 'landed' ? g.landedOn : g.astro.on ? Game.nearestBody(g, g.astro.x, g.astro.y).b : null;
+    return b && g.mod.mobs.homes[b.id] ? SPECIES[HOMES[b.id].sp] : null;
   }
 
   function hudRows(g) {

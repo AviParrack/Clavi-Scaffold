@@ -170,6 +170,11 @@ const helio = w.bodies.filter((b) => b.par === ember);
   let t = 0;
   while (sh.fuel > 0) { Physics.step(sh, { ...OFF, main: 1 }, t, dt, w0, S); t += dt; }
   check('Tsiolkovsky delta-v', relErr(sh.vx, dv) < 1e-3, `${sh.vx.toFixed(2)} vs ve ln(m0/m1) = ${dv.toFixed(2)} m/s, burn ${t.toFixed(1)} s`);
+  const c = Physics.newShip(S); Object.assign(c, { x: 1e6, ang: 0 });
+  let tc = 0, cant = 0;
+  while (c.fuel > 0) { cant = Physics.step(c, { ...OFF, main: 1, cant: 0.3 }, tc, dt, w0, S).cant; tc += dt; }
+  check('...a canted burn (exhaust 0.3 rad off the tow) gets cos(0.3) of it, same fuel', relErr(c.vx, Math.cos(0.3) * dv) < 1e-3 && Math.abs(c.vy) < 1e-9 && cant === 0.3,
+        `${c.vx.toFixed(2)} vs ${(Math.cos(0.3) * dv).toFixed(2)} m/s`);
 }
 
 

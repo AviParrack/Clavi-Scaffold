@@ -119,7 +119,7 @@ const nearestBug = (g, id, lx, ly) => bugsOn(g, id).sort((a, b) => Math.hypot(a.
     if (x && squashed && !x.ground && x.squash <= 0) hopped = true;
     if (x && x.mode === 'chase' && x.tgt === 'astro') chasing = true;
     if (firstBite == null && g.astro.hp < g.astro.hpMax) firstBite = g.t;
-    if (/Bugs! Zap them with the laser/.test(Game.hint(g))) sawHint = true;
+    if (/Bugs! Hold left click on them .*\(a bite costs 8 suit\)/.test(Game.hint(g))) sawHint = true;
     minWarp = Math.min(minWarp, g.warpMax);
   });
   check('a nearby bug notices and chases the astronaut', chasing, watch ? `${watch.name}` : 'no bug');
@@ -128,7 +128,7 @@ const nearestBug = (g, id, lx, ly) => bugsOn(g, id).sort((a, b) => Math.hypot(a.
         firstBite != null ? `first bite at ${firstBite.toFixed(1)} s, hp ${g.astro.hp}` : 'no bite');
   check('...bites have a cooldown (no machine-gun chomping)', g.events.filter((e) => /bit you/.test(e.msg)).length <= 2 * 20 / 1.5 + 2,
         `${g.events.filter((e) => /bit you/.test(e.msg)).length} bites in 20 s`);
-  check('hint: "Bugs! Zap them with the laser..."', sawHint);
+  check('hint: "Bugs! Hold left click on them... (a bite costs 8 suit)"', sawHint);
   check('warp capped while bugs attack', minWarp <= 2, `min warp cap ${minWarp}x`);
   check('the ship in flight is ignored', g.sh.hull === g.S.hull, `hull ${g.sh.hull}`);
 }
@@ -342,6 +342,18 @@ function laserUntilDead(g, bug, dps = 18) {
   check('...and pays a jelly jackpot', g.pickups.length - pk0 >= 4 && g.popups.some((x) => x.text === 'JACKPOT!'), `${g.pickups.length - pk0} jelly`);
 }
 
+
+// ---------------- 12. landing among bugs (with the suit module): a warning before you step out ----------------
+{
+  const { execFileSync } = require('child_process');
+  const solo = `const H = require(${JSON.stringify(__dirname + '/harness')}); H.load({ only: 'mobs,eva' });
+    const g = Game.create(7, 'kiwi', { fresh: true }), kb = g.w.byId.kiwi; H.run(g, 2, {});
+    Game.landAt(g, kb, Mobs.home(g, 'kiwi').nests[1].th + 40 / kb.R); H.run(g, 3, {});
+    console.log(JSON.stringify({ hint: Game.hint(g), status: g.status }));`;
+  let out = null;
+  try { out = JSON.parse(execFileSync(process.execPath, ['-e', solo], { encoding: 'utf8' }).trim().split('\n').pop()); } catch (e) { out = { hint: e.message.slice(0, 160) }; }
+  check('landed on Kiwi: "Munchers live on Kiwi: 8 suit a bite..."', out && /^Munchers live on Kiwi: 8 suit a bite\. Step out \(E\)/.test(out.hint), out && out.hint);
+}
 
 console.log(`\n${nPass} passed, ${nFail} failed`);
 process.exit(nFail ? 1 : 0);

@@ -24,15 +24,17 @@ const Physics = (() => {
   const fullMass = (S) => S.dry + S.fuel + (S.ionTank || 0);
 
   // ---------------- one fixed step ----------------
-  //  ctrl = { main: 0..1, ion: 0|1, rot: -1|0|1, kill: bool, fwd: -1..1, left: -1..1, side: -1..1, dash: bool }
+  //  ctrl = { main: 0..1, ion: 0|1, rot: -1|0|1, kill: bool, fwd: -1..1, left: -1..1, side: -1..1, dash: bool, cant: rad }
   //  side > 0 pushes toward the ship's left (like left); pods burn main propellant at F / sideVe
-  //  returns what actually fired: { main, ion, rot, trans, side }
+  //  cant: the main engine splits into two jets ±cant off the axis (towing: the plume misses the rock); the same
+  //  propellant flow, cos(cant) of the thrust along the nose
+  //  returns what actually fired: { main, ion, rot, trans, side, cant }
 
   const sideVeOf = (S) => (S.sideVe > 0 ? S.sideVe : Math.min(0.85 * S.ve, 900));
 
   function step(sh, ctrl, t, dt, w, S) {
     const m = mass(sh, S), boost = fullMass(S) / m;               // lighter ship = snappier RCS
-    const out = { main: 0, ion: 0, rot: 0, trans: 0, side: 0 };
+    const out = { main: 0, ion: 0, rot: 0, trans: 0, side: 0, cant: 0 };
 
     // -------- rotation: RCS torque --------
     let alpha = 0;
@@ -50,7 +52,7 @@ const Physics = (() => {
     const burn = (thr * S.thrust / S.ve + Math.abs(sideF) / sideVeOf(S)) * dt;
     if (burn > sh.fuel) { const k = sh.fuel / burn; thr *= k; side *= k; sideF *= k; }
     const mdot = thr * S.thrust / S.ve + Math.abs(sideF) / sideVeOf(S);
-    out.main = thr; out.side = side;
+    out.main = thr; out.side = side; out.cant = thr ? ctrl.cant || 0 : 0;
 
     // -------- ion cruise drive (tiny thrust, huge ve) --------
     let ion = S.ionThrust > 0 && sh.xe > 0 ? (ctrl.ion || 0) : 0;
@@ -70,7 +72,7 @@ const Physics = (() => {
     }
 
     const c = Math.cos(sh.ang), s = Math.sin(sh.ang);
-    const aMain = (thr * S.thrust + (ion ? ion * S.ionThrust : 0)) / mMid, aT = S.transAccel * boost, aS = sideF / mMid;
+    const aMain = (thr * S.thrust * Math.cos(out.cant) + (ion ? ion * S.ionThrust : 0)) / mMid, aT = S.transAccel * boost, aS = sideF / mMid;
     const fx = aMain * c + aT * (tf * c - tl * s) - aS * s;
     const fy = aMain * s + aT * (tf * s + tl * c) + aS * c;
 

@@ -20,6 +20,7 @@ const Combat = (() => {
   const KV = 0.9, BRAKE = 1.2, VMAX = 28, ROCK_V = 14;                // steering gain [1/s], braking budget [m/s^2], closing caps [m/s]
   const DODGE_GAP = 4;                                                 // clearance pirates keep from rubble [m]
   const AI_DT = 0.1, PRED_T = 6, PRED_H = 0.5, CLEAR = 8;              // think period, crash look-ahead [s], ground margin [m]
+  const SIGHT_LAG = 0.8;                                                // the gunner sees you this late (sensor + reflex) [s]: a dash beats the lead
   const P_LEN = 9, P_R = 3.4, P_T = 1.8, CRASH_V = 9;                  // pirate length, hit radius [m], mass [t], crash speed [m/s]
   const SEE_R = 650, FIRE_R = 150, LEASH = 380, HOVER_ALT = 26;       // notice / shoot / give-up ranges, standoff height [m]
   const WARP_R = 400, ARROW_R = 800, NAV_R = 1500, HINT_R = 600, GONE_R = 700, FAR_R = 1300;
@@ -46,10 +47,10 @@ const Combat = (() => {
   //  range: they open fire inside this [m] (about 2x hold: close enough that nose guns can answer back)
 
   const PERS = {
-    brash:   { hold: 36, acc: 0.12,  burst: 3, gap: [2.4, 3.2], rate: 0.17, flee: 0.2,  strafe: 0.32, dmg: [5, 7], speed: 70, range: 85 },
-    sniper:  { hold: 68, acc: 0.045, burst: 2, gap: [2.4, 3.4], rate: 0.3,  flee: 0.3,  strafe: 0.12, dmg: [7, 8], speed: 95, range: 130 },
-    coward:  { hold: 55, acc: 0.08,  burst: 3, gap: [2.2, 3.0], rate: 0.2,  flee: 0.5,  strafe: 0.2,  dmg: [5, 6], speed: 70, range: 105 },
-    showoff: { hold: 42, acc: 0.11,  burst: 4, gap: [2.3, 3.0], rate: 0.14, flee: 0.25, strafe: 0.5,  dmg: [5, 7], speed: 75, range: 95 },
+    brash:   { hold: 36, acc: 0.12,  burst: 3, gap: [2.4, 3.2], rate: 0.17, flee: 0.2,  strafe: 0.32, dmg: [5, 7], speed: 50, range: 85 },
+    sniper:  { hold: 68, acc: 0.045, burst: 2, gap: [2.4, 3.4], rate: 0.3,  flee: 0.3,  strafe: 0.12, dmg: [7, 8], speed: 70, range: 130 },
+    coward:  { hold: 55, acc: 0.08,  burst: 3, gap: [2.2, 3.0], rate: 0.2,  flee: 0.5,  strafe: 0.2,  dmg: [5, 6], speed: 50, range: 105 },
+    showoff: { hold: 42, acc: 0.11,  burst: 4, gap: [2.3, 3.0], rate: 0.14, flee: 0.25, strafe: 0.5,  dmg: [5, 7], speed: 55, range: 95 },
   };
 
   const CREW = [
@@ -552,6 +553,7 @@ const Combat = (() => {
     if (q && d < 400) { p.look = [(q.x - p.x) / (d || 1), (q.y - p.y) / (d || 1)]; if (p.state !== 'attack') p.aimAng = Math.atan2(p.look[1], p.look[0]); }
 
     // -------- guns & chatter --------
+    track(g, p, q);
     if (p.state === 'attack' && !why && q && d < Math.min(FIRE_R, p.P.range || FIRE_R)) shoot(g, M, p, q, d);
     if (p.state === 'attack' && g.real - M.banterT > BANTER_GAP && M.rand() < 0.02) { M.banterT = g.real; say(g, M, p, 'banter'); }
   }
@@ -712,10 +714,23 @@ const Combat = (() => {
 
   // -------- pirate guns: bursts, lead aim, spread; warning shots first if you are unarmed --------
 
+  // what the gunsight shows: you as you were SIGHT_LAG s ago, coasted on to now. A steady target is led perfectly, a fresh dash not at all
+  function track(g, p, q) {
+    if (!q) { p.seen = []; return; }
+    const L = p.seen || (p.seen = []);
+    if (L.length && L[0].kind !== q.kind) L.length = 0;
+    L.push({ kind: q.kind, t: g.t, x: q.x, y: q.y, vx: q.vx, vy: q.vy });
+    while (L.length > 1 && L[1].t <= g.t - SIGHT_LAG + 1e-9) L.shift();
+  }
+  function sighted(g, p, q) {
+    const o = p.seen && p.seen[0], dt = o ? g.t - o.t : 0;
+    return o ? { x: o.x + o.vx * dt, y: o.y + o.vy * dt, vx: o.vx, vy: o.vy } : q;
+  }
+
   function shoot(g, M, p, q, d) {
-    const u = P_LEN / 10, c = Math.cos(p.ang), s = Math.sin(p.ang);
+    const u = P_LEN / 10, c = Math.cos(p.ang), s = Math.sin(p.ang), tv = sighted(g, p, q);
     const mx = p.x - c * 1.9 * u, my = p.y - s * 1.9 * u;                // turret, behind the cockpit
-    const s0 = p.P.speed, rx = q.x - mx, ry = q.y - my, vx = q.vx - p.vx, vy = q.vy - p.vy;
+    const s0 = p.P.speed, rx = tv.x - mx, ry = tv.y - my, vx = tv.vx - p.vx, vy = tv.vy - p.vy;
     const A = vx * vx + vy * vy - s0 * s0, B = 2 * (rx * vx + ry * vy), C = rx * rx + ry * ry;
     let t = Math.sqrt(C) / s0;
     if (A < -1e-9) t = (-B - Math.sqrt(Math.max(0, B * B - 4 * A * C))) / (2 * A);

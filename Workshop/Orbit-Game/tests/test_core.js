@@ -231,8 +231,15 @@ function dropOn(bodyId, speed, th = 1.0) {
   g.navId = 'body:dorito'; Game.refresh(g);
   const ap = g.approach;
   check('targeting Dorito computes a closest approach', ap && ap.i >= 0 && isFinite(ap.d) && ap.dNow > 0, ap ? `now ${ap.dNow.toFixed(0)} m, closest ${ap.d.toFixed(0)} m in ${(ap.t - g.t).toFixed(0)} s` : 'none');
+  const ids = Game.navTargets(g).map((n) => n.id);
   H.run(g, 1, { pressed: ['Tab'] });
-  check('Tab cycles to the next target', g.navId === 'body:kiwi', g.navId);
+  const n1 = g.navId;
+  H.run(g, 1, { pressed: ['Tab'] });
+  const n2 = g.navId;
+  H.run(g, 1, { keys: ['ShiftLeft'], pressed: ['Tab'] });
+  check('Tab cycles to another target, Shift+Tab steps back', ids.includes(n1) && n1 !== 'body:dorito' && ids.includes(n2) && n2 !== n1 && g.navId === n1, `dorito -> ${n1} -> ${n2} -> back to ${g.navId}`);
+  const jb = fresh('orbit'); H.run(jb, 1, { pressed: ['Tab'] });
+  check('...and from nothing it starts at the next job\'s target (Mochi\'s pad)', ['mochi:pad', 'body:mochi'].includes(jb.navId), jb.navId);
   // out in the belt the path is drawn in the target's lane body frame: Mochi for the Hub or Kiwi (no corkscrew), Pretzel as itself
   const gb = fresh('orbit'), m = gb.w.byId.mochi, [mx, my, mvx, mvy] = World.bodyState(gb.w, m, gb.t);
   Object.assign(gb.sh, { x: mx * 1.17, y: my * 1.17 + 300, vx: mvx * 0.92, vy: mvy * 0.92 }); gb.everFlew = true;
@@ -389,6 +396,48 @@ function dropOn(bodyId, speed, th = 1.0) {
   const o = { dev: true, fresh: true, build: 'deadbeef', inf: true }, go = Game.create(7, 'pad', o); o.build = 'changed';
   check('g.opts keeps a shallow copy of the create options', go.opts !== o && go.opts.build === 'deadbeef' && go.opts.inf === true && JSON.stringify(Game.create(7, 'pad', { fresh: true }).opts) === '{"fresh":true}',
         JSON.stringify(go.opts));
+}
+
+
+// ---------------- 13. v4 flight fixes: warp reasons, liftoff, honest brake hint, the wreck, the pad, odd saves ----------------
+{
+  const e = fresh('orbit'); H.run(e, 5, {}); H.run(e, 1, { pressed: ['KeyE'] });
+  e.warpIdx = CONFIG.sim.warps.length - 1; H.run(e, 10, { keys: ['ArrowLeft'] });
+  check('on a tether the warp reason is the spacewalk, not "thrusters firing"', e.mode === 'eva' && e.warp === 1 && e.warpWhy === 'spacewalk', `${e.mode} ${e.warp}x ${e.warpWhy}`);
+
+  const l = fresh('pad'); let warned = 0;
+  for (let i = 0; i < 420; i++) { H.run(l, 1, { keys: ['KeyW'] }); if (l.status === 'flying' && ((l.pred && l.pred.impact) || /impact/.test(l.warpWhy))) warned++; }
+  check('a liftoff under thrust (lift > 1) never warns of impact', l.status === 'flying' && warned === 0, `${warned} frames with an impact warning, alt ${Game.nearestBody(l, l.sh.x, l.sh.y).alt.toFixed(0)} m`);
+
+  const w = fresh('orbit'), mo = w.w.byId.mochi, [mx, my, mvx, mvy] = World.bodyState(w.w, mo, w.t);
+  Object.assign(w.sh, { x: mx, y: my + mo.R + 120, vx: mvx, vy: mvy }); w.everFlew = true;
+  w.S.thrust = 0.6 * Physics.mass(w.sh, w.S) * mo.mu / (mo.R * mo.R); Game.refresh(w);
+  const ht = Game.hint(w);
+  check('lift < 1: the impact hint says braking cannot save it', /cannot hold this ship up here \(lift 0\.60x\)/.test(ht) && !/hold W/.test(ht), ht);
+
+  const d = fresh('pad'), [bx0, by0] = World.bodyState(d.w, d.w.byId.mochi, d.t), off0 = [d.sh.x - bx0, d.sh.y - by0];
+  Game.die(d, 'test'); d.warpIdx = CONFIG.sim.warps.length - 1; H.run(d, 120, {});
+  const [bx1, by1] = World.bodyState(d.w, d.w.byId.mochi, d.t), drift = Math.hypot(d.sh.x - bx1 - off0[0], d.sh.y - by1 - off0[1]);
+  check('a wreck on the ground rides its body, hull 0, warp held at 1x', d.status === 'dead' && drift < 0.5 && d.sh.hull === 0 && d.warp === 1 && /wrecked/.test(d.warpWhy), `drift ${drift.toFixed(2)} m, ${d.warp}x ${d.warpWhy}`);
+
+  const p = fresh('orbit'), pad = Game.navTargets(p).find((n) => n.id === 'mochi:pad');
+  if (pad) {
+    const [px, py] = pad.state(p.t), [cx, cy] = World.bodyState(p.w, p.w.byId.mochi, p.t), th = Math.atan2(py - cy, px - cx);
+    p.everFlew = true; Game.landAt(p, p.w.byId.mochi, th + 1.2); H.run(p, 5, {});
+    const far = p.done.land_mochi === undefined;
+    Game.landAt(p, p.w.byId.mochi, th); H.run(p, 5, {});
+    check('land_mochi pays on the pad only (not 1.2 rad round the rock)', far && p.done.land_mochi !== undefined && /Mochi Pad/.test(Game.GOALS.find((gl) => gl.id === 'land_mochi').text), `far: ${far ? 'not paid' : 'PAID'}, pad: ${p.done.land_mochi !== undefined ? 'paid' : 'not paid'}`);
+  } else check('land_mochi pays on the pad only', false, 'no mochi:pad target');
+
+  const store = {};
+  global.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+  const s0 = fresh('pad'); s0.money = 777; Game.save(s0);
+  const key = Object.keys(store)[0], sv = JSON.parse(store[key]);
+  sv.money = '1234'; sv.cargo = { __proto__: null, toString: 5, ice: 3, rock: -2 }; store[key] = JSON.stringify(sv).replace('"cargo":{', '"cargo":{"__proto__":9,');
+  let err = null, s1 = null; try { s1 = Game.create(7, 'pad'); } catch (x) { err = x.message; }
+  check('a hand-edited save: "1234" money is read, odd cargo keys dropped', !err && s1.money === 1234 && s1.cargo.ice === 3 && !Object.hasOwn(s1.cargo, 'toString') && !Object.hasOwn(s1.cargo, 'rock') && Object.getPrototypeOf(s1.cargo) === Object.prototype,
+        err || `$${s1.money} ${JSON.stringify(s1.cargo)}`);
+  Game.wipeSave(); delete global.localStorage;
 }
 
 

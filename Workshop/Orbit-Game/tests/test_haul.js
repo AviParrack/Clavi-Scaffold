@@ -115,10 +115,12 @@ function moveTo(g, p) {
   let tension = 0, warp = 0;
   for (let i = 0; i < 240; i++) { H.run(g, 1, { keys: ['KeyW'] }); H.run(c, 1, {}); if (i === 120) { tension = g.mod.haul.tension; warp = g.warp; } }
   const m1 = mOf(g), dvS = Math.hypot(g.sh.vx - c.sh.vx, g.sh.vy - c.sh.vy), dvR = Math.hypot(rk.vx - ck.vx, rk.vy - ck.vy);
-  const want = g.S.ve * Math.log((m0 + rk.m) / (m1 + rk.m)), F = g.S.thrust * rk.m / (m1 + rk.m);
-  check('towing burn: ship and rock gain the rocket-equation Δv of both', near(dvS, want, 0.01 * want) && near(dvR, want, 0.01 * want),
-        `ship ${dvS.toFixed(3)}, rock ${dvR.toFixed(3)}, ve ln((m0+M)/(m1+M)) ${want.toFixed(3)} m/s on ${(f0 - g.sh.fuel).toFixed(2)} t`);
-  check('...rope tension = thrust × M / (m + M)', near(tension, F, 0.02 * F), `${tension.toFixed(2)} kN vs ${F.toFixed(2)} kN`);
+  const cc = Math.cos(Haul.CANT), want = cc * g.S.ve * Math.log((m0 + rk.m) / (m1 + rk.m)), F = cc * g.S.thrust * rk.m / (m1 + rk.m);
+  check('towing burn: ship and rock gain the rocket-equation Δv of both', near(dvS, want, 0.01 * want) && near(dvR, want, 0.01 * want) && near(g.fired.cant, Haul.CANT, 1e-12),
+        `ship ${dvS.toFixed(3)}, rock ${dvR.toFixed(3)}, cos(${(Haul.CANT * 180 / Math.PI).toFixed(0)}°) ve ln((m0+M)/(m1+M)) ${want.toFixed(3)} m/s on ${(f0 - g.sh.fuel).toFixed(2)} t`);
+  check('...rope tension = cos(cant) thrust × M / (m + M)', near(tension, F, 0.02 * F), `${tension.toFixed(2)} kN vs ${F.toFixed(2)} kN`);
+  const dvRow = Game.gather(g, 'hudRows').find((r) => r.label === 'Δv W/ ROCK'), dvHere = cc * g.S.ve * Math.log((m1 + rk.m) / (m1 + rk.m - g.sh.fuel));
+  check('...the Δv W/ ROCK row carries the same cos loss', dvRow && dvRow.val.startsWith(dvHere.toFixed(1)), dvRow ? `${dvRow.val} vs ${dvHere.toFixed(1)}` : 'no row');
   check('burnWarp: a towing burn (0.014 m/s²) runs at 16x', warp === 16 && g.stepDt === CONFIG.sim.dt, `warp ${warp}x, steps ${(g.stepDt * 1000).toFixed(2)} ms`);
   const n = fresh(); Game.setWarp(n, 16); H.run(n, 3, { keys: ['KeyW'] });
   const l = fresh(); hooked(l, 'gravel', 1); l.sh.ang += Math.PI; Game.setWarp(l, 16); H.run(l, 3, { keys: ['KeyW'] });
@@ -264,6 +266,76 @@ function moveTo(g, p) {
   let out = null;
   try { out = JSON.parse(execFileSync(process.execPath, ['-e', solo], { encoding: 'utf8' }).trim().split('\n').pop()); } catch (e) { out = { err: e.message.slice(0, 120) }; }
   check('only: haul (dev, no econ): hook, tow, crack, 600 frames clean', out && !out.err && out.cracked === 1 && out.free >= 2, JSON.stringify(out));
+}
+
+// ---------------- 9. the tow against the ring rubble, the nose governor, dev T, hostile saves ----------------
+{
+  // the ship coasts at v into a Mochi ring rock with a 64 t rock trailing on the rope: the rock rams it into the wall (a rattle)
+  const ram = (v, tow = true) => {
+    const g = fresh('belt'), rk = tow ? hooked(g, 'gravel', 2) : null, q = g.w.rocks.find((k) => !k.gone && k.host.id === 'mochi' && k.r > 4);
+    const [qx, qy, qvx, qvy] = World.rockState(g.w, q, g.t), ux = Math.cos(0.7), uy = Math.sin(0.7), hitR = q.r * 0.9 + g.S.radius * 0.8;
+    const L = rk ? Math.hypot(rk.x - g.sh.x, rk.y - g.sh.y) : 0, sx = qx + ux * (hitR + 2), sy = qy + uy * (hitR + 2);
+    Object.assign(g.sh, { x: sx, y: sy, vx: qvx - ux * v, vy: qvy - uy * v, ang: 0.7, omega: 0 });
+    if (rk) Object.assign(rk, { x: sx + ux * L, y: sy + uy * L, vx: g.sh.vx, vy: g.sh.vy });
+    Game.refresh(g);
+    const h0 = g.sh.hull, e0 = g.events.length; let vMax = 0, gap = 9, on = false;
+    for (let i = 0; i < 600; i++) {
+      H.run(g, 1, {});
+      const [x, y, vx, vy] = World.rockState(g.w, q, g.t), d = Math.hypot(g.sh.x - x, g.sh.y - y) - hitR;
+      on = on || d < 0.2; gap = Math.min(gap, d);
+      if (on) vMax = Math.max(vMax, Math.hypot(g.sh.vx - vx, g.sh.vy - vy));
+    }
+    return { dmg: h0 - g.sh.hull, vMax, gap, knocks: g.events.slice(e0).filter((e) => /hull/.test(e.msg)).map((e) => e.msg.split(' ')[0]), g };
+  };
+  const a = ram(3), b = ram(3, false);
+  check('coasting tow into a ring rock: no speed gained off the contact', a.vMax <= 3 * 1.1 && a.gap > -0.05 && a.g.status === 'flying', `max ${a.vMax.toFixed(2)} m/s vs 3 in, deepest ${a.gap.toFixed(2)} m`);
+  check('...the ram-and-rattle costs ≤ 2.2x the same bump without a tow', a.dmg <= 2.2 * b.dmg && b.dmg > 10, `${a.dmg.toFixed(1)} hull (${a.knocks.join(' ')}) vs ${b.dmg.toFixed(1)} alone`);
+  const r = ram(1);
+  check('...and a gentle 1 m/s brush costs one dent', r.knocks.length <= 2 && r.dmg <= 8, `${r.dmg.toFixed(1)} hull: ${r.knocks.join(' ') || 'none'}`);
+
+  // a free rock against a rail rock: a bounce at ROCK_REST 0.3, and 7 m/s gravel (½v² > Q 20 J/kg) shatters, no job paid
+  const bounce = (v) => {
+    const g = fresh('belt'), q = g.w.rocks.find((k) => !k.gone && k.host.id === 'mochi' && k.r > 4), rk = Haul.devRock(g, 'gravel', 1.5);
+    const [qx, qy, qvx, qvy] = World.rockState(g.w, q, g.t), D = 0.9 * (q.r + rk.r) + 0.5;
+    Object.assign(rk, { x: qx + D, y: qy, vx: qvx - v, vy: qvy });
+    H.run(g, Math.ceil(60 * 2 / v), {});
+    const [x1, y1, vx1, vy1] = World.rockState(g.w, q, g.t), nx = (rk.x - x1) / Math.hypot(rk.x - x1, rk.y - y1), ny = (rk.y - y1) / Math.hypot(rk.x - x1, rk.y - y1);
+    return { g, rk, out: (rk.vx - vx1) * nx + (rk.vy - vy1) * ny, alive: Haul.free(g).includes(rk) };
+  };
+  const s1 = bounce(1), s7 = bounce(7);
+  check('a free rock bounces off a rail rock at 0.3', s1.alive && near(s1.out, 0.3, 0.06), `${s1.out.toFixed(2)} m/s out after 1 in`);
+  check('...a 7 m/s one cracks (no crack job for a crash)', !s7.alive && Haul.free(s7.g).length >= 2 && s7.g.done.crack === undefined, `${Haul.free(s7.g).length} pieces`);
+
+  // W with the nose on the rock: the governor holds the closing speed to NOSE_V, so a tow start never CLONKs
+  const n = fresh(), nk = hooked(n, 'gravel', 3);
+  let close = 0;
+  for (let i = 0; i < 300; i++) { H.run(n, 1, { keys: ['KeyW'] }); close = Math.max(close, ((n.sh.vx - nk.vx) * (nk.x - n.sh.x) + (n.sh.vy - nk.vy) * (nk.y - n.sh.y)) / Math.hypot(nk.x - n.sh.x, nk.y - n.sh.y)); }
+  const nt = n.toasts.map((t) => t.text).join(' | ');
+  check('W nose-on: engine held at NOSE_V closing, no CLONK, says why', close <= Haul.NOSE_V + 0.1 && !n.events.some((e) => /CLONK/.test(e.msg)) && /NOSE ON THE ROCK/.test(nt), `closing ≤ ${close.toFixed(2)} m/s; ${nt.slice(0, 60)}`);
+  check('...tail to the rock: the exhaust cants off it', (() => { const c = fresh(); hooked(c, 'gravel', 3); c.sh.ang += Math.PI; H.run(c, 10, { keys: ['KeyW'] }); return c.fired.cant === Haul.CANT; })(), '');
+
+  const by = fresh(); hooked(by, 'gravel', 3); by.navId = null; H.run(by, 1, { pressed: ['Tab'] });
+  const sp = Haul.sellPoints(by).sort((u, v) => Math.hypot(u.x - by.sh.x, u.y - by.sh.y) - Math.hypot(v.x - by.sh.x, v.y - by.sh.y))[0];
+  const tow = Game.gather(by, 'hudRows').find((r) => r.label === 'TOW');
+  check('towing, Tab picks the nearest buyer first; the TOW row shows its price', [sp.id, 'station:' + sp.id].includes(by.navId) && tow && /\$[\d,]+ at /.test(tow.val), `${by.navId}; TOW ${tow ? tow.val : '-'}`);
+
+  const t = Game.create(7, 'swarm', { fresh: true, dev: true }); hooked(t, 'gravel', 3);
+  H.run(t, 1, { pressed: ['KeyT'] });
+  check('dev T while towing lets the rock go', !Haul.towInfo(t) && !Haul.free(t).some((k) => k.towed), t.spawn);
+
+  const l = fresh(), bad = { v: 1, t: l.t, gone: ['__proto__', 3.5], chipped: { __proto__: 5, constructor: 2, toString: 1 }, nextId: 'x', stats: {}, tow: null,
+    free: [{ id: 1e6, type: '__proto__', r: 2, m: 60, oreKg: 1, x: 0, y: 0, vx: 0, vy: 0 }, { id: 1e6 + 1, type: 'toString', r: 2, m: 60, oreKg: 1, x: 0, y: 0, vx: 0, vy: 0 },
+           { id: 1e6 + 2, type: 'gravel', r: -2, m: 60, oreKg: 1, x: 0, y: 0, vx: 0, vy: 0 }, { id: 1e6 + 3, type: 'gravel', r: 2, m: 60, oreKg: 1, x: 0, y: 0, vx: 0, vy: 0, gem: 'constructor', ang: 'x' }] };
+  const store = {};
+  global.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+  Game.save(l);
+  const key = Object.keys(store).find((k) => /mods/.test(store[k])), d = JSON.parse(store[key]);
+  d.mods.haul = bad; store[key] = JSON.stringify(d).replace('"chipped":{', '"chipped":{"__proto__":5,');
+  let err = null, l2 = null; try { l2 = Game.create(7, null); } catch (e) { err = e.message; }
+  Game.wipeSave(); delete global.localStorage;
+  const got = l2 ? Haul.free(l2) : [];
+  check('a hostile save: prototype keys and bad numbers are skipped', !err && got.length === 1 && got[0].gem === null && got[0].ang === 0 && !Object.keys(l2.mod.haul.chipped).length && Object.getPrototypeOf(l2.mod.haul.chipped) === Object.prototype,
+        err || `${got.length} rock kept, gem ${got[0] && got[0].gem}`);
 }
 
 console.log(`\n${nPass} passed, ${nFail} failed`);

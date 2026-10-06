@@ -21,6 +21,9 @@ const Haul = (() => {
   const TENSION_T = 0.25;                   // tension readout smoothing [s]
   const TAUT_KN = 20;                       // a snap past this is logged [kN]
   const SAFE_BUMP = 2;                      // a towed rock nudging the nose slower than this never hurts [m/s]
+  const NOSE_V = 1.5;                       // a nose-on burn at the rock in tow is throttled to close no faster than this [m/s]
+  const CANT = 0.3;                         // towing tail-first, the engine splits into two jets ±CANT off the axis (the plume misses the rock) [rad]
+  const ROCK_REST = 0.3;                    // free rock off a rail rock (the rail rock does not budge, as for the ship)
   const ASTRO_BUMP = 3;                     // a rock hitting the astronaut faster than this hurts [m/s]
   const SELL_R = 40, SELL_V = 1.5;          // sell within this of a buyer's hull [m], slower than this [m/s]
   const FUSE = 5;                           // crack charge fuse [s]
@@ -221,17 +224,55 @@ const Haul = (() => {
     return Math.max(CONFIG.sim.dt, h);
   }
 
-  function fly(g, rocks, t0, h) {
+  function fly(g, rk, t0, h) {
+    let [ax, ay] = World.gravity(g.w, rk.x, rk.y, t0);
+    rk.vx += 0.5 * h * ax; rk.vy += 0.5 * h * ay;
+    rk.x += h * rk.vx;     rk.y += h * rk.vy;
+    [ax, ay] = World.gravity(g.w, rk.x, rk.y, t0 + h);
+    rk.vx += 0.5 * h * ax; rk.vy += 0.5 * h * ay;
+    rk.ang += rk.spin * h;
+  }
+
+  // rail rubble grouped by host into radial bands, so a free rock tests only the rocks it could touch
+  function bandsOf(g) {
+    const m = g.mod.haul;
+    if (m.bands) return m.bands;
+    const out = [], rocks = g.w.rocks.slice().sort((u, v) => (u.host.idx - v.host.idx) || (u.a - v.a));
+    let b = null;
     for (const rk of rocks) {
-      const [ax, ay] = World.gravity(g.w, rk.x, rk.y, t0);
-      rk.vx += 0.5 * h * ax; rk.vy += 0.5 * h * ay;
-      rk.x += h * rk.vx;     rk.y += h * rk.vy;
+      const lo = rk.a - rk.ae - rk.r, hi = rk.a + rk.ae + rk.r;
+      if (b && b.host === rk.host && lo < b.hi + 50) { b.hi = Math.max(b.hi, hi); b.rocks.push(rk); }
+      else out.push(b = { host: rk.host, lo, hi, rocks: [rk] });
     }
-    for (const rk of rocks) {
-      const [ax, ay] = World.gravity(g.w, rk.x, rk.y, t0 + h);
-      rk.vx += 0.5 * h * ax; rk.vy += 0.5 * h * ay;
-      rk.ang += rk.spin * h;
+    return (m.bands = out);
+  }
+
+  // a free (or towed) rock against the rail rubble: pushed out and bounced (a rail rock never budges, as with the ship);
+  //  hit hard enough (½ v² past the type's Q) it shatters. settle: after the rope, only push out and stop it
+  function railHits(g, rk, t, settle = false) {
+    const st = World.states(g.w, t);
+    for (const band of bandsOf(g)) {
+      const h = st[band.host.idx], dh = Math.hypot(rk.x - h[0], rk.y - h[1]);
+      if (dh < band.lo - rk.r || dh > band.hi + rk.r) continue;
+      for (const q of band.rocks) {
+        if (q.gone || Math.abs(dh - q.a) > q.r + q.ae + rk.r) continue;
+        const [qx, qy, qvx, qvy] = World.rockState(g.w, q, t), dx = rk.x - qx, dy = rk.y - qy, d = Math.hypot(dx, dy), hitR = 0.9 * (q.r + rk.r);
+        if (d >= hitR || d < 1e-9) continue;
+        const nx = dx / d, ny = dy / d, vn = (rk.vx - qvx) * nx + (rk.vy - qvy) * ny;
+        rk.x = qx + nx * hitR; rk.y = qy + ny * hitR;
+        if (vn >= 0) continue;
+        rk.vx -= (settle ? 1 : 1 + ROCK_REST) * vn * nx; rk.vy -= (settle ? 1 : 1 + ROCK_REST) * vn * ny;
+        if (settle) continue;
+        const E = 0.5 * rk.m * 1000 * vn * vn, cx = qx + nx * q.r * 0.9, cy = qy + ny * q.r * 0.9;
+        if (Game.freshBump(g, 'rr' + rk.id)) {
+          Game.burst(g, 'dust', cx, cy, 8 + Math.min(20, -vn * 4), { vx: qvx, vy: qvy, speed: 1 + Math.min(4, -vn), col: TYPES[rk.type].col[1] });
+          if (-vn > 0.5) Game.popup(g, 'THUD!', '#c9c4e8', cx, cy, 22);
+          Game.log(g, `rock ${rk.id} hit rail rock ${q.id} at ${(-vn).toFixed(2)} m/s`);
+        }
+        if (E >= TYPES[rk.type].Q * rk.m * 1000) { crack(g, rk, E, false); return true; }
+      }
     }
+    return false;
   }
 
   // body hits: a crater and crumbs; the star: SIZZLE; too far out: gone
@@ -297,10 +338,14 @@ const Haul = (() => {
   const held = (g) => g.status !== 'flying';                                   // landed, docked or wrecked: the ship does not budge
   const shipMass = (g) => (held(g) ? Infinity : Physics.mass(g.sh, g.S));
 
+  // a ship braced against a rail rock or the ground, pulled (or shoved) further into it, acts as a wall: it does not budge
+  const wall = (g, bn, nx, ny) => !!bn && nx * bn[0] + ny * bn[1] > 0;
+
   function towStep(g, dt) {
     const m = g.mod.haul, rk = towed(g);
     if (!rk) { m.tow = null; return; }
-    const J = rope(g.sh, shipMass(g), rk, rk.m, m.tow.len + rk.r + g.S.radius);
+    const bn = Game.braced(g), d = Math.hypot(rk.x - g.sh.x, rk.y - g.sh.y) || 1e-9;
+    const J = rope(g.sh, wall(g, bn, (g.sh.x - rk.x) / d, (g.sh.y - rk.y) / d) ? Infinity : shipMass(g), rk, rk.m, m.tow.len + rk.r + g.S.radius);
     m.tension += (J / dt - m.tension) * Math.min(1, dt / TENSION_T);
     if (m.tension > TAUT_KN && !m.taut) { m.taut = true; Game.log(g, `rope taut: ${m.tension.toFixed(0)} kN on rock ${rk.id}`); }
     else if (m.tension < TAUT_KN / 2) m.taut = false;
@@ -310,20 +355,22 @@ const Haul = (() => {
   function bumpShip(g) {
     const m = g.mod.haul, sh = g.sh, S = g.S;
     if (g.status === 'dead') return;
-    const mS = shipMass(g);
+    const bn = Game.braced(g);
     for (const rk of m.free) {
       const hitR = rk.towed ? rk.r + S.radius : rk.r * 0.9 + S.radius * 0.8;
       const dx = rk.x - sh.x, dy = rk.y - sh.y, d = Math.hypot(dx, dy);
       if (d >= hitR || d < 1e-9) continue;
-      const nx = dx / d, ny = dy / d, fa = mS === Infinity ? 0 : rk.m / (mS + rk.m), over = hitR - d;
+      const nx = dx / d, ny = dy / d, mS = wall(g, bn, nx, ny) ? Infinity : shipMass(g), fa = mS === Infinity ? 0 : rk.m / (mS + rk.m), over = hitR - d;
       sh.x -= over * fa * nx; sh.y -= over * fa * ny; rk.x += over * (1 - fa) * nx; rk.y += over * (1 - fa) * ny;
       const vn = (rk.vx - sh.vx) * nx + (rk.vy - sh.vy) * ny;                   // < 0: closing
       if (vn >= 0) continue;
       const J = -(1 + (rk.towed ? NOSE_REST : S.bounce)) * (mS === Infinity ? rk.m : mS * rk.m / (mS + rk.m)) * vn;
       if (mS !== Infinity) { sh.vx -= J / mS * nx; sh.vy -= J / mS * ny; }
       rk.vx += J / rk.m * nx; rk.vy += J / rk.m * ny;
-      if (rk.towed && -vn > SAFE_BUMP) Game.hurtShip(g, Math.min(45, S.bumpDamage * (-vn - SAFE_BUMP)), 'CLONK!');
-      else if (!rk.towed && -vn > 0.3) Game.hurtShip(g, Math.min(45, S.bumpDamage * -vn), ['CLANK!', 'BONK!', 'THUD!'][Math.floor(Math.random() * 3)]);
+      if (rk.towed ? -vn <= SAFE_BUMP : -vn <= 0.3) continue;
+      if (!Game.freshBump(g, rk.id)) continue;                                  // a scrape dents once, not every step
+      if (rk.towed) Game.knock(g, Math.min(45, S.bumpDamage * (-vn - SAFE_BUMP)), 'CLONK!');
+      else Game.knock(g, Math.min(45, S.bumpDamage * -vn), ['CLANK!', 'BONK!', 'THUD!'][Math.floor(Math.random() * 3)]);
     }
   }
 
@@ -341,18 +388,21 @@ const Haul = (() => {
     }
   }
 
+  // each free rock takes its own substeps (a rock grazing a moon no longer sets the pace for all of them)
   function step(g, dt) {
     const m = g.mod.haul;
     if (!m.free.length) return;
     const t0 = g.t - dt;
-    let n = 1;
-    if (dt > 1 / 60) for (const rk of m.free) n = Math.max(n, Math.ceil(dt / maxStep(g, rk, t0)));
-    for (let i = 0; i < n; i++) {
-      fly(g, m.free, t0 + i * dt / n, dt / n);
-      for (const rk of m.free.slice()) hitBodies(g, rk, t0 + (i + 1) * dt / n);
+    for (const rk of m.free.slice()) {
+      const n = dt > 1 / 60 ? Math.ceil(dt / maxStep(g, rk, t0)) : 1;
+      for (let i = 0; i < n; i++) {
+        const t1 = t0 + (i + 1) * dt / n;
+        fly(g, rk, t0 + i * dt / n, dt / n);
+        if (hitBodies(g, rk, t1) || railHits(g, rk, t1)) break;
+      }
     }
     if (m.tow && m.reel) reel(g, dt);
-    if (m.tow) towStep(g, dt);
+    if (m.tow) { towStep(g, dt); const rk = towed(g); if (rk) railHits(g, rk, g.t, true); }
     bumpShip(g);
     bumpAstro(g);
   }
@@ -412,7 +462,7 @@ const Haul = (() => {
     rk.towed = true; m.tension = 0; m.taut = false; m.stats.towed++;
     const v = payout(rk.oreKg, rk.gem, TYPES[rk.type], 1);
     Game.popup(g, 'CLUNK!', GOLD, rk.x, rk.y, 28);
-    Game.toast(g, `HOOKED: ${rk.type.toUpperCase()} ${fmtMass(rk.m)} (${fmtMoney(v)})`, '#8ff0b0', 'haul');
+    Game.toast(g, `HOOKED: ${rk.type.toUpperCase()} ${fmtMass(rk.m)} (${fmtMoney(v)}). TURN YOUR TAIL TO IT (A/D), THEN W`, '#8ff0b0', 'haul');
     Game.log(g, `latched rock ${rk.id}: ${rk.type} ${rk.m.toFixed(0)} t, ${rk.oreKg.toFixed(0)} kg ${TYPES[rk.type].ore}, ${fmtMoney(v)} at the Hub, cable ${m.tow.len.toFixed(1)} m`);
   }
 
@@ -533,7 +583,7 @@ const Haul = (() => {
     return { cracked };
   }
 
-  function crack(g, rk, E) {
+  function crack(g, rk, E, job = true) {
     const m = g.mod.haul, inf = info(g, rk), T = TYPES[inf.type], QM = T.Q * inf.m * 1000;
     if (E < QM) {
       const [x, y] = stateOf(g, rk);
@@ -564,7 +614,7 @@ const Haul = (() => {
     const vMax = Math.max(0, ...parts.map((p) => Math.hypot(p.vx - rk.vx, p.vy - rk.vy)));
     Game.popup(g, vMax > 30 ? 'ENCORE!' : 'CRACK!', GOLD, rk.x, rk.y + rk.r * 0.5, 30);
     Game.log(g, `rock ${rk.id} (${fmtMass(rk.m)} ${rk.type}) cracked by ${(E / 1e6).toFixed(1)} MJ into ${kids.length}: ${kids.map((k) => `${k.id} ${fmtMass(k.m)}`).join(', ')}`);
-    Game.goal(g, 'crack');
+    if (job) Game.goal(g, 'crack');
     return true;
   }
 
@@ -743,12 +793,12 @@ const Haul = (() => {
       const rk = g.w.rocks[id];
       if (rk && rk.id === id && !rk.gone) { rk.gone = true; m.gone.push(id); }
     }
-    for (const [id, kg] of Object.entries(d.chipped || {})) if (fin(kg) && g.w.rocks[id]) m.chipped[id] = kg;
+    for (const [id, kg] of Object.entries(d.chipped || {})) { const rk = g.w.rocks[id]; if (fin(kg) && rk && String(rk.id) === id) m.chipped[id] = kg; }
     if (fin(d.nextId)) m.nextId = Math.max(FIRST_ID, d.nextId);
     if (d.stats) for (const k in m.stats) if (fin(d.stats[k])) m.stats[k] = d.stats[k];
     for (const o of Array.isArray(d.free) ? d.free : []) {
-      if (!o || !TYPES[o.type] || !['id', 'r', 'm', 'oreKg', 'x', 'y', 'vx', 'vy'].every((k) => fin(o[k]))) continue;
-      const rk = makeFree(g, { ...o, gem: ITEMS[o.gem] ? o.gem : null, out: null });
+      if (!o || !Object.hasOwn(TYPES, o.type) || !['id', 'r', 'm', 'oreKg', 'x', 'y', 'vx', 'vy'].every((k) => fin(o[k])) || !(o.r > 0 && o.m > 0)) continue;
+      const rk = makeFree(g, { ...o, gem: Object.hasOwn(ITEMS, o.gem) ? o.gem : null, out: null, ang: fin(o.ang) ? o.ang : 0, spin: fin(o.spin) ? o.spin : 0, tone: fin(o.tone) ? o.tone : 0.5 });
       if (fin(d.t) && d.t !== g.t) reanchor(g, rk, d.t);
       m.free.push(rk);
     }
@@ -762,8 +812,9 @@ const Haul = (() => {
   }
 
   function ready(g) {
-    const m = g.mod.haul, p = m.pendingTow, rk = p && freeById(m, p.id);
+    const m = g.mod.haul, p = m.pendingTow, rk = p && freeById(m, p.id), tw = towed(g);
     m.pendingTow = null;
+    if (tw && Math.hypot(tw.x - g.sh.x, tw.y - g.sh.y) > m.tow.len + tw.r + g.S.radius + 3) release(g, 'the ship moved away (teleport)');   // dev T
     if (rk && Math.hypot(rk.x - g.sh.x, rk.y - g.sh.y) <= p.len + rk.r + g.S.radius + 3) { m.tow = { id: rk.id, len: p.len }; rk.towed = true; }
     else if (p) Game.log(g, `rock ${p.id} was in tow at the save, but the ship is elsewhere now: left it free`);
     if (g.dev && !econ(g)) for (const c of CHARGES) m.stock[c.id] = c.max;
@@ -789,6 +840,20 @@ const Haul = (() => {
     m.aim = (g.S.towMax ?? 0) > 0 && g.mode === 'ship' && g.status === 'flying' && !m.tow && !m.shot ? aimed(g) : null;
   }
 
+  // towing tail-first, the engine splits into two jets ±CANT off the axis so the plume misses the rock (cos CANT of the
+  //  thrust, same propellant); nose-on, the burn is throttled so the ship can push its rock but never ram it
+  function shipCtrl(g, ctrl) {
+    const rk = towed(g);
+    if (!rk || !ctrl.main || g.mode !== 'ship' || g.status !== 'flying') return;
+    const sh = g.sh, dx = rk.x - sh.x, dy = rk.y - sh.y, d = Math.hypot(dx, dy) || 1e-9, fwd = (dx * Math.cos(sh.ang) + dy * Math.sin(sh.ang)) / d;
+    if (fwd < -0.5) ctrl.cant = CANT;
+    if (fwd > 0.3 && ((sh.vx - rk.vx) * dx + (sh.vy - rk.vy) * dy) / d > NOSE_V) {
+      ctrl.main = 0;
+      const m = g.mod.haul;
+      if (g.real - (m.noseAt ?? -9) > 3) { m.noseAt = g.real; Game.toast(g, `NOSE ON THE ROCK: ENGINE HELD AT ${NOSE_V} M/S CLOSING. TAIL TO IT (A/D) TO TOW`, '#ffd166', 'haul'); }
+    }
+  }
+
   function warpLimit(g) {
     const m = g.mod.haul;
     if (m.shot) return { max: 1, why: 'harpoon away' };
@@ -801,7 +866,7 @@ const Haul = (() => {
   function burnWarp(g) {
     const rk = towed(g);
     if (!rk) return 1;
-    return g.S.thrust / (Physics.mass(g.sh, g.S) + rk.m) < BURN_A ? BURN_WARP : 1;
+    return accWithRock(g, rk) < BURN_A ? BURN_WARP : 1;
   }
 
   function interactions(g) {
@@ -819,8 +884,18 @@ const Haul = (() => {
     return [{ id: CRUSHER.id, name: CRUSHER.name, col: GOLD, r: CRUSHER.r, kind: 'crusher', state: (t) => crusherState(g, t) }];
   }
 
-  const dvWithRock = (g, rk) => { const mS = Physics.mass(g.sh, g.S), M = mS + rk.m; return g.S.ve * Math.log(M / (M - g.sh.fuel)); };
-  const accWithRock = (g, rk) => g.S.thrust / (Physics.mass(g.sh, g.S) + rk.m);
+  // tail-first (canted jets): the honest cos loss is in both
+  const dvWithRock = (g, rk) => { const mS = Physics.mass(g.sh, g.S), M = mS + rk.m; return g.S.ve * Math.cos(CANT) * Math.log(M / (M - g.sh.fuel)); };
+  const accWithRock = (g, rk) => g.S.thrust * Math.cos(CANT) / (Physics.mass(g.sh, g.S) + rk.m);
+
+  // what the rock in tow fetches: at the buyer you are at, else at the nearest buyer (and the Hub's base price)
+  function priceTag(g, rk) {
+    const at = atBuyer(g), hub = payout(rk.oreKg, rk.gem, TYPES[rk.type], 1);
+    if (at) return `${fmtMoney(at.pay)} here`;
+    const sp = sellPoints(g).sort((a, b) => Math.hypot(a.x - rk.x, a.y - rk.y) - Math.hypot(b.x - rk.x, b.y - rk.y))[0];
+    if (!sp || sp.id === 'hub') return `${fmtMoney(hub)} at the Hub`;
+    return `${fmtMoney(payout(rk.oreKg, rk.gem, TYPES[rk.type], sp.mult(rk.type)))} at ${sp.name.replace(/^The /, '')} · ${fmtMoney(hub)} at the Hub`;
+  }
 
   function hint(g) {
     const m = g.mod.haul;
@@ -834,8 +909,8 @@ const Haul = (() => {
       const b = atBuyer(g), what = `${rk.type} ${fmtMass(rk.m)}`;
       if (b && b.slow) return { pri: 60, text: `Press F: ${b.sp.name} pays ${fmtMoney(b.pay)} for the ${what}.` };
       if (b) return { pri: 60, text: `Match speed with ${b.sp.name}: get the rock under ${SELL_V} m/s (now ${b.v.toFixed(1)}), then F sells it.` };
-      return { pri: 46, text: `Towing ${what} (${fmtMoney(payout(rk.oreKg, rk.gem, TYPES[rk.type], 1))}, ${dvWithRock(g, rk).toFixed(1)} m/s of Δv with it). ` +
-        `Turn your tail to it and burn: the rope pulls. Q / Z reel, B cracks, G lets go. Sell at the Crusher or a station (Tab, then F within ${SELL_R} m).` };
+      return { pri: 46, text: `Towing ${what} (${priceTag(g, rk)}, ${dvWithRock(g, rk).toFixed(1)} m/s of Δv with it). ` +
+        `Turn your tail to it (the TOW marker) and burn: the rope pulls. Q / Z reel, B cracks, G lets go. Tab picks the nearest buyer first; F sells within ${SELL_R} m.` };
     }
     const c = m.aim;
     if (c) {
@@ -845,7 +920,8 @@ const Haul = (() => {
       return { pri: 44, text: `Press G to harpoon the ${what} ahead (${fmtMoney(c.inf.value)} at the Hub).` };
     }
     if ((g.S.towMax ?? 0) > 0 && !m.stats.towed && g.status === 'flying')
-      return { pri: 13, text: `Tow gear fitted: nose at a rock (±40°) within ${(g.S.cableLen ?? 0).toFixed(0)} m, match speed, press G.` };
+      return { pri: 13, text: `Tow gear fitted: nose at a rock (±40°) within ${(g.S.cableLen ?? 0).toFixed(0)} m, match speed, press G.` +
+        (g.S.towMax < 200 ? ` Most rocks are over your ${fmtMass(g.S.towMax)} winch: crack one first (B within ${PLANT_R} m), then hook a piece.` : '') };
     return null;
   }
 
@@ -858,8 +934,8 @@ const Haul = (() => {
     const m = g.mod.haul, rk = towed(g), rows = [];
     if (rk) {
       const dv = dvWithRock(g, rk);
-      rows.push({ label: 'TOW', val: `${rk.type} ${fmtMass(rk.m)} · ${fmtMoney(payout(rk.oreKg, rk.gem, TYPES[rk.type], 1))}`, col: TYPES[rk.type].col[1] });
-      rows.push({ label: 'CABLE', val: `${m.tow.len.toFixed(1)}/${(g.S.cableLen ?? 0).toFixed(0)} m · ${m.tension.toFixed(1)} kN`, col: m.tension > TAUT_KN ? '#e63946' : INK });
+      rows.push({ label: 'TOW', val: `${rk.type} ${fmtMass(rk.m)} · ${priceTag(g, rk).split(' · ')[0]}`, col: TYPES[rk.type].col[1] });
+      rows.push({ label: 'CABLE', val: `${m.tow.len.toFixed(1)}/${(g.S.cableLen ?? 0).toFixed(0)} m · ${m.tension.toFixed(1)} kN${m.tension > TAUT_KN ? ' taut' : ''}`, col: m.tension > TAUT_KN ? '#c77d1a' : INK });
       rows.push({ label: 'Δv W/ ROCK', val: `${dv.toFixed(1)} m/s · ${accWithRock(g, rk).toFixed(3)} m/s²`, col: dv < 2 ? '#e63946' : INK });
     }
     if (m.charges.length) rows.push({ label: 'CHARGE', val: `${m.charges[0].name}: BOOM ${Math.max(0, m.charges[0].left).toFixed(1)} s`, col: '#e63946' });
@@ -981,10 +1057,32 @@ const Haul = (() => {
     return [sh.x - c * 0.5 * L - s * side * 0.32 * L, sh.y - s * 0.5 * L + c * side * 0.32 * L, false];
   }
 
+  // the TOW marker: where to point the nose to pull (straight away from the rock), shown until the nose is on it
+  function towMark(g, kit) {
+    const rk = towed(g), sh = g.sh;
+    if (!rk || g.mode !== 'ship' || g.status !== 'flying' || kit.cam.map) return null;
+    const dx = sh.x - rk.x, dy = sh.y - rk.y, d = Math.hypot(dx, dy) || 1e-9, ux = dx / d, uy = dy / d;
+    if (ux * Math.cos(sh.ang) + uy * Math.sin(sh.ang) > Math.cos(0.35)) return null;
+    const R = Math.max(g.S.length * 0.9, 56 * kit.px());
+    return [sh.x + ux * R, sh.y + uy * R, ux, uy];
+  }
+  function paintTowMark(g, kit) {
+    const tm = towMark(g, kit);
+    if (!tm) return;
+    const ctx = kit.ctx, px = kit.px(), [x, y, ux, uy] = tm, r = 9 * px, k = 0.5 + 0.5 * Math.sin(g.real * 5);
+    ctx.lineWidth = 2.5 * px; ctx.strokeStyle = INK;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fillStyle = `rgba(255,209,102,${0.25 + 0.25 * k})`; ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + ux * r * 0.7, y + uy * r * 0.7);
+    ctx.lineTo(x - ux * r * 0.4 - uy * r * 0.55, y - uy * r * 0.4 + ux * r * 0.55);
+    ctx.lineTo(x - ux * r * 0.4 + uy * r * 0.55, y - uy * r * 0.4 - ux * r * 0.55);
+    ctx.closePath(); ctx.fillStyle = GOLD; ctx.fill(); ctx.lineWidth = 1.5 * px; ctx.stroke();
+  }
+
   // the cable sags with slack and pulls straight, thicker and redder, with tension
   function drawWorldTop(g, kit) {
     const m = g.mod.haul, ctx = kit.ctx, px = kit.px();
     if (g.status === 'dead' || (!m.tow && !m.shot && !((g.S.towMax ?? 0) > 0))) return;
+    paintTowMark(g, kit);
     const rk = towed(g), aim = rk ? [rk.x, rk.y] : m.shot ? stateOf(g, m.shot.rk) : [null, null], [nx, ny, nose] = hitch(g, kit, aim[0], aim[1]);
     let end = null, slack = 0;
     if (rk) {
@@ -1033,7 +1131,9 @@ const Haul = (() => {
       kit.tag(sx, sy > py + 2 ? sy + rr + 20 : sy - rr - 12, text, col);
     };
     const rk = towed(g);
-    if (rk) label(rk, rk.x, rk.y, `${rk.type.toUpperCase()} ${fmtMass(rk.m)} · ${fmtMoney(payout(rk.oreKg, rk.gem, TYPES[rk.type], 1))}`, TYPES[rk.type].col[0]);
+    if (rk) label(rk, rk.x, rk.y, `${rk.type.toUpperCase()} ${fmtMass(rk.m)} · ${priceTag(g, rk).split(' · ')[0]}`, TYPES[rk.type].col[0]);
+    const tm = towMark(g, kit);
+    if (tm) { const [sx, sy] = kit.toScreen(tm[0], tm[1]); kit.tag(sx, sy - 18, 'TOW', GOLD); }
     const c = m.aim;
     if (c && g.mode === 'ship') {
       const ok = c.inf.m <= (g.S.towMax ?? 0), fast = c.v > LATCH_V;
@@ -1052,7 +1152,7 @@ const Haul = (() => {
   //  REGISTER + JOBS
   // ======================================================================
 
-  const mod = { id: 'haul', init, stats, load, save, ready, died, respawn, onKey, frame, step, warpLimit, burnWarp,
+  const mod = { id: 'haul', init, stats, load, save, ready, died, respawn, onKey, frame, step, shipCtrl, warpLimit, burnWarp,
                 interactions, navTargets, hint, controls, hudRows, drawWorld, drawWorldTop, drawScreen };
   Game.register(mod);
   if (!Game.mods.includes(mod)) return undefined;
@@ -1068,7 +1168,7 @@ const Haul = (() => {
     return rk ? { id: rk.id, x: rk.x, y: rk.y, r: rk.r, m: rk.m, len: g.mod.haul.tow.len, tension: g.mod.haul.tension, type: rk.type } : null;
   };
 
-  return { TYPES, BUY, CRUSHER, CHARGES, typeOf, known, info, free, rayRocks, chip, blast, towInfo, sellPoints, devRock,
+  return { TYPES, BUY, CRUSHER, CHARGES, CANT, NOSE_V, typeOf, known, info, free, rayRocks, chip, blast, towInfo, sellPoints, devRock,
            rope, split, sell, crusherState, payout: (g, rk, mult = 1) => payout(rk.oreKg, rk.gem, TYPES[rk.type], mult) };
 })();
 

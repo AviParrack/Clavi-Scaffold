@@ -478,6 +478,32 @@ if (!FULL) {
   check('...a turret says click to fire instead', /click: fire at mouse/.test(Game.first(g, 'controls') || '') && !/Space fire/.test(Game.first(g, 'controls') || ''));
 }
 
+
+// ---------------- 16. dodging: the gunsight sees you SIGHT_LAG late, so a dash beats the lead ----------------
+{
+  // a Pack Mule (r 5 m) with Strafe pods in a 100 m Potato orbit, nose on the sniper; still vs a dash every time it is ready
+  const duel = (jink, seed) => {
+    const g = Game.create(seed, 'potato', { fresh: true }), E = g.mod.economy;
+    Econ.install(g, 'side1'); Econ.install(g, 'side2'); E.owned.mule = true; E.frame = 'mule'; Game.recalc(g); g.sh.hull = g.S.hull;
+    orbitAt(g, 'potato', 100, 1.0); quiet(g);
+    const p = Combat.spawn(g, 'potato', { pers: 'sniper', near: true }), seen = new Set();
+    let side = 1, hits = 0, h = g.sh.hull;
+    for (let i = 0; i < 60 * 30 && g.status === 'flying' && !p.gone; i++) {
+      for (const b of M(g).bullets) if (b.team === 'pirate') seen.add(b);
+      g.sh.ang = Math.atan2(p.y - g.sh.y, p.x - g.sh.x); g.sh.omega = 0;
+      if (jink && g.t >= g.dash.readyAt && distTo(g, p) < 140) { const k = side > 0 ? 'ArrowLeft' : 'ArrowRight'; H.run(g, 1, { pressed: [k] }); H.run(g, 1, { pressed: [k] }); side = -side; }
+      else H.run(g, 1, {});
+      if (g.sh.hull < h - 1e-9) hits++;
+      h = g.sh.hull;
+    }
+    return [hits, seen.size];
+  };
+  const sum = (jink) => [3, 7].map((s) => duel(jink, s)).reduce((a, b) => [a[0] + b[0], a[1] + b[1]]);
+  const [hs, fs] = sum(false), [hj, fj] = sum(true);
+  check('a Mule dashing whenever it can dodges a sniper (hit rate ≤ 0.7x still)', fs > 20 && fj > 20 && hj / fj <= 0.7 * hs / fs,
+        `still ${hs}/${fs} = ${(100 * hs / fs).toFixed(0)} %, dashing ${hj}/${fj} = ${(100 * hj / fj).toFixed(0)} %`);
+}
+
 }   // !FULL
 
 

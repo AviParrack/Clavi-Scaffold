@@ -5,6 +5,10 @@ Read this whole file before writing a module. Core files are read-only for modul
 
 > **v4 stage 2:** [design/V4-CONTRACT.md](design/V4-CONTRACT.md) is binding and wins over this file where they differ (new modules haul, mochi, npcs; new S fields, keys, jobs).
 > Test loop: `for t in physics core economy stations eva mobs wrecks combat haul npcs mochi; do node tests/test_$t.js | tail -1; done`
+> **Added after the contract (integration fixes):** `Econ.buy/equip/setFuel/swapFrame` may return `{ok:false, why:'lift'}` (pass `{confirm:true}`),
+> `Econ.buyBundle`, `Econ.safeFill`, `Econ.liftNow`, `Econ.towKm`; `EVA.airHint`, `EVA.surfaceCap`, `EVA.THROW_CD`; `Mochi.nearestAir`, `Mochi.noon`,
+> nav target id `mochi:pad`; `Game.knock`, `Game.freshBump`, `Game.braced`; `Haul.CANT` (0.3 rad exhaust cant while towing; `g.fired.cant`), `Haul.NOSE_V`;
+> Shift+Tab steps nav targets back; dev mode also toggles by typing d-u-c-k (localStorage, `?dev=0` overrides).
 
 ## The game in one breath
 

@@ -68,9 +68,9 @@ const Shop = (() => {
     ['jump', 'Jump', (v) => `${v.toFixed(2)}×`, 1, 'Jump power.'],
     ['fallSafe', 'Safe landing', (v) => `${v} m/s`, 1, 'Land slower than this and the suit takes no damage.'],
     ['pack', 'Backpack', (v) => `${fmtN(v)} kg`, 1, 'How much you carry on foot.'],
-    ['sprint', 'Sprint', (v) => (v > 1 ? `${v}×` : 'none'), 1, 'Hold Shift on foot. Uses air ×1.5.'],
-    ['rollDist', 'Dive roll', none((v) => `${v} m`), 1, 'C dives this far; you cannot be hurt mid-roll.'],
-    ['iframes', 'Dodge window', none((v) => `${v.toFixed(2)} s`), 1, 'How long a roll makes you untouchable.'],
+    ['sprint', 'Sprint', (v) => (v > 1 ? `${v}×` : 'none'), 1, 'Hold Shift on foot. Uses air ×1.5. Tiny moons cap every pace at 0.6× orbital speed: any faster and your feet leave the ground.'],
+    ['rollDist', 'Dive roll', none((v) => `${v} m`), 1, 'C dives this far (slower on tiny moons, where speed is capped). The dodge window is the start of it.'],
+    ['iframes', 'Dodge window', none((v) => `${v.toFixed(2)} s`), 1, 'How long the start of a roll makes you untouchable.'],
     ['rollAir', 'Air dash', none((v) => `${v} m/s`), 1, 'A roll in mid-air or in space is a jetpack dash (paid from jet fuel).'],
     ['bombs', 'Bombs', none((v) => `${v} charges`), 1, 'Right mouse aims and throws, B throws at the cursor. Each charge refills on its own.'],
     ['bombDmg', 'Bomb damage', none((v) => `${v}`), 1, 'Damage at the centre, half at the edge.'],
@@ -97,6 +97,7 @@ const Shop = (() => {
 
   let root = null, G = null, ST = null, tab = 'services', say = '', mood = 'happy', wallet0 = 0, doneSeen = new Set(), cache = null;
   let popped = false, said = null;                                     // the card pops once per visit; the bubble pops when the keeper says something new
+  let arm = null;                                                       // { act, id }: a click that would ground you, waiting for a second click
   const lastTab = {}, pick = { type: 'gravel', r: 4 };
   const E = () => (typeof Econ !== 'undefined' ? Econ : null);
 
@@ -112,7 +113,7 @@ const Shop = (() => {
     G = g; ST = station;
     const tabs = tabList();
     tab = tabs.includes(lastTab[ST.id]) ? lastTab[ST.id] : Object.keys(G.cargo).length && tabs.includes('sell') ? 'sell' : tabs[0];
-    say = greeting(); mood = 'happy'; wallet0 = g.money; doneSeen = new Set(Object.keys(g.done)); popped = false; said = null;
+    say = greeting(); mood = 'happy'; wallet0 = g.money; doneSeen = new Set(Object.keys(g.done)); popped = false; said = null; arm = null;
     root = document.createElement('div');
     root.id = 'po-shop';
     root.addEventListener('click', onClick);
@@ -143,40 +144,48 @@ const Shop = (() => {
     if (!b || b.disabled || !G) return;
     const ec = E(), g = G, act = b.dataset.act, id = b.dataset.id;
     if (act === 'close') { ec.closeShop(g); return; }
-    if (act === 'tab') { tab = id; lastTab[ST.id] = id; render(false); return; }
+    if (act === 'tab') { tab = id; lastTab[ST.id] = id; arm = null; render(false); return; }
     if (act === 'jump') { const body = root.querySelector('.po-body'), sec = root.querySelector(`#${id}`); if (body && sec) body.scrollTop = sec.offsetTop - 52; return; }
     let r = null;
+    const opt = { confirm: !!arm && arm.act === act && arm.id === id };
+    arm = null;
     if (act === 'buy') {
-      r = ec.buy(g, id, ST);
-      talk(r.ok ? (isDev() ? 'duck' : ST.kind === 'black' ? 'black' : 'buy') : r.why === 'broke' ? 'broke' : null, r.ok ? howLine(id, r.msg) : r.msg);
-    } else if (act === 'equip') { r = ec.equip(g, id, ST); talk('swap', r.ok ? (r.spent ? `${r.msg}. Refilled the tank for $${fmtN(r.spent)}.` : null) : r.msg); }
-    else if (act === 'frame') { r = ec.swapFrame(g, id, ST); talk(r.ok ? 'swap' : null, r.msg); }
-    else if (act === 'fuel') { r = ec.setFuel(g, id, ST); talk('swap', `${r.msg}. Old fuel vented, new fuel $${fmtN(r.spent || 0)}.`); }
+      r = ec.buy(g, id, ST, opt);
+      talk(r.ok ? (isDev() ? 'duck' : ST.kind === 'black' ? 'black' : 'buy') : r.why === 'broke' ? 'broke' : null, r.ok ? howLine(id, r.msg) || r.msg : r.msg, r.ok);
+    } else if (act === 'bundle') { r = ec.buyBundle(g, id, ST); talk(r.ok ? (isDev() ? 'duck' : 'buy') : r.why === 'broke' ? 'broke' : null, r.msg, r.ok); }
+    else if (act === 'equip') { r = ec.equip(g, id, ST, opt); talk('swap', r.ok ? (r.spent ? `${r.msg}. Refilled the tank for $${fmtN(r.spent)}.` : null) : r.msg); }
+    else if (act === 'frame') { r = ec.swapFrame(g, id, ST, opt); talk(r.ok ? 'swap' : null, r.msg); }
+    else if (act === 'fuel') { r = ec.setFuel(g, id, ST, opt); talk('swap', r.ok ? `${r.msg}. Old fuel vented, new fuel ${r.spent ? `$${fmtN(r.spent)}` : 'free'}.` : r.msg); }
     else if (act === 'ionfuel') { r = ec.setIonFuel(g, id, ST); talk('swap', `${r.msg}. Refilled for $${fmtN(r.spent || 0)}.`); }
     else if (act === 'refuel') { const n = ec.refuel(g, ST, { frac: +b.dataset.frac || 1, ion: false, rcs: false }); talk(n || !ST.fuelMult ? 'fuel' : 'broke'); }
+    else if (act === 'safefill') { const f = ec.safeFill(g), n = ec.refuel(g, ST, { frac: f, ion: false, rcs: false }); talk(n || !ST.fuelMult ? 'fuel' : 'broke', `Filled to ${Math.round(100 * f)}%: light enough to lift off Mochi (${ec.liftNow(g, g.sh.fuel).toFixed(2)}×).`); }
     else if (act === 'ion') { const n = ec.refuel(g, ST, { main: false, ion: true, rcs: false }); talk(n || !ST.fuelMult ? 'fuel' : 'broke'); }
     else if (act === 'rcs') { const n = ec.restockRcs(g, ST); talk(n || !ST.fuelMult ? 'fuel' : 'broke'); }
     else if (act === 'repair') { const n = ec.repair(g, ST); talk(n || !ST.repairMult ? 'repair' : 'broke'); }
-    else if (act === 'all') { const n = ec.refuel(g, ST) + ec.repair(g, ST); talk(n || isDev() ? 'repair' : 'broke', n ? `All done for $${fmtN(n)}. Fly safe!` : null); }
+    else if (act === 'all') {
+      const f = ec.safeFill(g), n = (f < 1 ? ec.refuel(g, ST, { frac: f, ion: false }) + ec.refuel(g, ST, { main: false }) : ec.refuel(g, ST)) + ec.repair(g, ST);
+      talk(n || isDev() ? 'repair' : 'broke', n ? `All done for $${fmtN(n)}.${f < 1 ? ` Fuel to ${Math.round(100 * f)}%: a full tank could not lift off Mochi.` : ''} Fly safe!` : null);
+    }
     else if (act === 'sell') { const n = ec.sell(g, id, Infinity, ST); talk('sell', `Ka-ching! +$${fmtN(n)}`); }
     else if (act === 'sellall') { const n = ec.sellAll(g, ST); talk(n >= 500 ? 'bigsell' : 'sell', n >= 500 ? null : `Ka-ching! +$${fmtN(n)}`); }
     else if (act === 'build') { ec.applyBuild(g, id); talk('duck', `${ec.BUILDS[id].name}: done. ${ec.BUILDS[id].suit ? 'Every suit toy, fitted.' : `Tanks full, Δv ${fmtN(Physics.deltaV(g.sh, g.S))} m/s.`}`); }
     else if (act === 'rtype') pick.type = id;
     else if (act === 'rsize') pick.r = +id;
     else if (act === 'dev') { if (devAction(id) === 'closed') return; }
-    if (G) { const jobs = jobLine(); if (jobs) say = jobs; render(true); }
+    if (r && r.why === 'lift') { arm = { act, id }; mood = 'sad'; say = `${r.msg} Click again if you mean it.`; }
+    if (G) { const jobs = jobLine(); if (jobs) say = r && r.ok && r.msg ? `${say} ${jobs}` : jobs; render(true); }
   }
 
   function devAction(id) {
     const ec = E(), g = G;
     if (id === 'inf') talk('duck', ec.toggleInf(g) ? '∞ money on. Spend like nobody is debugging.' : `∞ money off: back to $${fmtN(g.money)}. Now you can test being broke.`);
-    else if (id === 'topup') { ec.topUp(g); talk('duck', 'Fuel, RCS, hull, charges and suit: topped up. Quack.'); }
+    else if (id === 'topup') { const left = ec.topUp(g) || []; talk('duck', `Fuel, RCS, hull, charges and suit: topped up.${left.length ? ` I kept the ${left.map((c) => ec.CHARGES[c].name).join(' and ')} on the shelf: too heavy to lift off Mochi.` : ''} Quack.`); }
     else if (id === 'cash') { g.money += 5000; talk('duck', '+$5,000. Found it in the couch.'); }
     else if (id === 'max') { ec.grantAll(g); talk('duck', 'MAX EVERYTHING. Leviathan, Sunflower torch, every line maxed. You monster.'); }
     else if (id === 'stockall') { ec.resetStock(g, 'all'); talk('duck', 'Back to a stock Prospector and a stock suit. Humble beginnings.'); }
     else if (id === 'stockship') { ec.resetStock(g, 'ship'); talk('duck', 'Stock ship. The suit stays on.'); }
     else if (id === 'stocksuit') { ec.resetStock(g, 'suit'); talk('duck', 'Stock suit. Mind the bugs.'); }
-    else if (id === 'charges') { ec.fillCharges(g); talk('duck', 'Every charge rack full. Please aim away from the duck.'); }
+    else if (id === 'charges') { ec.fillCharges(g, true); talk('duck', `Every charge rack full, lift on Mochi ${ec.metrics(g, g.S).twr.toFixed(2)}×. Please aim away from the duck.`); }
     else if (id === 'ore') { const n = ec.fillHold(g); talk('duck', n ? `Stuffed ${fmtN(n)} kg of ore in the hold. Sell it anywhere.` : 'The hold is already full.'); }
     else if (id === 'rock') {
       const rk = ec.devRock(g, pick.type, pick.r);
@@ -187,10 +196,11 @@ const Shop = (() => {
     }
   }
 
-  function talk(kind, text) {
-    const list = QUIPS[kind];
+  // the keeper's bubble: text, or a quip of this kind; withQuip adds the quip after the real message
+  function talk(kind, text, withQuip = false) {
+    const list = QUIPS[kind], quip = list ? list[Math.floor(Math.random() * list.length)] : '';
     if (kind) mood = kind === 'broke' ? 'sad' : kind === 'bigsell' ? 'wow' : 'happy';
-    say = text || (list ? list[Math.floor(Math.random() * list.length)] : say);
+    say = text ? (withQuip && quip ? `${text} ${quip}` : text) : quip || say;
   }
   // after a buy: the keeper says how to use it, when it needs a key
   function howLine(id, msg) {
@@ -222,13 +232,23 @@ const Shop = (() => {
       ${header(k, fresh)}${quickBar()}${tabsBar()}<div class="po-body">${content()}</div>
       <footer class="po-foot"><span>${isDev() ? 'Esc, F, O or ✕ to leave' : 'Esc, F or ✕ to leave'}</span><span>Time is paused while you shop</span><span>$ dollars · t tonnes · kg kilograms</span></footer></div>`;
     if (keepScroll) root.querySelector('.po-body').scrollTop = scroll;
+    armButton();
+    drawKeeper();
     if (G.money !== wallet0) { const w = root.querySelector('.po-wallet'); w.classList.add(G.money > wallet0 ? 'po-gain' : 'po-spend'); wallet0 = G.money; }
+  }
+
+  // the armed button turns red and says what a second click does
+  function armButton() {
+    const b = arm && root.querySelector(`[data-act="${arm.act}"][data-id="${arm.id}"]`);
+    if (!b) { arm = null; return; }
+    b.classList.add('po-arm'); b.classList.remove('po-go');
+    b.innerHTML = '⚠ Click again: you could not take off from Mochi';
   }
 
   function header(k, pop = '') {
     const inf = E().isInf(G);
     return `<header class="po-head">
-      <div class="po-keeper" title="${esc(keeperName())}">${portrait(ST, mood)}</div>
+      <div class="po-keeper" title="${esc(keeperName())}">${keeperNpc(ST) ? '<canvas class="po-face po-npc" width="168" height="168" aria-hidden="true"></canvas>' : portrait(ST, mood)}</div>
       <div class="po-talk"><div class="po-name">${esc(ST.name)}</div>
         <div class="po-bubble${pop}">${esc(say)}</div><div class="po-who">${esc(keeperName())}, ${k.label}</div></div>
       <div class="po-wallet ${inf ? 'po-inf' : ''}"><small>YOUR MONEY</small><b>${inf ? '∞' : money(G.money)}</b></div>
@@ -245,7 +265,10 @@ const Shop = (() => {
       <div class="po-meter"><i style="width:${(100 * clamp01(frac)).toFixed(1)}%;background:${col}"></i></div>${btn}</div>`;
     const qb = (act, cost, label, full) => (cost > 0 ? `<button class="po-btn po-sm" data-act="${act}" ${g.money < 1 ? 'disabled' : ''}>${label} ${money(cost)}</button>`
                                                      : full ? `<span class="po-ok">✓ full</span>` : `<button class="po-btn po-sm" data-act="${act}">${label} free</button>`);
+    const safe = ec.safeFill(g), safeCost = safe < 1 ? ec.quote(g, ST, 'fuel', safe) : 0;
     const fuelBtn = !svc ? '' : !fuelHere ? `<span class="po-dim po-sm-note">${esc(S.fuelType)}: Mochi Hub only</span>`
+                  : safe < 1 && sh.fuel < safe * S.fuel - 1e-6
+                    ? `<button class="po-btn po-sm" data-act="safefill" ${g.money < 1 && safeCost > 0 ? 'disabled' : ''}>Fill to ${Math.round(100 * safe)}% ${safeCost > 0 ? money(safeCost) : 'free'}</button>`
                   : qb('refuel', fuelCost, 'Fill up', sh.fuel >= S.fuel - 1e-6);
     return `<div class="po-quick">
       ${pill(`Fuel · ${esc(S.fuelType)}`, sh.fuel / S.fuel, '#ff9f1c', `Δv ${fmtN(Physics.deltaV(sh, S))} m/s`, fuelBtn)}
@@ -280,6 +303,9 @@ const Shop = (() => {
       return `<button class="po-btn" data-act="refuel" data-frac="${frac}" ${full || (cash < 1 && cost > 0) ? 'disabled' : ''}>${label}
         <small class="${lift < 1 ? 'down' : ''}">lift on Mochi ${lift.toFixed(2)}×</small></button>`;
     };
+    const safe = ec.safeFill(g);
+    const safeBtn = () => (safe >= 1 || sh.fuel >= safe * S.fuel - 1e-6 ? '' : `<button class="po-btn po-go" data-act="safefill">Fill to ${Math.round(100 * safe)}% · ${money(ec.quote(g, ST, 'fuel', safe))}
+        <small>lift on Mochi ${liftAt(safe * S.fuel).toFixed(2)}×: the most that still takes off</small></button>`);
     const svc = (title, frac, col, info, price, btns) => `<div class="po-svc"><div class="po-svc-l"><h4>${title}</h4>
       <div class="po-meter po-big"><i style="width:${(100 * clamp01(frac)).toFixed(1)}%;background:${col}"></i></div>
       <p>${info}</p><p class="po-dim">${price}</p></div><div class="po-svc-r">${btns}</div></div>`;
@@ -292,7 +318,7 @@ const Shop = (() => {
       `${fmtN(sh.fuel, 2)} of ${fmtN(S.fuel, 2)} t · Δv now <b>${fmtN(Physics.deltaV(sh, S))} m/s</b>`,
       fuelHere ? `${money2(fp)} per tonne here${ST.fuelMult !== 1 ? ` (${pct(ST.fuelMult)} of Hub price)` : ''} · ${fmtN(S.tankVol, 1)} m³ tank`
                : `<b>${esc(F.name)} is sold at Mochi Hub only</b> (fusion fuel needs a proper cryo plant) · ${fmtN(S.tankVol, 1)} m³ tank`,
-      fuelHere ? `${fillBtn(0.5)}${fillBtn(0.75)}${fillBtn(1)}` : '<span class="po-dim">Fill up at Mochi Hub</span>');
+      fuelHere ? `${safeBtn()}${fillBtn(0.5)}${fillBtn(0.75)}${fillBtn(1)}` : '<span class="po-dim">Fill up at Mochi Hub</span>');
     if (S.ionTank > 0) {
       const X = ec.ION_FUELS[S.ionFuelId] || { name: 'ion fuel' };
       html += svc(`Ion tank · ${esc(X.name)}`, (sh.xe || 0) / S.ionTank, '#7cf5d6',
@@ -304,12 +330,12 @@ const Shop = (() => {
     html += svc('Hull', sh.hull / S.hull, sh.hull < 0.35 * S.hull ? '#e63946' : '#33c27a', `${fmtN(Math.max(0, sh.hull))} of ${fmtN(S.hull)} hp`,
       `${money2(ec.repairPrice(ST))} per hp`, one('repair', 'Repair hull', ec.quote(g, ST, 'hull'), 'shipshape', sh.hull >= S.hull - 1e-6));
     html += '</div>';
-    const total = ['fuel', 'ion', 'rcs', 'hull'].reduce((s, w) => s + ec.quote(g, ST, w), 0);
-    const topped = (!fuelHere || sh.fuel >= S.fuel - 1e-6) && sh.rcs >= S.rcs - 1e-6 && sh.hull >= S.hull - 1e-6 && (sh.xe || 0) >= (S.ionTank || 0) - 1e-6;
-    html += `<div class="po-row-end">${!topped ? `<button class="po-btn po-go po-lg" data-act="all" ${cash < 1 && total > 0 ? 'disabled' : ''}>Do it all: fuel, RCS & repairs · ${total > 0 ? money(total) : 'free'}</button>`
+    const fFill = Math.min(1, safe), total = ec.quote(g, ST, 'fuel', fFill) + ['ion', 'rcs', 'hull'].reduce((s, w) => s + ec.quote(g, ST, w), 0);
+    const topped = (!fuelHere || sh.fuel >= fFill * S.fuel - 1e-6) && sh.rcs >= S.rcs - 1e-6 && sh.hull >= S.hull - 1e-6 && (sh.xe || 0) >= (S.ionTank || 0) - 1e-6;
+    html += `<div class="po-row-end">${!topped ? `<button class="po-btn po-go po-lg" data-act="all" ${cash < 1 && total > 0 ? 'disabled' : ''}>Do it all: ${fFill < 1 ? `fuel to ${Math.round(100 * fFill)}%` : 'fuel'}, RCS & repairs · ${total > 0 ? money(total) : 'free'}</button>`
                                                : '<span class="po-ok po-lg">✓ Everything is topped up. Off you go!</span>'}</div>`;
     if (lowLift()) html += `<p class="po-warn">Heads up: with a full tank this ship is too heavy to lift off Mochi (${liftAt(S.fuel).toFixed(2)}×).
-      Fill partway for surface trips, or fit a punchier engine. Holding W on the ground burns fuel until you are light enough.</p>`;
+      Fill to ${Math.round(100 * safe)}% for trips that land on Mochi, or fit a punchier engine. Holding W on the ground burns fuel until you are light enough.</p>`;
     return html;
   }
 
@@ -385,7 +411,7 @@ const Shop = (() => {
     if (ec.isInf(g)) return '';
     const ids = ['rcs', 'tank', 'hull', 'armor', 'cargo', 'tractor', 'scanner', 'side']
       .filter((id) => next(id) && ec.canBuy(g, next(id).id, ST).ok)
-      .sort((a, b) => ec.priceOf(g, next(a).id, ST) - ec.priceOf(g, next(b).id, ST)).slice(0, 3);
+      .sort((a, b) => ec.priceOf(g, next(a).id, ST) - ec.priceOf(g, next(b).id, ST)).slice(0, 4);
     if (!ids.length) return '';
     return section('Affordable now', g.done.upgrade === undefined ? 'Your first upgrade also pays a job bonus. RCS plus is a fine pick: more turning before the tank runs dry.' : '',
                    ids.map(lineCard).join(''));
@@ -426,13 +452,27 @@ const Shop = (() => {
       Δv ${fmtN(M.dv)} m/s, lift ${M.twr.toFixed(2)}× with your other parts.</p>`;
   }
   function frameCardOut(fid, F, cur, own, specs, rows, extra) {
-    const ec = E(), g = G;
+    const ec = E(), g = G, here = ec.framesHere(ST), c = own ? null : ec.canBuy(g, fid, ST);
+    const trap = !cur && here && (own || (c && (c.ok || c.why === 'broke'))) ? ec.frameTrap(g, fid, ST) : null;
     let btn, state = '';
     if (cur) { btn = '<span class="po-ok">✓ Flying it</span>'; state = 'on'; }
-    else if (own) btn = ec.framesHere(ST) ? `<button class="po-btn po-go" data-act="frame" data-id="${fid}">Fit it (free)</button>` : '<button class="po-btn" disabled>Fit it at Mochi Hub</button>';
-    else { const c = ec.canBuy(g, fid, ST); btn = buyButton(fid, c); state = cardState(c); }
+    else if (trap) { btn = bundleButton(fid, own, trap); extra += `<p class="po-warn">⚠ ${esc(trap.msg)}</p>`; state = c ? cardState(c) : ''; }
+    else if (own) btn = here ? `<button class="po-btn po-go" data-act="frame" data-id="${fid}">Fit it (free)</button>` : '<button class="po-btn" disabled>Fit it at Mochi Hub</button>';
+    else { btn = buyButton(fid, c); state = cardState(c); }
     return card({ title: F.name, tag: cur ? 'FLYING' : own ? 'OWNED' : fid === 'leviathan' ? 'THE BEAST' : '', price: !own && F.price ? money(ec.priceOf(g, fid, ST)) : '',
                   desc: F.desc, specs, rows, extra, btn, state, cls: 'po-frame' });
+  }
+  // a frame that would ground you: the frame + the engine (or fuel) that lifts it, one click; the frame alone needs a second
+  function bundleButton(fid, own, trap) {
+    const ec = E(), g = G, fix = trap.fix, fp = own ? 0 : ec.priceOf(g, fid, ST);
+    const alone = own ? `<button class="po-btn po-sm" data-act="frame" data-id="${fid}">Fit the frame alone</button>`
+                      : `<button class="po-btn po-sm" data-act="buy" data-id="${fid}" ${g.money < fp ? 'disabled' : ''}>Frame alone · ${money(fp)}</button>`;
+    if (!fix) return alone;
+    const E2 = ec.ENGINES[fix.engine], fuel = ec.FUELS[fix.fuel].name.toLowerCase(), total = fp + fix.price;
+    const what = fix.engine === trap.engine ? `with ${esc(fuel)} in your ${esc(E2.name)}` : `+ ${esc(E2.name)} on ${esc(fuel)}${fix.price ? '' : ' (yours)'}`;
+    const label = g.money < total ? `Need ${money(total - g.money)} more` : `${own ? 'Fit it' : 'Buy it'} ${what} · ${total ? money(total) : 'free'}`;
+    return `<button class="po-btn po-go" data-act="bundle" data-id="${fid}" ${g.money < total ? 'disabled' : ''}>${label}
+      <small>lift ${fix.twr.toFixed(2)}× · Δv ${fmtN(fix.dv)} m/s · plus the new fuel</small></button>${alone}`;
   }
 
   // ---------------- engines ----------------
@@ -457,9 +497,11 @@ const Shop = (() => {
       const fit = (m) => { m.owned[eid] = true; m.engine = eid; if (start) m.fuelOf[eid] = start; }, lifts = start && ec.metrics(g, ec.previewS(g, fit)).twr >= 1;
       rows = compare(fit, ['dv', 'twr', 'twrHere', 'isp', 'thrust', 'jetP', 'fuelT', 'dry', 'sideAcc'], { add: haulRows() })
            + (start ? `<p class="po-dim">Starts on ${ec.FUELS[start].name.toLowerCase()}: ${lifts ? 'goes furthest with your tank and still lifts off Mochi' : 'goes furthest with your tank (no fuel lifts this ship off Mochi on this engine)'}. Switch any time.</p>` : '');
+      const trap = ec.engineTrap(g, eid);
+      if (trap) rows += `<p class="po-warn">⚠ ${esc(trap.msg)}</p>`;
       if (owned) {
         const drains = ec.fuelOf(g, eid) !== ec.fuelOf(g);
-        btn = `<button class="po-btn po-go" data-act="equip" data-id="${eid}">Equip (free)${drains ? ' · refill tank' : ''}</button>`;
+        btn = `<button class="po-btn ${trap ? '' : 'po-go'}" data-act="equip" data-id="${eid}">Equip (free)${drains ? ' · refill tank' : ''}</button>`;
       } else { const c = ec.canBuy(g, eid, ST); btn = buyButton(eid, c); state = cardState(c); }
     }
     return card({ title: e.name, tag: on ? 'EQUIPPED' : owned ? 'OWNED' : '', kind: [kname, kcls], price: !owned && e.price ? money(ec.priceOf(g, eid, ST)) : '',
@@ -483,9 +525,9 @@ const Shop = (() => {
       const info = `<small>Isp ${fmtN(M.isp)} s · ${fmtN(S2.thrust, S2.thrust < 100 ? 1 : 0)} kN · ${F.dens} t/m³ · Δv ${fmtN(M.dv)} m/s · lift ${M.twr.toFixed(2)}× · impulse ${fmtN(M.towImp)} kN·s</small>`;
       if (f === cur) return `<div class="po-fuel on"><b>${esc(F.name)} ✓</b>${info}<em>${esc(F.desc)}</em></div>`;
       if (!ec.sellsFuel(ST, f)) return `<div class="po-fuel po-off"><b>${esc(F.name)}</b>${info}<em>Sold at Mochi Hub only.</em></div>`;
-      const cost = Math.ceil(S2.fuel * F.price * (ST.fuelMult ?? 1) - 1e-6);
-      return `<button class="po-fuel" data-act="fuel" data-id="${f}" ${cash < 1 && cost > 0 ? 'disabled' : ''} title="Switching vents the current tank and fills it with ${esc(F.name.toLowerCase())}">
-        <b>Switch to ${esc(F.name)}</b>${info}<em>${esc(F.desc)} Vents the tank, refill ${money(cost)}.</em></button>`;
+      const cost = Math.max(0, Math.ceil(S2.fuel * F.price * (ST.fuelMult ?? 1) - 1e-6)), trap = ec.fuelTrap(g, f);
+      return `<button class="po-fuel ${trap ? 'po-heavy' : ''}" data-act="fuel" data-id="${f}" ${cash < 1 && cost > 0 ? 'disabled' : ''} title="Switching vents the current tank and fills it with ${esc(F.name.toLowerCase())}">
+        <b>Switch to ${esc(F.name)}</b>${info}<em>${esc(F.desc)} Vents the tank, refill ${cost ? money(cost) : 'free'}.${trap ? ` <span class="po-flag">can’t lift off Mochi!</span>` : ''}</em></button>`;
     });
     return `<div class="po-fuels">${chips.join('')}</div>`;
   }
@@ -546,8 +588,11 @@ const Shop = (() => {
       const M = C.E / T.Q / 1000, r = Math.min(T.rMax ?? Infinity, Math.cbrt(3 * M / (4 * Math.PI * T.rho)));
       return `<span class="po-rk"><span class="po-dot" style="background:${(T.col || ['#ccc'])[0]}"></span>${t} ${fmtN(M)} t${isFinite(T.rMax) && r >= T.rMax ? ' (any)' : ` (r ${r.toFixed(1)} m)`}</span>`;
     }).join('');
+    const trap = have < C.max ? ec.chargeTrap(g, id) : null;
+    const rows = have < C.max ? compare((m) => { m.charges[id] = (m.charges[id] || 0) + 1; }, ['twr', 'dv', 'dry'], { keep: ['twr'] }) : '';
     return card({ title: C.name, tag: `${C.tnt} kg TNT`, price: money(ec.priceOf(g, id, ST)), desc: C.desc,
                   specs: `${fmtN(C.E / 1e6, C.E < 1e8 ? 1 : 0)} MJ · ${C.mass >= 0.1 ? `${C.mass} t` : `${fmtN(C.mass * 1000)} kg`} each · carry up to ${C.max} · fuse 5 s`,
+                  rows: rows + (trap ? `<p class="po-warn">⚠ ${esc(trap.msg)}</p>` : ''),
                   extra: `<p class="po-now">Rack: ${pips} ${have} / ${C.max}</p><p class="po-cracks">Cracks up to: ${cracks}</p>`,
                   how: 'B plants it', btn: buyButton(id, c), state: cardState(c), cls: 'po-charge' });
   }
@@ -558,7 +603,7 @@ const Shop = (() => {
     return `<section class="po-sec" id="sec-rocks"><h3 class="po-h">Rock guide</h3><p class="po-sub">Mass = density × 4/3 π r³. Value = the ore inside (lasering, cracking and selling whole all draw on the same ore, so nothing mints money).</p>
       <table class="po-table po-rocks"><thead><tr><th>Type</th><th>Density</th><th>Pays at Hub</th><th>r 4 m rock</th><th>Your winch takes</th><th>Toughness</th></tr></thead><tbody>
       ${Object.entries(types).map(([t, T]) => { const m4 = T.rho * 4 / 3 * Math.PI * 64; return `<tr><td><span class="po-dot" style="background:${(T.col || ['#ccc'])[0]}"></span>${t}</td>
-        <td>${T.rho} t/m³</td><td>$${T.perT}/t</td><td>${fmtN(m4)} t · ${money(m4 * T.perT)}</td><td>${S.towMax ? cell(S.towMax, T) : '<span class="po-dim">no tow gear</span>'}</td><td>${T.Q} J/kg</td></tr>`; }).join('')}
+        <td>${T.rho} t/m³</td><td>$${T.perT}/t</td><td>${fmtN(m4)} t · ${money(Math.round(m4 * T.perT))}</td><td>${S.towMax ? cell(S.towMax, T) : '<span class="po-dim">no tow gear</span>'}</td><td>${T.Q} J/kg</td></tr>`; }).join('')}
       </tbody></table></section>`;
   }
 
@@ -570,7 +615,7 @@ const Shop = (() => {
   function suit() {
     return jumpNav([['sec-suit', 'Suit'], ['sec-moves', 'Moves'], ['sec-boom', 'Bombs'], ['sec-tether', 'Tether & jetpack'], ['sec-gear', 'Gear'], ['sec-xlate', 'Translator']])
       + section('Suit: from padded to exoskeleton', 'Worn by you, not the ship, so suit gear adds no ship mass. Exo frames walk faster, jump higher and carry more.', lineCard('suit'), 'sec-suit')
-      + section('Moves', 'Sprint with Shift, dive roll with C (you cannot be hurt mid-roll: time it on a bug\'s wind-up).', ['sprint', 'roll'].map(lineCard).join(''), 'sec-moves')
+      + section('Moves', 'Sprint with Shift, dive roll with C (the first moments of a roll dodge everything: time it on a bug\'s wind-up). On tiny moons every pace is capped at 0.6× orbital speed, or your feet would leave the ground.', ['sprint', 'roll'].map(lineCard).join(''), 'sec-moves')
       + section('Bombs', 'Free to throw: each charge refills on its own timer. Right mouse aims (hold) and throws (release); B throws at the cursor. Bombs crack small rocks too.', lineCard('bomb'), 'sec-boom')
       + section('Tether & jetpack', 'E steps out on a tether whenever you are flying or docked; Q winches you home.', ['tether', 'jet'].map(lineCard).join(''), 'sec-tether')
       + section('Gear', '', ['pack', 'o2', 'laser'].map(lineCard).join(''), 'sec-gear')
@@ -598,7 +643,7 @@ const Shop = (() => {
     if (c.ok) return `<button class="po-btn po-go" data-act="buy" data-id="${id}">Buy · ${money(c.price)}</button>`;
     const T = ec.TIER[id];
     const why = { broke: `Need ${money(c.need)} more`, owned: 'Installed ✓', max: 'Rack full',
-                  locked: `🔒 Buy the ${T && T.tier > 1 ? esc(T.line.tiers[T.tier - 2].name) : 'tier before'} first`,
+                  locked: c.after ? `🔒 Needs a ${esc(ec.CATALOG.find((x) => x.id === c.after).name)} first` : `🔒 Buy the ${T && T.tier > 1 ? esc(T.line.tiers[T.tier - 2].name) : 'tier before'} first`,
                   frame: `🔒 Needs a ${c.frame ? esc(ec.FRAMES[c.frame].name) : 'bigger'} frame`,
                   notsold: 'Not sold at this station', unknown: '?' }[c.why];
     return `<button class="po-btn" disabled>${why}</button>`;
@@ -618,6 +663,14 @@ const Shop = (() => {
     return card({ title: next.name, tag: `TIER ${idx + 1}/${n}`, price: money(ec.priceOf(g, next.id, ST)), desc: next.desc, specs: tierSpecs(lineId, next),
                   how: L.how, rows, extra: now + lad, btn: buyButton(next.id, c), state: cardState(c, next.id) });
   }
+  // tiny moons cap foot speed at 0.6 × circular speed (EVA.surfaceCap): which ones would cap v, and what you really get there
+  function capNote(v, verb, say) {
+    if (typeof EVA === 'undefined' || !EVA || !EVA.surfaceCap) return '';
+    const capped = G.w.bodies.filter((b) => !b.star && b.id !== 'mochi' && EVA.surfaceCap(b) < v - 1e-6).sort((a, b) => EVA.surfaceCap(b) - EVA.surfaceCap(a));
+    if (!capped.length) return '';
+    const b = capped[0];
+    return ` · ${verb} on ${capped.length} tiny moon${capped.length > 1 ? 's' : ''} (${esc(b.name)}: ${say(EVA.surfaceCap(b))}; any faster and you'd leave the ground)`;
+  }
   const frameTag = (id) => { const f = E().frameNeed(G, id); return f ? ` <i>(${esc(E().FRAMES[f].name)}+)</i>` : ''; };
   // a stat line for the lines whose numbers the compare rows do not spell out
   function tierSpecs(lineId, t) {
@@ -628,7 +681,8 @@ const Shop = (() => {
     }
     if (lineId === 'side') return `${fmtN(s.sideThrust * k, 1)} kN on your frame (${s.sideThrust} kN × ${k})${s.dashBoost ? ` · dash ×${s.dashBoost}, cooldown ${s.dashCd} s` : ' · no dash'}`;
     if (lineId === 'bomb') return `${s.bombs} charges · ${s.bombDmg} dmg · blast ${s.bombR} m · crater ${s.bombDig} m · ${fmtN(s.bombE / 1e6, 2)} MJ · refill ${s.bombCd} s${s.bombSticky ? ' · sticky' : ''}`;
-    if (lineId === 'roll') return `${s.rollDist} m in ${s.rollT} s · untouchable ${s.rollIframes} s · cooldown ${s.rollCd} s${s.rollAir ? ` · air dash ${s.rollAir} m/s` : ''}`;
+    if (lineId === 'roll') return `${s.rollDist} m in ${s.rollT} s on Mochi${capNote(s.rollDist / s.rollT, 'slower', (c) => `${(s.rollDist / c).toFixed(2)} s`)} · untouchable for the first ${s.rollIframes} s · cooldown ${s.rollCd} s${s.rollAir ? ` · air dash ${s.rollAir} m/s` : ''}`;
+    if (lineId === 'sprint') { const v = (G.S.walk ?? 3) * (G.S.walkMult ?? 1) * s.sprint; return `${fmtN(v, 1)} m/s on Mochi${capNote(v, 'capped', (c) => `${fmtN(c, 1)} m/s`)}`; }
     if (lineId === 'suit') return `${s.suitHp} hp · armor ${Math.round(s.suitArmor * 100)}% · ${s.suitMass ? `+${s.suitMass} kg suit` : ''}${t.carry ? ` · carries +${t.carry} kg` : ''} · safe landing ${s.fallSafe} m/s`;
     return '';
   }
@@ -682,7 +736,7 @@ const Shop = (() => {
       <div class="po-devbox"><h4>Top up</h4><p class="po-dim">Fuel, xenon, RCS, hull, crack charges, suit HP, air, jet fuel, bombs and cooldowns.</p>
         <div class="po-btns">${btn('topup', 'Top up (U)', 'po-go')}${btn('charges', 'Free charges')}${btn('ore', 'Fill hold with ore')}</div></div></div>`;
 
-    html += `<section class="po-sec"><h3 class="po-h">Builds (progression §2.5, computed live)</h3><p class="po-sub">A build replaces the ship (frame, engine, parts) and fills the tanks; your suit stays. Also as a URL: <code>?dev=1&amp;build=beast</code>.</p>
+    html += `<section class="po-sec"><h3 class="po-h">Builds (computed live)</h3><p class="po-sub">A build replaces the ship (frame, engine, parts) and fills the tanks; your suit stays. Also as a URL: <code>?dev=1&amp;build=beast</code>.</p>
       <table class="po-table po-builds"><thead><tr><th>Build</th><th>Frame</th><th>Engine · fuel</th><th>Empty</th><th>Δv</th><th>Lift</th><th>Hold</th><th>Tow</th><th></th></tr></thead><tbody>`;
     for (const [id, B] of Object.entries(ec.BUILDS)) {
       if (B.suit) continue;
@@ -697,7 +751,7 @@ const Shop = (() => {
     html += `<section class="po-sec"><h3 class="po-h">Rock spawner</h3><p class="po-sub">Drops a free rock 3 r + your radius ahead of the nose, moving with you, and closes the shop. Then G grapples it, B cracks it.</p>
       <div class="po-devrock"><div class="po-chips">${Object.keys(types).map((t) => `<button class="po-chip ${t === pick.type ? 'on' : ''}" data-act="rtype" data-id="${t}"><span class="po-dot" style="background:${(types[t].col || ['#ccc'])[0]}"></span>${t}</button>`).join('')}</div>
       <div class="po-chips">${[2, 4, 6, 10, 15].map((r) => `<button class="po-chip ${r === pick.r ? 'on' : ''}" data-act="rsize" data-id="${r}">r ${r} m</button>`).join('')}</div>
-      <p class="po-dim">${pick.type} r ${pick.r} m: <b>${fmtN(M)} t</b>, worth ${money(M * T.perT)} at the Hub${tooBig ? ` (wild ${pick.type} tops out at r ${T.rMax} m: this one is a dev special)` : ''}${
+      <p class="po-dim">${pick.type} r ${pick.r} m: <b>${fmtN(M)} t</b>, worth ${money(Math.round(M * T.perT))} at the Hub${tooBig ? ` (wild ${pick.type} tops out at r ${T.rMax} m: this one is a dev special)` : ''}${
         g.S.towMax ? ` · your tow rating ${fmtN(g.S.towMax)} t${M > g.S.towMax ? ': too big, crack it first' : ''}` : ''}</p>
       ${btn('rock', haulOn ? 'Spawn rock ahead' : 'Spawn rock ahead (needs the haul module)', 'po-go', !haulOn)}</div></section>`;
 
@@ -758,6 +812,25 @@ const Shop = (() => {
   // ======================================================================
   //  KEEPER PORTRAITS (inline SVG, toon: flat base + shadow band + highlight + ink)
   // ======================================================================
+
+  // the keeper as their own NPC sprite (npcs.js) when we know who they are: Rust is a mouthless Murk, Marge a one-eyed Oggle
+  function keeperNpc(st) {
+    if (typeof Npcs === 'undefined' || !Npcs || !Npcs.drawSprite || !Npcs.RACES || !st || st.kind === 'dev') return null;
+    const all = [...(Npcs.DEFS || []), ...(Npcs.NAMED_EXTRAS || [])], name = typeof st.keeper === 'string' ? st.keeper : st.keeper && st.keeper.name;
+    const id = st.npc || (Npcs.keeperOf && Npcs.keeperOf(st.id));
+    const d = all.find((x) => x.id === id) || (name ? all.find((x) => x.name === name || x.short === name) : null);
+    return d && Npcs.RACES[d.race] ? d : null;
+  }
+  const NPC_MOOD = { happy: 'happy', sad: 'sad', wow: 'joke' };
+  function drawKeeper() {
+    const cv = root && root.querySelector('canvas.po-npc'), d = cv && keeperNpc(ST);
+    if (!d || !cv.getContext) return;
+    const ctx = cv.getContext('2d'), [hx, hy, hr] = Npcs.RACES[d.race].head, k = cv.width / (2.9 * hr);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.save(); ctx.translate(cv.width / 2 - hx * k, cv.height * 0.56 + hy * k); ctx.scale(k, -k);
+    Npcs.drawSprite(ctx, d.race, { off: (hash(d.id) % 997) / 97, ...d.look }, { t: G ? G.real : 0, mood: NPC_MOOD[mood] || 'chat', lw: 0.035 });
+    ctx.restore();
+  }
 
   function portrait(st, md) {
     const h = hash(st.id || st.name || 'x'), kind = st.kind;
@@ -937,6 +1010,9 @@ const Shop = (() => {
 .po-cmp.po-mini td:last-child { text-align: right; }
 .up { color: #23864a; } .down { color: #d62839; } .meh { color: #d97706; }
 abbr[title] { text-decoration: underline dotted #8a7fa6; cursor: help; }
+.po-btn.po-arm:not(:disabled) { background: #ff9fa8; animation: po-shake .35s 2; } .po-fuel.po-heavy { border-color: #e63946; }
+.po-act .po-btn + .po-btn { margin-top: 6px; }
+@keyframes po-shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
 .po-flag { font-size: 11px; font-weight: 700; color: #fff; background: #e63946; border-radius: 5px; padding: 0 4px; margin-left: 3px; }
 .po-fuels { display: grid; gap: 6px; margin-top: 2px; }
 .po-fuel { text-align: left; background: #fff; border: 2px solid ${INK}; border-radius: 10px; padding: 5px 9px; font-size: 14px; }

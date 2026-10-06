@@ -78,7 +78,7 @@ const Econ = (() => {
     { id: 'tank', tab: 'ship', name: 'Fuel tank', stock: `Stock tank (${BASE_VOL} m³ on a Prospector)`, tiers: [
       { id: 'tank1', name: 'Stretch tank',  price: 450,  mass: 0.05, set: { tankVol: 2.4 }, desc: 'We cut the tank in half and added more tank.' },
       { id: 'tank2', name: 'Barrel tank',   price: 1200, mass: 0.12, set: { tankVol: 4.0 }, desc: 'Like the stretch tank, but it went to the gym.' },
-      { id: 'tank3', name: 'Whale tank',    price: 2600, mass: 0.22, set: { tankVol: 6.5 }, desc: 'Big. Full of dense fuel it is too heavy to lift off Mochi with a small engine.' },
+      { id: 'tank3', name: 'Whale tank',    price: 2600, mass: 0.22, set: { tankVol: 6.5 }, desc: "Big. Full of dense fuel, it's too heavy to lift off Mochi with a small engine." },
       { id: 'tank4', name: 'Zeppelin tank', price: 4800, mass: 0.32, set: { tankVol: 9.0 }, desc: 'For people who measure fuel in units of "yes". Fill it partway for surface work.' } ] },
     { id: 'hull', tab: 'ship', name: 'Hull plating', stock: 'Stock hull', tiers: [
       { id: 'hull1', name: 'Riveted plating', price: 350,  mass: 0.06, set: { hull: 150 }, desc: 'Extra rivets. Every rivet is a tiny hug.' },
@@ -120,7 +120,7 @@ const Econ = (() => {
     { id: 'sprint', tab: 'suit', name: 'Sprint', stock: 'No sprint', how: 'hold Shift on foot (air ×1.5 while sprinting)', tiers: [
       { id: 'sprint1', name: 'Zoom sneakers', price: 250, set: { sprint: 1.6 }, desc: 'Velcro. Rocket-grade velcro.' },
       { id: 'sprint2', name: 'Rocket skates', price: 900, set: { sprint: 2.2 }, desc: "Technically illegal on Mochi's pavements. Mochi has no pavements." } ] },
-    { id: 'roll', tab: 'suit', name: 'Dive roll', stock: 'No roll', how: 'C dives the way you walk; you cannot be hit mid-roll', tiers: [
+    { id: 'roll', tab: 'suit', name: 'Dive roll', stock: 'No roll', how: 'C dives the way you walk; nothing can hit you in the first moments of the roll', tiers: [
       { id: 'roll1', name: 'Tumble pads', price: 400,  set: { roll: 1, rollDist: 3.0, rollT: 0.45, rollIframes: 0.30, rollCd: 1.2, rollAir: 0 }, desc: 'Knee pads, elbow pads, pad pads. Tuck and roll!' },
       { id: 'roll2', name: 'Gyro roll',   price: 1400, set: { roll: 2, rollDist: 4.5, rollT: 0.40, rollIframes: 0.35, rollCd: 0.8, rollAir: 3 }, desc: 'A gyroscope in your belly button. Rolls in mid-air too (a 3 m/s jet dash).' } ] },
     { id: 'bomb', tab: 'suit', name: 'Bombs', stock: 'No bombs', how: 'hold right mouse to aim, release to throw · B throws at the cursor', tiers: [
@@ -194,8 +194,10 @@ const Econ = (() => {
   });
 
   // ---------------- services & fees ----------------
-  const RCS_PRICE = 1.5, REPAIR_PRICE = 1.2, TOW_FEE = { tow: 110, crash: 180 }, FEE_MIN = 100, FEE_MAX = 250;
+  const RCS_PRICE = 1.5, REPAIR_PRICE = 1.2;
+  const TOW_FEE = { tow: 40, crash: 80 }, TOW_KM = 8, FEE_MAX = 250, FEE_SHARE = 0.25;   // call-out $, $ per km from Mochi, cap $, never over this share of your cash
   const BLUEPRINT_MAX = 10000;                                           // wrecks never hand out frames or anything dearer
+  const NEEDS = dict({ turret: 'gun1' });                                  // a turret swivels guns you already have
 
   // ---------------- the catalog other modules see ----------------
   const CATALOG = [
@@ -261,9 +263,10 @@ const Econ = (() => {
   const tierIndex = (m, L) => { const t = tierOf(m, L); return t ? TIER[t.id].tier : 0; };
   const engineOf = (m) => (ENGINES[m.engine] ? m.engine : 'sparrow');
   const frameOf = (m) => (FRAMES[m.frame] ? m.frame : 'prospector');
+  const burns = (eid, f) => !!ENGINES[eid] && Object.prototype.hasOwnProperty.call(ENGINES[eid].fuels, f);   // 'toString' is no fuel
   function fuelOf(m, eid = engineOf(m)) {
     const f = m.fuelOf[eid];
-    return ENGINES[eid].fuels[f] ? f : Object.keys(ENGINES[eid].fuels)[0];
+    return burns(eid, f) ? f : Object.keys(ENGINES[eid].fuels)[0];
   }
   const ionFuelOf = (m) => (ION_FUELS[m.ionFuel] ? m.ionFuel : 'xenon');
   const isInf = (g) => !!(g && g.dev && g.mod && g.mod.economy && g.mod.economy.inf);
@@ -284,7 +287,7 @@ const Econ = (() => {
     if (ENGINES[d.engine] && owns(g, d.engine)) m.engine = d.engine;
     if (ENGINES[m.engine].mount > FRAMES[frameOf(m)].mount) m.engine = bestEngineFor(m, FRAMES[frameOf(m)].mount);
     if (d.fuelOf && typeof d.fuelOf === 'object')
-      for (const [e, f] of Object.entries(d.fuelOf)) if (ENGINES[e] && ENGINES[e].fuels[f]) m.fuelOf[e] = f;
+      for (const [e, f] of Object.entries(d.fuelOf)) if (burns(e, f)) m.fuelOf[e] = f;
     if (ION_FUELS[d.ionFuel]) m.ionFuel = d.ionFuel;
     m.orion = Math.max(0, Math.min(ORION.max, Math.floor(+d.orion || 0)));
     if (d.charges && typeof d.charges === 'object')
@@ -455,6 +458,70 @@ const Econ = (() => {
 
 
   // ======================================================================
+  //  LIFT GUARD: no single click leaves you unable to take off from Mochi
+  //  (lift = thrust-to-weight on Mochi with a full tank, as every card shows it)
+  // ======================================================================
+
+  const LIFT_OK = 1.1;                                              // a new frame must lift this, or come with an engine that does
+  const liftOf = (g, mutate) => metrics(g, previewS(g, mutate)).twr;
+  // the engine a frame keeps: yours when it fits the mount, else the best owned one that does (what swapFrame does)
+  const keepsEngine = (m, fid) => (ENGINES[engineOf(m)].mount <= FRAMES[fid].mount ? engineOf(m) : bestEngineFor(m, FRAMES[fid].mount));
+  const onFrame = (fid, eid, f) => (mm) => { mm.owned[fid] = true; mm.frame = fid; mm.engine = eid; if (f) { mm.owned[eid] = true; mm.fuelOf[eid] = f; } };
+
+  // a frame that cannot leave Mochi on the engine it would keep -> { kind, twr, engine, fix, msg } (fix: the cheapest engine
+  //  and fuel that lift it >= LIFT_OK, owned ones free; null when none does), or null when it flies
+  function frameTrap(g, fid, station = st(g).station) {
+    const m = st(g);
+    if (!FRAMES[fid] || frameOf(m) === fid) return null;
+    const e0 = keepsEngine(m, fid), twr = liftOf(g, onFrame(fid, e0));
+    if (twr >= LIFT_OK) return null;
+    let fix = null;
+    for (const e of Object.keys(ENGINES)) {
+      if (ENGINES[e].mount > FRAMES[fid].mount) continue;
+      const price = owns(g, e) ? 0 : priceOf(g, e, station);
+      for (const f of Object.keys(ENGINES[e].fuels)) {
+        if (station && !sellsFuel(station, f)) continue;
+        const M = metrics(g, previewS(g, onFrame(fid, e, f)));
+        if (M.twr >= LIFT_OK && (!fix || price < fix.price || (price === fix.price && M.dv > fix.dv))) fix = { engine: e, fuel: f, price, twr: M.twr, dv: M.dv };
+      }
+    }
+    const F = FRAMES[fid], E = ENGINES[e0], fuel = fix && FUELS[fix.fuel].name.toLowerCase();
+    const msg = `On your ${E.name} the ${F.name} lifts only ${twr.toFixed(2)}× on Mochi (full tank): ` +
+                (twr < 1 ? 'it could not take off there.' : 'it barely leaves the pad, and not with cargo.') +
+                (!fix ? '' : fix.engine === e0 ? ` With ${fuel} in the ${E.name} it lifts ${fix.twr.toFixed(2)}×.`
+                                               : ` With the ${ENGINES[fix.engine].name} on ${fuel} it lifts ${fix.twr.toFixed(2)}×.`);
+    return { kind: 'frame', twr, engine: e0, fix, msg };
+  }
+
+  // a change of engine, fuel or charge rack that drops lift below 1 (and lower than now) -> { kind, twr, was, msg }, else null
+  function liftTrap(g, kind, mutate, what) {
+    const was = liftOf(g, null), twr = liftOf(g, mutate);
+    if (!(twr < 1 && twr < was - 1e-9)) return null;
+    return { kind, twr, was, msg: `${what}: lift on Mochi drops to ${twr.toFixed(2)}× with a full tank (now ${was.toFixed(2)}×), too heavy to take off there.` };
+  }
+  const engineTrap = (g, eid) => {
+    const m = st(g), f = owns(g, eid) ? fuelOf(m, eid) : bestFuel(g, eid);
+    return liftTrap(g, 'engine', (mm) => { mm.owned[eid] = true; mm.engine = eid; mm.fuelOf[eid] = f; }, `On the ${ENGINES[eid].name}`);
+  };
+  const fuelTrap = (g, fid) => {
+    const eid = engineOf(st(g));
+    return liftTrap(g, 'fuel', (mm) => { mm.fuelOf[eid] = fid; }, `On ${FUELS[fid].name.toLowerCase()}`);
+  };
+  const chargeTrap = (g, id) => liftTrap(g, 'charge', (mm) => { mm.charges[id] = (mm.charges[id] || 0) + 1; },
+                                          `One more ${CHARGES[id].name} (+${fmtT(CHARGES[id].mass)})`);
+  const fmtT = (t) => (t >= 0.1 ? `${t} t` : `${Math.round(t * 1000)} kg`);
+
+  // what buying id would do to lift off Mochi (frames only when they are fitted on the spot)
+  function buyTrap(g, id, station) {
+    if (FRAMES[id]) return framesHere(station) ? frameTrap(g, id, station) : null;
+    if (ENGINES[id]) return engineTrap(g, id);
+    if (CHARGES[id]) return chargeTrap(g, id);
+    return null;
+  }
+  const refused = (trap, price) => ({ ok: false, why: 'lift', price, trap, msg: trap.msg });
+
+
+  // ======================================================================
   //  BUYING, INSTALLING, EQUIPPING
   // ======================================================================
 
@@ -476,29 +543,58 @@ const Econ = (() => {
     else if (CHARGES[id]) { if ((m.charges[id] || 0) >= CHARGES[id].max) return { ok: false, why: 'max', price }; }
     else if (owns(g, id) || (TIER[id] && tierIndex(m, TIER[id].line) >= TIER[id].tier)) return { ok: false, why: 'owned', price };
     else if (TIER[id] && tierIndex(m, TIER[id].line) < TIER[id].tier - 1) return { ok: false, why: 'locked', price };
+    else if (NEEDS[id] && !owns(g, NEEDS[id])) return { ok: false, why: 'locked', price, after: NEEDS[id] };
     const need = frameNeed(m, id);
     if (need) return { ok: false, why: 'frame', price, frame: need };
     if (g.money < price) return { ok: false, why: 'broke', price, need: price - g.money };
     return { ok: true, price };
   }
 
-  function buy(g, id, station = st(g).station) {
+  // opt.confirm: buy even though it leaves the ship unable to take off from Mochi (else -> why 'lift' with the reason)
+  function buy(g, id, station = st(g).station, opt = {}) {
     const c = canBuy(g, id, station);
-    if (!c.ok) return { ...c, msg: { broke: `Need $${Math.ceil(c.need)} more`, owned: 'Already installed', locked: 'Buy the tier before first',
+    if (!c.ok) return { ...c, msg: { broke: `Need $${Math.ceil(c.need)} more`, owned: 'Already installed',
+                                    locked: c.after ? `Needs a ${BY_ID[c.after].name} first` : 'Buy the tier before first',
                                     max: `You can carry ${CHARGES[id] ? CHARGES[id].max : ORION.max}`, notsold: 'Not sold here', unknown: 'Unknown item',
                                     frame: `Needs a ${c.frame ? FRAMES[c.frame].name : 'bigger'} frame` }[c.why] };
+    const trap = opt.confirm ? null : buyTrap(g, id, station);
+    if (trap) return refused(trap, c.price);
     const m = st(g);
     g.money -= c.price; m.stats.spent += c.price; m.stats.bought++;
     const name = install(g, id);
     let msg = `${name} installed!`;
-    if (ENGINES[id]) equip(g, id, station);                         // bought it to use it
-    if (FRAMES[id]) msg = framesHere(station) && swapFrame(g, id, station).ok ? `${name} equipped! Mind the extra length.` : `${name} bought: equip it at Mochi Hub.`;
+    if (ENGINES[id]) equip(g, id, station, { confirm: true });      // bought it to use it
+    if (FRAMES[id]) msg = framesHere(station) && swapFrame(g, id, station, { confirm: true }).ok ? `${name} equipped! Mind the extra length.` : `${name} bought: equip it at Mochi Hub.`;
     if (CHARGES[id]) msg = `${name} stowed (${m.charges[id]} / ${CHARGES[id].max}).`;
     Game.log(g, `bought ${name} for $${c.price}  ($${Math.floor(g.money)} left)`);
     if (id === 'xlate1' || id === 'xlate2') Game.toast(g, id === 'xlate2' ? 'TRANSLATOR ONLINE: 6 LANGUAGES' : 'PHRASEBOOK CLIPPED ON: HALF THE WORDS, ALL THE NUMBERS', '#7cf5d6', 'xlate');
     Game.goal(g, 'upgrade');
     Game.save(g);
     return { ok: true, price: c.price, msg };
+  }
+
+  // a frame that would ground you, sold (or fitted) together with the engine that lifts it: frameTrap's fix, one click
+  function buyBundle(g, fid, station = st(g).station) {
+    const m = st(g), T = frameTrap(g, fid, station), fix = T && T.fix, F = FRAMES[fid];
+    if (!fix) return { ok: false, why: 'unknown', msg: T ? 'No engine lifts that frame' : 'It flies as it is' };
+    if (!framesHere(station)) return { ok: false, why: 'notsold', msg: 'Frames are fitted at Mochi Hub only' };
+    const fp = owns(g, fid) ? 0 : priceOf(g, fid, station), price = fp + fix.price;
+    if (fp) { const c = canBuy(g, fid, station); if (!c.ok && c.why !== 'broke') return buy(g, fid, station); }
+    if (g.money < price) return { ok: false, why: 'broke', price, need: price - g.money, msg: `Need $${Math.ceil(price - g.money)} more` };
+    const kg = g.sh ? g.sh.cargoKg || 0 : 0, cap = previewS(g, onFrame(fid, fix.engine, fix.fuel)).cargoCap;
+    if (kg > cap + 1e-6) return { ok: false, why: 'cargo', price, msg: `SELL CARGO FIRST: ${fmt(kg)} kg > ${fmt(cap)} kg HOLD` };
+    g.money -= price; m.stats.spent += price; m.stats.bought += (fp ? 1 : 0) + (fix.price ? 1 : 0);
+    if (fp) install(g, fid);
+    if (fix.price) install(g, fix.engine);
+    swapFrame(g, fid, station, { confirm: true });
+    let e;
+    if (engineOf(m) === fix.engine) e = setFuel(g, fix.fuel, station, { confirm: true });
+    else { m.fuelOf[fix.engine] = fix.fuel; e = equip(g, fix.engine, station, { confirm: true }); }
+    const E = ENGINES[fix.engine], lift = metrics(g, g.S).twr;
+    Game.log(g, `bought ${F.name} + ${E.name} for $${price}: lift ${lift.toFixed(2)}× on Mochi  ($${Math.floor(g.money)} left)`);
+    Game.goal(g, 'upgrade');
+    Game.save(g);
+    return { ok: true, price, spent: e.spent || 0, msg: `${F.name} + ${E.name} fitted: lift ${lift.toFixed(2)}× on Mochi, Δv ${fmt(Physics.deltaV(g.sh, g.S))} m/s${e.spent ? ` (tank refilled for $${e.spent})` : ''}.` };
   }
 
   // install without paying -> the item's name, or null if owned / unknown / full
@@ -516,12 +612,13 @@ const Econ = (() => {
     return c.name;
   }
 
-  // recalc after a change of parts: new plating and new suits arrive intact (no paying to "repair" them)
+  // recalc after a change of parts: new plating, new RCS tanks and new suits arrive full (no paying to "repair" them)
   function refit(g) {
     const S0 = g.S;
     Game.recalc(g);
     if (S0 && g.sh) {
       g.sh.hull = Math.min(g.S.hull, g.sh.hull + Math.max(0, (g.S.hull - S0.hull) || 0));
+      g.sh.rcs = Math.min(g.S.rcs, g.sh.rcs + Math.max(0, (g.S.rcs - S0.rcs) || 0));
       if (g.astro) g.astro.hp = Math.min(g.S.suitHp, (g.astro.hp || 0) + Math.max(0, (g.S.suitHp - S0.suitHp) || 0));
     }
   }
@@ -566,19 +663,23 @@ const Econ = (() => {
   }
 
   // swap to an owned engine (free at Mochi Hub). Keeps the fuel when the new engine burns it, else drains and refills.
-  function equip(g, eid, station = st(g).station) {
+  function equip(g, eid, station = st(g).station, opt = {}) {
     const m = st(g);
     if (!ENGINES[eid] || !owns(g, eid)) return { ok: false, msg: 'Not owned' };
     if (engineOf(m) === eid) return { ok: true, spent: 0, msg: 'Already equipped' };
     const need = frameNeed(m, eid);
     if (need) return { ok: false, msg: `Needs a ${FRAMES[need].name} frame (mount ${ENGINES[eid].mount})` };
+    const trap = opt.confirm ? null : engineTrap(g, eid);
+    if (trap) return refused(trap, 0);
     const before = fuelOf(m);
     m.engine = eid;
     return changeFuel(g, before, fuelOf(m), station, `${ENGINES[eid].name} equipped`);
   }
-  function setFuel(g, fid, station = st(g).station) {
+  function setFuel(g, fid, station = st(g).station, opt = {}) {
     const m = st(g), eid = engineOf(m);
-    if (!ENGINES[eid].fuels[fid]) return { ok: false, msg: `${ENGINES[eid].name} cannot burn that` };
+    if (!burns(eid, fid)) return { ok: false, msg: `${ENGINES[eid].name} cannot burn that` };
+    const trap = opt.confirm || fid === fuelOf(m) ? null : fuelTrap(g, fid);
+    if (trap) return refused(trap, 0);
     const before = fuelOf(m);
     m.fuelOf[eid] = fid;
     return changeFuel(g, before, fid, station, `Now burning ${FUELS[fid].name.toLowerCase()}`);
@@ -606,11 +707,13 @@ const Econ = (() => {
   // ---------------- frames: equip only at Mochi Hub (or the dev shop) ----------------
 
   // -> { ok, msg, swapped: engine id the mount gate swapped out, or null }
-  function swapFrame(g, fid, station = st(g).station || (stationsOn() ? Stations.dockedAt(g) : null)) {
+  function swapFrame(g, fid, station = st(g).station || (stationsOn() ? Stations.dockedAt(g) : null), opt = {}) {
     const m = st(g), F = FRAMES[fid];
     if (!F || !owns(g, fid)) return { ok: false, msg: 'Not owned' };
     if (frameOf(m) === fid) return { ok: true, msg: `Already flying the ${F.name}` };
     if (!framesHere(station)) return { ok: false, msg: 'Frames are fitted at Mochi Hub only' };
+    const trap = opt.confirm ? null : frameTrap(g, fid, station);
+    if (trap) return refused(trap, 0);
     const kg = g.sh ? g.sh.cargoKg || 0 : 0, cap = previewS(g, (mm) => { mm.frame = fid; }).cargoCap;
     if (kg > cap + 1e-6) {
       const msg = `SELL CARGO FIRST: ${fmt(kg)} kg > ${fmt(cap)} kg HOLD`;
@@ -634,7 +737,7 @@ const Econ = (() => {
     Game.save(g);
     return { ok: true, swapped, msg: swapped ? `${F.name} fitted. The ${ENGINES[swapped].name} did not fit: the ${ENGINES[engineOf(m)].name} goes in.` : `${F.name} fitted!` };
   }
-  const equipFrame = (g, fid, station) => swapFrame(g, fid, station).ok;
+  const equipFrame = (g, fid, station, opt) => swapFrame(g, fid, station, opt).ok;
 
   // a bigger (or smaller) ship on the ground: put it down again so it does not sit inside the rock
   function reseat(g) {
@@ -648,10 +751,20 @@ const Econ = (() => {
   // ======================================================================
 
   const charges = (g) => ({ ...noCharges(), ...st(g).charges });
-  function fillCharges(g) {
-    const m = st(g);
-    for (const [id, c] of Object.entries(CHARGES)) m.charges[id] = c.max;
+  // racks to the brim, smallest first; unless all, a charge that would drop lift on Mochi under LIFT_OK stays on the shelf -> ids left out
+  function fillCharges(g, all = false) {
+    const m = st(g), left = [];
+    for (const [id, c] of Object.entries(CHARGES)) {
+      while ((m.charges[id] || 0) < c.max) {
+        if (!all) {
+          const was = liftOf(g, null), twr = liftOf(g, (mm) => { mm.charges[id] = (mm.charges[id] || 0) + 1; });
+          if (twr < LIFT_OK && twr < was - 0.005) { left.push(id); break; }
+        }
+        m.charges[id] = (m.charges[id] || 0) + 1;
+      }
+    }
     Game.recalc(g);
+    return left;
   }
   function spendCharge(g, id) {
     const m = st(g);
@@ -794,16 +907,16 @@ const Econ = (() => {
     return m.inf;
   }
 
-  // fuel, xenon, RCS, hull, crack charges to the brim; suit too (EVA.topUp) when eva is on
+  // fuel, xenon, RCS, hull, crack charges (as many as still lift off Mochi) to the brim; suit too (EVA.topUp) when eva is on
   function topUp(g) {
-    fillCharges(g);
+    const left = fillCharges(g);
     const sh = g.sh, S = g.S;
     if (sh) { sh.fuel = S.fuel; sh.xe = S.ionTank || 0; sh.rcs = S.rcs; sh.hull = S.hull; }
     if (g.astro) g.astro.hp = g.astro.hpMax;
     if (typeof EVA !== 'undefined' && EVA && on(g, 'eva') && EVA.topUp) EVA.topUp(g, true);
     if (g.dash) g.dash.readyAt = 0;
-    Game.log(g, 'dev: topped up');
-    return true;
+    Game.log(g, `dev: topped up${left.length ? ` (left ${left.map((id) => CHARGES[id].name).join(', ')} on the shelf: too heavy to lift off Mochi)` : ''}`);
+    return left;
   }
 
   // the econ state of a build (pure: shared by applyBuild and the shop's preview table)
@@ -966,7 +1079,7 @@ const Econ = (() => {
       else Game.toast(g, g.status === 'dead' ? 'DEV: THE DUCK DOES NOT SERVE WRECKS (R FIRST)' : 'DEV: CLOSE THE OTHER PANEL FIRST', '#ffd166', 'devo');
       return true;
     }
-    if (code === 'KeyU') { topUp(g); Game.toast(g, 'DEV: TOPPED UP', '#8ff0b0', 'devu'); return true; }
+    if (code === 'KeyU') { const left = topUp(g); Game.toast(g, left.length ? `DEV: TOPPED UP (NO ${left.map((id) => CHARGES[id].name.toUpperCase()).join(', ')}: TOO HEAVY FOR MOCHI)` : 'DEV: TOPPED UP', '#8ff0b0', 'devu'); return true; }
     if (code === 'KeyI') { const v = toggleInf(g); Game.toast(g, v ? 'DEV: ∞ MONEY ON' : `DEV: ∞ MONEY OFF ($${fmt(g.money)})`, '#8ff0b0', 'devi'); return true; }
     return false;
   }
@@ -978,6 +1091,7 @@ const Econ = (() => {
   function frame(g) {
     const m = st(g);
     if (isInf(g)) g.money = Math.max(g.money, DEV_MONEY);           // the ∞ pin: buys subtract, the pin refills
+    if (g.status !== 'dead') m.towKm = towKm(g);
     if (g.ui === 'shop' && !m.station) g.ui = null;
     if (g.ui !== 'shop' && typeof Shop !== 'undefined' && Shop.isOpen && Shop.isOpen()) Shop.close();
     if (m.blast && g.real - m.blast.real > 1.2) m.blast = null;
@@ -989,21 +1103,28 @@ const Econ = (() => {
     }
   }
 
-  // old = the tanks before the tow: the fresh ship arrives full, and that fill is billed at hub prices
-  //  bigger frames cost more to tow: the fee and its cap scale with sqrt(k)
+  // the Mochi tug: a call-out fee plus $8 per km it flies to fetch you, bigger frames x sqrt(k) (capped), plus the fresh tanks
+  //  at Hub prices (old = the tanks before the tow). Never more than a quarter of your cash: one crash cannot wipe a rookie out.
   function respawn(g, why, old) {
-    const m = st(g), rk = Math.sqrt(g.S.k ?? 1);
-    m.blast = null;
+    const m = st(g), rk = Math.sqrt(g.S.k ?? 1), km = m.towKm || 0;
+    m.blast = null; m.towKm = 0;
     if (g.ui === 'shop') closeShop(g);
     const heavy = Math.max(0, Physics.fullMass(g.S) - 2.4) * 15;
-    const base = Math.round(Math.min(FEE_MAX * rk, Math.max(FEE_MIN, ((TOW_FEE[why] || TOW_FEE.tow) + heavy) * rk)));
+    const base = Math.round(Math.min(FEE_MAX * rk, ((TOW_FEE[why] || TOW_FEE.tow) + TOW_KM * km + heavy) * rk));
     const refill = old ? refillCost(g, why === 'crash' ? { ...old, hull: g.S.hull } : old, hubStation(g)) : 0;   // salvage covers the hull
-    const fee = base + refill;
-    const pay = Math.max(0, Math.min(fee, Math.floor(g.money)));
+    const fee = base + refill, cap = Math.floor(FEE_SHARE * Math.max(0, g.money));
+    const pay = Math.max(0, Math.min(fee, cap));
     g.money -= pay; m.stats.fees += pay;
-    const what = `${why === 'crash' ? 'SALVAGE + TOW' : 'TOW'} FEE${refill ? ' + REFILL' : ''}`;
-    Game.toast(g, pay < fee ? `${what} $${fee}: YOU PAID $${pay}, WE CRIED A LITTLE` : `${what}: -$${pay}`, '#ff9fb2', 'fee');
-    Game.log(g, `${why} fee $${pay} of $${fee} (base $${base}, refill $${refill})`);
+    const what = `${why === 'crash' ? 'SALVAGE + TOW' : 'TOW'}${km >= 0.5 ? ` ${km.toFixed(0)} KM` : ''}${refill ? ' + REFILL' : ''}`;
+    Game.toast(g, pay >= fee ? `${what}: -$${pay}` : pay > 0 ? `${what} $${fee}: ROOKIE RATE -$${pay} (NEVER OVER 1/4 OF YOUR CASH)`
+                                                  : `${what} $${fee}: YOU PAID $0, WE CRIED A LITTLE`, '#ff9fb2', 'fee');
+    Game.log(g, `${why} fee $${pay} of $${fee} (base $${base} incl. ${km.toFixed(1)} km, refill $${refill}, cap a quarter of $${Math.floor(g.money + pay)})`);
+  }
+  // how far the tug flies from Mochi to fetch you [km]; a wreck stays where it fell
+  function towKm(g) {
+    const b = g.w.byId.mochi; if (!b || !g.sh) return 0;
+    const [bx, by] = World.bodyState(g.w, b, g.t);
+    return Math.max(0, Math.hypot(g.sh.x - bx, g.sh.y - by) - b.R) / 1000;
   }
   function refillCost(g, old, station) {
     const S = g.S, gap = (full, have) => Math.max(0, (full || 0) - (Number.isFinite(have) ? have : full || 0));
@@ -1014,6 +1135,7 @@ const Econ = (() => {
   function died(g) { st(g).blast = null; if (g.ui === 'shop') closeShop(g); }
 
   const fmt = (n) => Math.floor(n).toLocaleString('en-US');
+  const dvTxt = (v) => (v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2));
   const money = (n) => `$${fmt(n)}`;
 
   function hudRows(g) {
@@ -1036,18 +1158,37 @@ const Econ = (() => {
       if (twr < 1) return { pri: 66, text: `Too heavy to lift off ${b.name} (thrust-to-weight ${twr.toFixed(2)}). Holding W burns fuel until you are light enough.` };
       if (padDepotNear(g) && cargo && !stationsOn()) return { pri: 52, text: `Press F to open the pad depot and sell your cargo (${money(holdValue(g))}).` };   // else stations coaches
     }
+    if (g.mode === 'ship' && g.status !== 'docked' && sh.hull < 0.3 * S.hull && sh.hull > 0)
+      return { pri: 60, text: `Hull ${Math.round(100 * sh.hull / S.hull)}%: one hard bump ends this trip. Repairs at Mochi Hub ($${REPAIR_PRICE.toFixed(2)}/hp) or the pad kiosk.` };
     if (g.status === 'docked' && g.mode === 'ship') {
       if (cargo) return { pri: 55, text: `Docked with ${money(holdValue(g))} of cargo: press F to open the shop and sell it.` };
-      if (sh.fuel < 0.5 * S.fuel && sellsFuel(stationsOn() ? Stations.dockedAt(g) : null, S.fuelId))
-        return { pri: 45, text: `Tank is ${Math.round(100 * sh.fuel / S.fuel)}% full: press F, then Services, to refuel before you go.` };
+      const here = stationsOn() ? Stations.dockedAt(g) : null, safe = safeFill(g);
+      if (sh.hull < 0.5 * S.hull) return { pri: 46, text: `Hull ${Math.round(100 * sh.hull / S.hull)}%: press F, then Services, to repair before you go.` };
+      if (sh.fuel < 0.5 * S.fuel * Math.min(1, safe) && sellsFuel(here, S.fuelId))
+        return { pri: 45, text: safe < 1 ? `A full tank is too heavy to take off from Mochi (lift ${liftNow(g, S.fuel).toFixed(2)}×): press F, Services, and fill to ${Math.floor(100 * safe)}%.`
+                                         : `Tank is ${Math.round(100 * sh.fuel / S.fuel)}% full: press F, then Services, to refuel before you go.` };
     }
-    if (m.orion > 0 && !m.stats.fired && g.status === 'flying' && g.mode === 'ship')
-      return { pri: 20, text: `N fires an Orion nuclear pulse: +${(S.orionJ / (Physics.mass(sh, S) - ORION.mass)).toFixed(0)} m/s along your nose (${m.orion} carried).` };
+    if (m.orion > 0 && !m.stats.fired && g.status === 'flying' && g.mode === 'ship') {
+      const dv = S.orionJ / (Physics.mass(sh, S) - ORION.mass);
+      return { pri: 20, text: `N fires an Orion nuclear pulse: +${dvTxt(dv)} m/s along your nose${dv < 1 ? ' (a hull this big barely feels it)' : ''} (${m.orion} carried).` };
+    }
     if ((S.sideThrust ?? 0) > 0 && !m.stats.strafed && g.status === 'flying' && g.mode === 'ship')
       return { pri: 22, text: `Side pods fitted: ←/→ strafe (Shift+←/→ is the old RCS nudge)${S.dashBoost ? ', double-tap ←/→ to dash' : ''}.` };
     if (g.dev && !m.devSeen && g.real < 120)
       return { pri: 12, text: `DEV: O opens the Debug Duck's shop anywhere, U tops everything up, I toggles ∞ money (${isInf(g) ? 'on' : 'off'}), K adds $5,000.` };
     return null;
+  }
+
+  // lift on Mochi with fuelT tonnes aboard (and what else is aboard now); the tank fill (0..1) that still lifts LIFT_OK
+  function liftNow(g, fuelT) {
+    const S = g.S, sh = g.sh, mochi = g.w.byId.mochi || { g: 2 };
+    return S.thrust / ((S.dry + fuelT + (sh.xe || 0) + (sh.cargoKg || 0) / 1000) * mochi.g);
+  }
+  function safeFill(g) {
+    const S = g.S, sh = g.sh, mochi = g.w.byId.mochi || { g: 2 };
+    if (!(S.fuel > 0)) return 1;
+    const f = (S.thrust / (LIFT_OK * mochi.g) - S.dry - (sh.xe || 0) - (sh.cargoKg || 0) / 1000) / S.fuel;
+    return liftNow(g, S.fuel) >= 1 ? 1 : Math.max(0, Math.min(1, Math.floor(f * 20) / 20));
   }
 
   // ---------------- pad depot: a shop on the Mochi pad (the whole shop without stations, a kiosk with them) ----------------
@@ -1143,6 +1284,8 @@ const Econ = (() => {
     frameOf: (g) => frameOf(st(g)), equipFrame, swapFrame, frameNeed: (g, id) => frameNeed(st(g), id), FRAMES, FRAME_ORDER, STOCK,
     bestEngineFor: (g, mount) => bestEngineFor(st(g), mount), charges, spendCharge, fillCharges, CHARGES, TNT, ROCKS, rockTypes,
     isInf, toggleInf, topUp, applyBuild, buildState, grantAll, resetStock, fillHold, devRock, BUILDS, DEV_SHOP, DEV_MONEY,
+    // lift guard: nothing grounds you on Mochi without a second "yes"
+    LIFT_OK, frameTrap, engineTrap, fuelTrap, chargeTrap, buyTrap, buyBundle, liftNow, safeFill, NEEDS, TOW_FEE, TOW_KM, FEE_SHARE, towKm,
   };
 
   const mod = { id: 'economy', init, load, save, stats, ready, onKey, shipCtrl, frame, respawn, died,
@@ -1163,7 +1306,7 @@ const Econ = (() => {
     { id: 'fusion',  order: 98, reward: 2000, text: 'Fly on fusion (a Pocket Sun or the Sunflower torch)',
       test: (g) => !!(g.fired && g.fired.main > 0 && g.S && FUSION.has(g.S.engine)) },
     { id: 'rich',    order: 99, reward: 1000, text: 'Bank $20,000',
-      test: (g) => g.money >= 20000 },
+      test: (g) => !g.dev && g.money >= 20000 },                  // dev purses start rich: no free payday
     { id: 'tycoon',  order: 100, reward: 1,   text: 'Bank $250,000 (the dollar comes framed)',
       test: (g) => !g.dev && g.money >= 250000 },
   ]);

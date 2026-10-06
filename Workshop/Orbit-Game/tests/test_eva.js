@@ -308,6 +308,12 @@ function findOre(g, b, mat, dMin, dMax) {
   g.pack = { iron: 12 }; M(g).o2 = 31; H.run(g, 120, {});
   check('air warning toast under 30 s', toastHas(g, 'AIR LOW'), g.toasts.map((t) => t.text).join(' | '));
   check('air-low hint', Game.hint(g).includes('Air low'), Game.hint(g));
+  { const A = g.astro, [bx, by] = World.bodyState(g.w, g.w.byId.mochi, g.t), r = Math.hypot(A.x - bx, A.y - by), ux = (A.x - bx) / r, uy = (A.y - by) / r;
+    for (let i = 0; i < 90; i++) H.run(g, 1, { keys: ['KeyD'] });                               // walk off: the ship is now a way off
+    const A2 = g.astro, far = Game.hint(g), stair = (d) => ({ name: 'the West Stair', x: A2.x + ux * d, y: A2.y + uy * d, d });
+    const near = EVA.airHint(g, stair(6)), nearer = EVA.airHint(g, stair(500));
+    check('low air points at the nearest refill: a hall with air when closer than the ship', /The West Stair has air \(6\.0 m up\)/.test(near) &&
+          /Back to the Prospector \(\d+(\.\d)? m to your (left|right)\)/.test(far) && /Back to the Prospector/.test(nearer), `${near} | ${far}`); }
   let t = 0;
   while (g.astro.on && t < 60 * 60) { H.run(g, 1, {}); t++; }
   check('at 0 air the suit fails and you are recalled', g.mode === 'ship' && !g.astro.on && t / 60 > 29 && t / 60 < 50, `after ${(t / 60).toFixed(1)} s`);
@@ -569,6 +575,13 @@ function findOre(g, b, mat, dMin, dMax) {
   const v0 = relV(s), j0 = M(s).jet;
   H.run(s, 1, { pressed: ['KeyC'], keys: ['KeyD'] });
   const v1 = relV(s);
+  const k = outOn('kiwi', 0.7), kb = k.w.byId.kiwi; gear(k, GEAR.roll2); H.run(k, 30, {});
+  const k0 = local(k, kb), nk = Game.nearestBody(k, k.astro.x, k.astro.y), capK = 0.6 * Math.sqrt(kb.mu / nk.d);
+  H.run(k, 1, { pressed: ['KeyC'], keys: ['KeyD'] });
+  const T = M(k).roll.T; H.run(k, Math.ceil(T * 60) + 20, {});
+  const k1 = local(k, kb), rolled = Math.hypot(k1[0] - k0[0], k1[1] - k0[1]);
+  check('Kiwi: the speed cap stretches the roll, not its distance (4.5 m)', T > 0.6 && rolled > 3.8 && rolled < 5.2 && Math.abs(4.5 / T - capK) < 0.05,
+        `${rolled.toFixed(2)} m in ${T.toFixed(2)} s (cap ${capK.toFixed(2)} m/s)`);
   check('Gyro roll in open space: a 3 m/s dash paid from the jetpack', Math.abs(v1[0] - v0[0] - 3) < 0.15 && Math.abs(j0 - M(s).jet - 3 / s.S.jet) < 0.05, `Δv ${(v1[0] - v0[0]).toFixed(2)} m/s, jet ${j0.toFixed(2)} -> ${M(s).jet.toFixed(2)} s`);
 }
 
@@ -582,12 +595,20 @@ function findOre(g, b, mat, dMin, dMax) {
   check('bombs: charges full when bought', M(g).bombsN === 2, `${M(g).bombsN}`);
   const [tx, ty] = groundAhead(g, b, 5), aim = () => mouseOn(g, b, tx, ty, false);
   H.run(g, 1, { pressed: ['KeyB'], mouse: aim() });
+  const first = M(g).live[0];
   check('B throws a bomb at the cursor', M(g).live.length === 1 && M(g).bombsN === 1, `${M(g).live.length} live, ${M(g).bombsN} left`);
-  H.run(g, 1, { pressed: ['KeyB'], mouse: aim() }); H.run(g, 1, { pressed: ['KeyB'], mouse: aim() });
-  check('two charges, then RECHARGING', M(g).live.length === 2 && M(g).bombsN === 0, `${M(g).live.length} live`);
-  let t = 0; while (M(g).live.length && t < 600) { H.run(g, 1, { mouse: aim() }); t++; }
+  H.run(g, 1, { pressed: ['KeyB'], mouse: aim() });
+  check('per-throw cooldown: B again 1/60 s later waits its turn', M(g).live.length === 1 && M(g).bombsN === 1 && M(g).bombQ, `${M(g).live.length} live`);
+  H.run(g, 33, { mouse: aim() });
+  check('...and goes 0.6 s after the first (not before)', M(g).live.length === 1, `${M(g).live.length} live after 0.57 s`);
+  H.run(g, 3, { mouse: aim() });
+  check('...two charges, then the second one flies', M(g).live.length === 2 && M(g).bombsN === 0 && !M(g).bombQ, `${M(g).live.length} live`);
+  H.run(g, 40, { pressed: ['KeyB'], mouse: aim() });
+  check('a third B: RECHARGING (no charge left)', M(g).live.length === 2 && M(g).bombsN === 0, `${M(g).live.length} live`);
+  let t = 78; while (M(g).live.includes(first) && t < 600) { H.run(g, 1, { mouse: aim() }); t++; }
   check('the fuse runs ~1.8 s', t / 60 > 1.6 && t / 60 < 1.9, `${(t / 60).toFixed(2)} s`);
-  let since = t + 2;                                                                    // frames since the first throw
+  while (M(g).live.length && t < 600) { H.run(g, 1, { mouse: aim() }); t++; }
+  let since = t + 1;                                                                    // frames since the first throw
   const runTo = (sec) => { const n = Math.round(sec * 60) - since; if (n > 0) { H.run(g, n, { mouse: aim() }); since += n; } };
   check('a bomb digs a crater (>= 1 cell)', M(g).bombCells > 0, `${M(g).bombCells} cells`);
   check('bomb job pays ($150)', g.done.bomb !== undefined && g.money >= $0 + 150, `$${$0} -> $${g.money}`);
@@ -630,6 +651,29 @@ function findOre(g, b, mat, dMin, dMax) {
   check('hold right-click: a dotted arc for the fuse, nothing thrown yet', M(g).aiming && M(g).arc && M(g).arc.pts.length > 5 && M(g).live.length === 0, `${M(g).arc ? M(g).arc.pts.length : 0} arc points`);
   H.run(g, 1, { mouse: ms(false) });
   check('let go: the bomb flies', !M(g).aiming && M(g).live.length === 1 && M(g).arc === null, '');
+  H.run(g, 1, { mouse: ms(true) }); H.run(g, 1, { mouse: ms(false) });
+  check('a right-click release inside the 0.6 s waits too (one throw queued)', M(g).live.length === 1 && M(g).bombQ, `${M(g).live.length} live`);
+  H.run(g, 40, { mouse: ms(false) });
+  check('...then it flies', M(g).live.length === 2, `${M(g).live.length} live`);
+}
+// bombs go off where you point: a ballistic solve with the real gravity, capped at the throw speed
+{
+  const shot = (bodyId, th, kit, ahead, up = 0) => {
+    const g = outOn(bodyId, th), b = g.w.byId[bodyId]; gear(g, kit);
+    const [gx, gy] = groundAhead(g, b, ahead), n = Math.hypot(gx, gy), tx = gx + gx / n * up, ty = gy + gy / n * up, aim = () => mouseOn(g, b, tx, ty, false);
+    H.run(g, 1, { mouse: aim() }); H.run(g, 1, { pressed: ['KeyB'], mouse: aim() });
+    const bm = M(g).live[0]; let at = null, k = 0;
+    while (bm && M(g).live.includes(bm) && k++ < 400) { const [bx, by] = World.bodyState(g.w, b, g.t); at = [bm.x - bx, bm.y - by]; H.run(g, 1, { mouse: aim() }); }
+    return { miss: at ? Math.hypot(at[0] - tx, at[1] - ty) : Infinity, u: bm ? bm.u : 0, cap: g.S.bombV };
+  };
+  const runs = [['mochi', GEAR.bomb1, 3], ['mochi', GEAR.bomb1, 6], ['mochi', GEAR.bomb1, -5], ['mochi', GEAR.bomb2, 8], ['mochi', GEAR.bomb3, 10], ['kiwi', GEAR.bomb2, 6]];
+  const R = runs.map(([id, kit, d]) => ({ id, d, ...shot(id, id === 'mochi' ? Math.PI / 2 : 0.7, kit, d) }));
+  check('bombs go off within 0.6 m of a cursor on the ground (3 to 10 m, both sides, 3 tiers, Kiwi)', R.every((r) => r.miss < 0.6 && r.u <= r.cap + 1e-9),
+        R.map((r) => `${r.id} ${r.d} m: ${r.miss.toFixed(2)} m @ ${r.u.toFixed(1)} m/s`).join(', '));
+  const air = shot('mochi', Math.PI / 2, GEAR.bomb1, 7, 1.5);
+  check('...and right at a cursor in the air (7 m out, 1.5 m up: bangs on the spot)', air.miss < 0.2, `${air.miss.toFixed(2)} m`);
+  const far = shot('mochi', Math.PI / 2, GEAR.bomb1, 30);
+  check('out of reach (30 m): a full-speed throw, never over bombV', Math.abs(far.u - 6) < 1e-9 && far.miss > 10, `${far.u.toFixed(2)} m/s, short by ${far.miss.toFixed(1)} m`);
 }
 
 

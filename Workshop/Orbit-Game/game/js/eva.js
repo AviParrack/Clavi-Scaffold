@@ -41,7 +41,7 @@ const EVA = (() => {
   const CHUNK_V = 8;                          // dug chunks ride back up the beam at this speed [m/s]
   const BEAM_PAST = 0.75;                     // the beam stops this far past the cursor: you dig what you point at [m]
   const SCAN_R = [4, 25, Infinity];           // gem scanner reach by S.scanner level [m]
-  const ZOOM = 32, MIN_PX = 30, MIN_PX_SPACE = 60;   // EVA camera [px/m]; smallest on-screen astronaut, on a rock / out in space [px]
+  const ZOOM = 32, MIN_PX = 30, MIN_PX_SPACE = 36;   // EVA camera [px/m]; smallest on-screen stock astronaut, on a rock / out in space (NPC visitors: 32) [px]
   const MINE_KG = 40;                         // job: ore hauled into the pack
 
   // ---------------- tuning: tethered spacewalk ----------------
@@ -68,6 +68,9 @@ const EVA = (() => {
   const BOMB_ESC = 0.9;                       // near a body, throws stay under this x local escape speed
   const SELF_DMG = 0.5, SHIP_DMG = 0.25;      // your own bombs hurt you and your ship this much less
   const ARC_DT = 1 / 30;                      // bomb arc preview step [s]
+  const THROW_CD = 0.6;                       // one throw per this long; the charges refill on their own clock [s]
+  const THROW_LEAD = 0.1;                     // a bomb reaches the cursor this long before it bangs (lands, then booms) [s]
+  const AIM_DT = 1 / 60, AIM_ITER = 3;        // the throw solver: coast step [s] and shooting passes
   const BOOM_T = 0.5;                         // comic starburst lifetime [s]
   const BOOM_WORD = ['POP!', 'BOOM!', 'KRA-KOOM!'];
 
@@ -75,6 +78,7 @@ const EVA = (() => {
   const SKIN = ['#8fe07a', '#4f9e45', '#d8ffbf'], SUIT = ['#f6f2ff', '#b7afdc', '#ffffff'];
   const PACK = ['#ff9f43', '#c25f1c', '#ffd8a6'], GUN = ['#8a86b3', '#565180', '#d9d6f2'];
   const MECH = ['#d6d1f2', '#8c84b3', '#f7f5ff'], DARK = ['#6e6896', '#4b4670', '#9b97b8'];
+  const EXO = ['#ffd23f', '#c99a12', '#fff2a8'];                       // the exo frame (Strider, Mecha-Pip): hazard yellow
   const BEAM = '#ff4f8b', ANTENNA = '#ff7eb6', GLOW = '#7cf5d6', TEAL = '#7cf5d6', BRASS = '#e3b04b';
   const SUIT_NAME = ['Stock suit', 'Padded suit', 'Armored suit', 'Strider', 'Mecha-Pip'];
   const MAT_NAME = { regolith: 'regolith', ice: 'water ice', iron: 'iron ore', nickel: 'nickel', platinum: 'platinum' };
@@ -99,7 +103,7 @@ const EVA = (() => {
              teth: false, space: false, sUp: Math.PI / 2, tLen: 30, paid: 0, J: 0, tethT: 0, autoReel: false, crashT: Infinity, crashWarn: false,
              sprinting: false, dustT: 0, roll: null, rollReady: 0,
              bombsN: 0, bombsCap: 0, bombT: 0, live: [], booms: [], aiming: false, rPrev: false, arc: null, bombCells: 0,
-             wantRoll: false, wantBomb: false, throwT: -9,
+             wantRoll: false, wantBomb: false, throwT: -9, nextThrow: 0, bombQ: false,
              rocks: [], free: [], told: {},
              stats: { spacewalks: 0, maxTether: 0, bombs: 0, rolls: 0 } };
   }
@@ -322,7 +326,7 @@ const EVA = (() => {
     const m = st(g), A = g.astro, S = g.S, ms = inp.mouse, right = !!(ms && ms.right);
     setCursor(isOut(g));
     refillBombs(g, m, simDt || 0);
-    if (!isOut(g)) { m.firing = false; m.aiming = false; m.arc = null; m.rPrev = right; m.rocks = []; m.free = []; m.wantRoll = m.wantBomb = false; return; }
+    if (!isOut(g)) { m.firing = false; m.aiming = false; m.arc = null; m.rPrev = right; m.rocks = []; m.free = []; m.wantRoll = m.wantBomb = m.bombQ = false; return; }
     const k = inp.keys || new Set(), t = inp.touch || {}, has = (c) => k.has(c), c = m.ctl;
     c.walk = (has('KeyD') || has('ArrowRight') || t.rotR ? 1 : 0) - (has('KeyA') || has('ArrowLeft') || t.rotL ? 1 : 0);
     c.up = has('KeyW') || has('Space') || has('ArrowUp') || !!t.thrust;
@@ -345,10 +349,11 @@ const EVA = (() => {
 
     // -------- right mouse: hold to aim the bomb arc, release to throw --------
     if (right && !m.rPrev && !g.ui) { m.aiming = (S.bombs ?? 0) > 0; if (!m.aiming) noBombs(g, m); }
-    if (!right && m.rPrev && m.aiming) { m.aiming = false; throwBomb(g, m); }
+    if (!right && m.rPrev && m.aiming) { m.aiming = false; wantThrow(g, m); }
     m.rPrev = right;
     if (m.wantRoll) { m.wantRoll = false; roll(g, m); }
-    if (m.wantBomb) { m.wantBomb = false; throwBomb(g, m); }
+    if (m.wantBomb) { m.wantBomb = false; wantThrow(g, m); }
+    if (m.bombQ && g.t >= m.nextThrow) { m.bombQ = false; throwBomb(g, m); }
     m.arc = m.aiming ? arcPreview(g, m) : null;
 
     const aim = aimWorld(g, m), [ux, uy] = upOf(g);
@@ -655,13 +660,21 @@ const EVA = (() => {
     if (!((S.roll ?? 0) >= 1)) { tip(g, m, 'noroll', 'NO DIVE ROLL YET: TUMBLE PADS ARE IN THE SUIT TAB'); return false; }
     if (g.t < m.rollReady || rollingNow(g, m)) return false;
     const side = m.ctl.walk || m.face || 1;
-    m.roll = { t0: g.t, T: S.rollT ?? 0.45, side, air: !m.grounded };
+    m.roll = { t0: g.t, T: rollTime(g, m), side, air: !m.grounded };
     A.invUntil = g.t + (S.rollIframes ?? 0);
     m.rollReady = g.t + (S.rollCd ?? 1.2);
     m.face = side; m.stats.rolls++;
     const dash = !m.grounded && (S.rollAir ?? 0) > 0 ? airDash(g, m, S.rollAir) : 0;
     Game.popup(g, m.grounded ? 'TUCK!' : dash ? 'WHOOSH!' : 'TUMBLE!', '#ffe2b0', A.x, A.y + 0.9, 16);
     return true;
+  }
+
+  // on a tiny moon the speed cap slows the roll: it takes longer and still covers rollDist (the dodge window stays rollIframes)
+  function rollTime(g, m) {
+    const S = g.S, A = g.astro, T = S.rollT ?? 0.45;
+    if (!m.grounded || m.space) return T;
+    const nb = Game.nearestBody(g, A.x, A.y);
+    return nb.b.star ? T : Math.max(T, (S.rollDist ?? 0) / speedCap(nb.b, nb.d));
   }
 
   // roll2 in the air or in space: a burst along the input, paid from the jetpack (dv / S.jet seconds of burn)
@@ -706,17 +719,85 @@ const EVA = (() => {
     return [ox, oy, dx, dy];
   }
 
+  // ---------------- the throw: aimed so the bomb lands on the cursor ----------------
+
+  // B or a right-click release: throw now, or as soon as the arm is ready (one throw per THROW_CD; a press in between waits)
+  function wantThrow(g, m) {
+    if (g.t >= m.nextThrow) { m.bombQ = false; return throwBomb(g, m); }
+    m.bombQ = true;
+    return null;
+  }
+
+  // where a bomb launched at (x, y, vx, vy) is after T s under the real gravity (no collisions), relative to frameAt(T)
+  function coast(g, x, y, vx, vy, T, frameAt) {
+    const n = Math.max(1, Math.ceil(T / AIM_DT)), h = T / n;
+    for (let i = 0; i < n; i++) {
+      const [gx, gy] = World.gravity(g.w, x, y, g.t + i * h);
+      vx += gx * h; vy += gy * h; x += vx * h; y += vy * h;
+    }
+    const [fx, fy] = frameAt(T);
+    return [x - fx, y - fy];
+  }
+
+  // launch velocity that puts the bomb on the cursor: shot with the real gravity, in the frame of the rock you aim at (in open
+  //  space, yours). A cursor on the ground is reached THROW_LEAD s before the bang (it lands, then booms); one in the air at the
+  //  bang. Never faster than throwSpeed relative to you: out of reach -> the full-speed throw along the solved direction (it
+  //  falls short). A ridge in the way: aim a little higher, keep the throw that goes off nearest the cursor.
+  //  -> { ox, oy, vx, vy, u, T, reach }
+  function solveThrow(g, m) {
+    const A = g.astro, S = g.S, [ox, oy, dx, dy] = throwRay(g, m), cap = throwSpeed(g, ox, oy), aim = aimWorld(g, m);
+    if (!aim) return { ox, oy, vx: A.vx + dx * cap, vy: A.vy + dy * cap, u: cap, T: 0, reach: false };   // no mouse: the stock lob
+    const body = m.space || !g.w.byId[m.aimL[2]] || g.w.byId[m.aimL[2]].star ? null : g.w.byId[m.aimL[2]];
+    const frameAt = (t) => (body ? World.bodyState(g.w, body, g.t + t) : [A.x + A.vx * t, A.y + A.vy * t]);
+    const [f0x, f0y] = frameAt(0), tx = aim[0] - f0x, ty = aim[1] - f0y, tr = Math.hypot(tx, ty) || 1;
+    const fuse = S.bombFuse ?? 1.8, ground = !!body && !!Terrain.collideCircle(Terrain.of(body), tx, ty, 0.7);
+    const T = Math.max(0.3, fuse - (ground ? THROW_LEAD : 0));
+    let best = null;
+    for (const lift of ground ? [0, 0.4, 0.9, 1.5] : [0]) {
+      const [vx, vy] = shoot(g, ox, oy, tx + tx / tr * lift, ty + ty / tr * lift, T, frameAt);
+      let rx = vx - A.vx, ry = vy - A.vy, u = Math.hypot(rx, ry);
+      const reach = u <= cap;
+      if (!reach) { rx *= cap / u; ry *= cap / u; u = cap; }
+      const [bx, by] = ground ? goesOff(g, ox, oy, A.vx + rx, A.vy + ry, fuse, frameAt) : [tx, ty];
+      const miss = Math.hypot(bx - tx, by - ty);
+      if (!best || miss < best.miss) best = { ox, oy, vx: A.vx + rx, vy: A.vy + ry, u, T, reach, miss };
+      if (best.miss < 0.5) break;
+    }
+    return best;
+  }
+  // shooting: start on the straight line, then correct by miss / T (exact for uniform gravity, close for a round rock)
+  function shoot(g, ox, oy, tx, ty, T, frameAt) {
+    const [fTx, fTy] = frameAt(T);
+    let vx = (fTx + tx - ox) / T, vy = (fTy + ty - oy) / T;
+    for (let i = 0; i < AIM_ITER; i++) {
+      const [lx, ly] = coast(g, ox, oy, vx, vy, T, frameAt);
+      vx += (tx - lx) / T; vy += (ty - ly) / T;
+    }
+    return [vx, vy];
+  }
+  // where (in the frame) the bomb first touches the ground, or where it is when the fuse runs out
+  function goesOff(g, x, y, vx, vy, fuse, frameAt) {
+    const n = Math.max(1, Math.ceil(fuse / AIM_DT)), h = fuse / n;
+    for (let i = 1; i <= n; i++) {
+      const [gx, gy] = World.gravity(g.w, x, y, g.t + (i - 1) * h);
+      vx += gx * h; vy += gy * h; x += vx * h; y += vy * h;
+      const nb = Game.nearestBody(g, x, y, g.t + i * h);
+      if (i === n || (nb.alt < 1 && !nb.b.star && Terrain.collideCircle(Terrain.of(nb.b), nb.lx, nb.ly, BOMB_R))) { const [fx, fy] = frameAt(i * h); return [x - fx, y - fy]; }
+    }
+    return [x, y];
+  }
+
   function throwBomb(g, m) {
     const S = g.S, A = g.astro;
     if (!((S.bombs ?? 0) > 0)) { noBombs(g, m); return null; }
     if (m.bombsN < 1) { Game.popup(g, 'RECHARGING...', '#ff9fb2', A.x, A.y + 1, 15); return null; }
-    const [ox, oy, dx, dy] = throwRay(g, m), u = throwSpeed(g, ox, oy), kg = S.bombKg ?? 0.5, mA = astroMass(g), tr = bombTier(S);
-    const bm = { x: ox, y: oy, vx: A.vx + dx * u, vy: A.vy + dy * u, u, fuse: S.bombFuse ?? 1.8, fuse0: S.bombFuse ?? 1.8, tier: tr,
+    const { ox, oy, vx, vy, u } = solveThrow(g, m), kg = S.bombKg ?? 0.5, mA = astroMass(g), tr = bombTier(S);
+    const bm = { x: ox, y: oy, vx, vy, u, fuse: S.bombFuse ?? 1.8, fuse0: S.bombFuse ?? 1.8, tier: tr,
                  R: S.bombR ?? 0, dig: S.bombDig ?? 0, dmg: S.bombDmg ?? 0, E: S.bombE ?? 0, sticky: (S.bombSticky ?? 0) > 0,
                  stuck: null, spin: 0, w: (Math.random() < 0.5 ? -1 : 1) * (6 + 6 * Math.random()) };
-    A.vx -= dx * u * kg / mA; A.vy -= dy * u * kg / mA;                // recoil: -m_b v / m_A
+    A.vx -= (vx - A.vx) * kg / mA; A.vy -= (vy - A.vy) * kg / mA;      // recoil: -m_b v / m_A (v relative to you)
     m.live.push(bm); m.bombsN--; m.stats.bombs++;
-    m.throwT = g.real;
+    m.throwT = g.real; m.nextThrow = g.t + THROW_CD;
     Game.log(g, `${['', 'Pop Rock', 'Boom Berry', 'Thunder Puck'][tr]} thrown at ${u.toFixed(2)} m/s (recoil ${(u * kg / mA).toFixed(3)} m/s), ${m.bombsN} left`);
     return bm;
   }
@@ -807,10 +888,10 @@ const EVA = (() => {
 
   // dotted arc for the length of the fuse, in the nearby body's frame (or riding along with you in open space)
   function arcPreview(g, m) {
-    const A = g.astro, S = g.S, [ox, oy, dx, dy] = throwRay(g, m), u = throwSpeed(g, ox, oy), T = S.bombFuse ?? 1.8;
+    const A = g.astro, S = g.S, T = S.bombFuse ?? 1.8, sol = solveThrow(g, m), u = sol.u;
     const nb0 = Game.nearestBody(g, A.x, A.y), body = !nb0.b.star && nb0.d < reach(nb0.b) * 1.5 ? nb0.b : null;
     const pts = [];
-    let x = ox, y = oy, vx = A.vx + dx * u, vy = A.vy + dy * u, hit = false;
+    let x = sol.ox, y = sol.oy, vx = sol.vx, vy = sol.vy, hit = false;
     for (let t = 0; t <= T + 1e-9; t += ARC_DT) {
       const tt = g.t + t, [fx, fy] = body ? World.bodyState(g.w, body, tt) : [A.x + A.vx * t, A.y + A.vy * t];
       pts.push([x - fx, y - fy]);
@@ -820,7 +901,7 @@ const EVA = (() => {
       const nb = Game.nearestBody(g, x, y, tt + ARC_DT);
       if (nb.alt < 1 && !nb.b.star && Terrain.collideCircle(Terrain.of(nb.b), nb.lx, nb.ly, BOMB_R)) hit = true;
     }
-    return { pts, body: body ? body.id : null, hit, u };
+    return { pts, body: body ? body.id : null, hit, u, reach: sol.reach };
   }
 
 
@@ -1012,7 +1093,10 @@ const EVA = (() => {
   function breathe(g, m, simDt) {
     if (!simDt) return;
     const A = g.astro;
-    if (typeof Mochi !== 'undefined' && Mochi && Mochi.airAt && Mochi.airAt(g, A.x, A.y)) m.o2 = Math.min(g.S.o2, m.o2 + 10 * simDt);
+    if (typeof Mochi !== 'undefined' && Mochi && Mochi.airAt && Mochi.airAt(g, A.x, A.y)) {
+      m.o2 = Math.min(g.S.o2, m.o2 + 10 * simDt);
+      tip(g, m, 'airhall', 'AIR HERE: THIS HALL REFILLS YOUR SUIT');
+    }
     m.o2 = Math.max(0, m.o2 - simDt * (m.sprinting ? SPRINT_O2 : 1));
     if (m.o2 < O2_WARN && !m.warnO2) { m.warnO2 = true; Game.toast(g, `AIR LOW: ${Math.ceil(m.o2)} S LEFT. HEAD BACK!`, '#ff9f1c', 'evaO2'); }
     if (m.o2 <= 0) {
@@ -1101,6 +1185,14 @@ const EVA = (() => {
       const nb = Game.nearestBody(g, A.x, A.y), bx = -uy * m.face, by = ux * m.face;   // kicked back and up
       Game.burst(g, 'dust', fx + bx * 0.25, fy + by * 0.25, 2, { vx: nb.bvx, vy: nb.bvy, speed: 0.9, dir: Math.atan2(by + uy * 0.4, bx + ux * 0.4), spread: 0.8, col: '#cfc6e6', size: 0.08, life: 0.35 });
     }
+    const ph = Math.floor(m.phase / Math.PI), T = tier(g);
+    if (ph !== m.stepPh) {                                               // exo frames stomp: a dust puff on every footfall
+      if (m.stepPh !== undefined && T >= 3 && m.grounded && !m.space && m.ctl.walk) {
+        const nb = Game.nearestBody(g, A.x, A.y);
+        Game.burst(g, 'dust', fx, fy, T >= 4 ? 6 : 3, { vx: nb.bvx, vy: nb.bvy, speed: T >= 4 ? 1.3 : 0.8, col: '#d8cfee', size: T >= 4 ? 0.22 : 0.14, life: 0.45 });
+      }
+      m.stepPh = ph;
+    }
     if (m.roll && !m.roll.dusted && g.t >= m.roll.t0 + m.roll.T) {
       m.roll.dusted = true;
       if (m.grounded) { const nb = Game.nearestBody(g, A.x, A.y); Game.burst(g, 'dust', fx, fy, 10, { vx: nb.bvx, vy: nb.bvy, speed: 2.2, col: '#d8cfee', size: 0.3, life: 0.5 }); }
@@ -1178,8 +1270,8 @@ const EVA = (() => {
     if (m.lost > 0) return { pri: 85, text: `Drifting off ${b.name}! Hold S to jet down, or get reeled in (${left} s).` };
     if (m.o2 <= 0) return { pri: 84, text: m.teth ? 'Out of air! The winch is reeling you in: press E at the hull.' : `Out of air! The suit is losing HP. Get to the ${S.name} and press E!` };
     if (m.teth && m.crashT < CRASH_WARN && g.pred && g.pred.impact) return { pri: 81, text: `Your ${S.name} hits ${g.pred.impact.body ? g.pred.impact.body.name : 'something'} in ${Math.ceil(m.crashT)} s! Hold Q to winch in, E to board and fly it.` };
-    if (m.o2 < O2_WARN) return { pri: 75, text: `Air low: ${Math.ceil(m.o2)} s left. Back to the ${S.name}, press E to refill.${m.teth ? ' Q winches you in.' : ''}` };
-    if (A.hp < 0.3 * A.hpMax) return { pri: 72, text: 'Suit badly hurt! Board (E) to patch it. At 0 HP you get recalled and drop the pack.' };
+    if (m.o2 < O2_WARN) return { pri: 75, text: airHint(g, m) };
+    if (A.hp < 0.3 * A.hpMax) return { pri: 72, text: `Suit badly hurt! ${canBoard(g) ? 'Board (E)' : `Board the ${S.name} (${where(g, g.sh.x, g.sh.y)}, then E)`} to patch it. At 0 HP you get recalled and drop the pack.` };
     if (!m.teth && dShip > FAR_WARN) return { pri: 70, text: `${dShip.toFixed(0)} m from the ${S.name}. The suit reel pulls you back past ${FAR_MAX} m.` };
     if (full) return { pri: 62, text: `Backpack full (${S.packCap} kg)! ${m.teth ? 'Winch in (Q)' : `Walk back to the ${S.name}`} and press E to unload.` };
     if (m.teth && g.status !== 'dead' && !m.ctl.reel && dShip > m.tLen - 0.5) return { pri: 60, text: `Tether taut at ${m.tLen.toFixed(0)} m. Hold Q to winch back toward the ${S.name}.` };
@@ -1197,6 +1289,22 @@ const EVA = (() => {
       return { pri: 36, text: `That's ${MAT_NAME[h.mat.id]} (${MAT_FEEL[h.mat.id]}). ${h.inRange ? 'Hold left click: chunks fly into your pack.' : `Get closer: laser reach ${S.laserRange} m.`}` };
     }
     return { pri: 25, text: 'Hold left click to dig. Blobs are ore: blue ice, rusty iron, olive nickel, white platinum.' };
+  }
+
+  // low air: the nearest refill, a breathable hall on Mochi (Mochi.nearestAir) or the ship, whichever is closer
+  function airHint(g, m, air = airNear(g, m)) {
+    const S = g.S, left = `Air low: ${Math.ceil(m.o2)} s left.`;
+    const dShip = g.status === 'dead' ? Infinity : hullDist(g);
+    if (air && Number.isFinite(air.d) && air.d < dShip) return `${left} ${air.name[0].toUpperCase()}${air.name.slice(1)} has air (${where(g, air.x, air.y)}): it refills your suit.`;
+    if (canBoard(g)) return `${left} Press E to board: air refills inside.`;
+    return `${left} Back to the ${S.name} (${where(g, g.sh.x, g.sh.y)}), press E to refill.${m.teth ? ' Q winches you in.' : ''}`;
+  }
+  const airNear = (g, m) => (!m.teth && typeof Mochi !== 'undefined' && Mochi && Mochi.nearestAir ? Mochi.nearestAir(g, g.astro.x, g.astro.y) : null);
+  // "12 m up", "80 m to your right": the bigger component, in the sprite's frame
+  function where(g, x, y) {
+    const A = g.astro, [ux, uy] = upOf(g), dx = x - A.x, dy = y - A.y, d = Math.hypot(dx, dy), v = dx * ux + dy * uy, h = dx * uy - dy * ux;
+    const way = Math.abs(v) > Math.abs(h) ? (v > 0 ? 'up' : 'down') : `to your ${h > 0 ? 'right' : 'left'}`;
+    return `${d < 10 ? d.toFixed(1) : d.toFixed(0)} m ${way}`;
   }
 
   function controls(g) {
@@ -1299,7 +1407,8 @@ const EVA = (() => {
     const side = Math.sign((A.x - sh.x) * rx + (A.y - sh.y) * ry) || 1;
     return [sh.x + rx * side * 0.21 * L - fx * 0.05 * L, sh.y + ry * side * 0.21 * L - fy * 0.05 * L];
   }
-  const spriteScale = (g, kit) => Math.max(1, (st(g).space ? MIN_PX_SPACE : MIN_PX) * kit.px() / RIG[tier(g)].h);
+  // zoomed out, every suit grows by the same factor: a Mecha-Pip stays 2.15 / 1.6 times the stock suit
+  const spriteScale = (g, kit) => Math.max(1, (st(g).space ? MIN_PX_SPACE : MIN_PX) * kit.px() / RIG[0].h);
   // a point in the sprite frame (metres, feet origin, facing +x) -> world
   function spritePt(g, m, kit, x, y) {
     const A = g.astro, s = spriteScale(g, kit), up = upAng(g), f = m.face || 1;
@@ -1352,6 +1461,7 @@ const EVA = (() => {
     ctx.save();
     if (lean) { ctx.translate(0, RIG[T].hip); ctx.rotate(lean); ctx.translate(0, -RIG[T].hip); }
     backArm(P, sw);
+    if (T >= 3) spine(P);
     leg(P, -0.05, -sw, P.air ? 0.12 : Math.max(0, -cw) * 0.08, true);
     pack(P);
     torso(P);
@@ -1363,6 +1473,7 @@ const EVA = (() => {
     if (T >= 4) collarLip(P);
     if (!armFirst) gunArm(P);
     if (T >= 4) pauldron(P);
+    if (T >= 3) yoke(P);
     ctx.restore();
     if (P.inv) { ctx.globalAlpha = 0.5; ctx.fillStyle = '#ffffff'; circ(ctx, 0, RIG[T].h * 0.55, RIG[T].h * 0.48); ctx.fill(); ctx.globalAlpha = 1; }
   }
@@ -1412,17 +1523,52 @@ const EVA = (() => {
       toon(ctx, () => rr(ctx, -0.1, -0.1, 0.2, 0.2, 0.06), back ? [GUN[1], GUN[1], GUN[0]] : GUN, [0, 0], 0, lw * 0.8, null);
       ctx.restore();
     }
-    if (T === 3) strut(P, hip, kn, ankle, back);
     boot(P, ankle, back);
+    if (T === 3) exoLeg(P, hip, kn, ankle, back);
   }
 
-  // Strider: orange struts hip -> knee -> ankle with joint discs, outside the suit leg
-  function strut(P, hip, kn, ankle, back) {
-    const { ctx, lw } = P, col = back ? '#c25f1c' : '#ff9f43', off = 0.05;
-    const pts = [[hip[0] + off, hip[1]], [kn[0] + off, kn[1]], [ankle[0] + off, ankle[1] + 0.02]];
-    limb(ctx, pts, 0.07, col, lw * 0.9);
-    for (const [x, y] of pts) disc(ctx, x, y, 0.065, back ? DARK[1] : DARK[0], lw * 0.7);
-    if (!P.tiny) for (const [x, y] of pts) disc(ctx, x, y, 0.022, '#ffd166');
+  // ---------------- the exo frame (Strider, Mecha-Pip): outboard leg struts, a spine, a shoulder yoke ----------------
+
+  // hip -> knee -> ankle in hazard yellow, outside the leg line, a piston across the knee, a glowing knee joint
+  function exoLeg(P, hip, kn, ankle, back) {
+    const { ctx, lw, T, m, t } = P, big = T >= 4, o = big ? 0.16 : 0.11, col = back ? EXO[1] : EXO[0];
+    const pts = [[hip[0] + o * 0.4, hip[1] + 0.03], [kn[0] + o, kn[1]], [ankle[0] + o * 0.7, ankle[1] + 0.05]];
+    const at = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+    limb(ctx, [at(pts[0], pts[1], 0.45), at(pts[1], pts[2], 0.55)].map(([x, y]) => [x + 0.07, y]), big ? 0.045 : 0.035, back ? DARK[1] : '#b7b3cf', lw * 0.6);
+    limb(ctx, pts, big ? 0.1 : 0.075, col, lw);
+    disc(ctx, pts[0][0], pts[0][1], big ? 0.08 : 0.06, back ? DARK[1] : DARK[0], lw * 0.7);
+    disc(ctx, pts[2][0], pts[2][1], big ? 0.07 : 0.05, back ? DARK[1] : DARK[0], lw * 0.7);
+    disc(ctx, pts[1][0], pts[1][1], big ? 0.1 : 0.075, back ? DARK[1] : DARK[0], lw * 0.8);
+    ctx.globalAlpha = (back ? 0.5 : 1) * (m.sprinting ? 0.6 + 0.4 * Math.sin(t * 14) : 0.85);
+    disc(ctx, pts[1][0], pts[1][1], big ? 0.05 : 0.035, GLOW); ctx.globalAlpha = 1;
+  }
+
+  // the back spine: a yellow column behind the pack, ribbed, an amber beacon on top, a bar to the hips
+  function spine(P) {
+    const { ctx, T, lw, lw2, bob, lift, t } = P, big = T >= 4;
+    const x = big ? -0.86 : -0.6, w = big ? 0.13 : 0.09, y0 = big ? 0.66 : 0.38, y1 = (big ? 1.86 : 1.22) + bob, hipY = RIG[T].hip + (big ? 0 : lift * 0.3);
+    limb(ctx, [[x + w / 2, y0 + 0.04], [0, hipY]], big ? 0.09 : 0.07, EXO[1], lw * 0.9);
+    toon(ctx, () => rr(ctx, x, y0, w, y1 - y0, w * 0.4), EXO, [1, 0], 0.03, lw, null);
+    if (!P.tiny) { ctx.strokeStyle = INK; ctx.lineWidth = lw2 * 0.8; for (let k = 1; k < 5; k++) { const y = y0 + (y1 - y0) * k / 5; ctx.beginPath(); ctx.moveTo(x + 0.02, y); ctx.lineTo(x + w - 0.02, y); ctx.stroke(); } }
+    const on = Math.sin(t * 5) > 0.2;
+    if (on) { ctx.globalAlpha = 0.35; disc(ctx, x + w / 2, y1 + 0.05, big ? 0.13 : 0.1, '#ffb347'); ctx.globalAlpha = 1; }
+    disc(ctx, x + w / 2, y1 + 0.05, big ? 0.06 : 0.045, on ? '#ffb347' : '#8a5a1c', lw2);
+  }
+
+  // the shoulder yoke: a fat hazard-striped bar from the spine over the shoulder, ending in a glowing joint
+  function yoke(P) {
+    const { ctx, T, L, lw, lw2, bob, lift, t, m } = P, big = T >= 4;
+    const a = big ? [-0.8, 1.42 + bob] : [-0.56, 1.04 + bob], b = big ? [0.12, 1.22 + bob] : [0.08, 0.9 + bob];
+    const h = big ? 0.17 : 0.12, path = () => { ctx.beginPath(); ctx.moveTo(a[0], a[1] + h / 2); ctx.quadraticCurveTo((a[0] + b[0]) / 2, a[1] + h * 0.9, b[0], b[1] + h / 2);
+      ctx.lineTo(b[0], b[1] - h / 2); ctx.quadraticCurveTo((a[0] + b[0]) / 2, a[1] - h * 0.1, a[0], a[1] - h / 2); ctx.closePath(); };
+    toon(ctx, path, EXO, L, 0.03, lw, null);
+    if (!P.tiny) {
+      ctx.save(); path(); ctx.clip(); ctx.fillStyle = INK;
+      for (let x = a[0] + 0.1; x < b[0] - 0.1; x += 0.16) { ctx.beginPath(); ctx.moveTo(x, a[1] + h); ctx.lineTo(x + 0.06, a[1] + h); ctx.lineTo(x - 0.06, b[1] - h); ctx.lineTo(x - 0.12, b[1] - h); ctx.closePath(); ctx.fill(); }
+      ctx.restore(); path(); ctx.strokeStyle = INK; ctx.lineWidth = lw; ctx.stroke();
+    }
+    disc(ctx, b[0], b[1], big ? 0.11 : 0.08, DARK[0], lw);
+    ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * (m.firing ? 20 : 3)); disc(ctx, b[0], b[1], big ? 0.055 : 0.04, GLOW, lw2 * 0.6); ctx.globalAlpha = 1;
   }
 
   function boot(P, [ax, ay], back) {
@@ -1464,6 +1610,7 @@ const EVA = (() => {
          back ? [DARK[1], DARK[1], DARK[0]] : DARK, [0, 0.5], 0.04, lw, null);
     if ((P.g.S.sprint ?? 1) > 1 && !P.tiny) { ctx.strokeStyle = '#ff7eb6'; ctx.lineWidth = 0.04; ctx.beginPath(); ctx.moveTo(ax - 0.02, by + 0.08); ctx.lineTo(ax + 0.05, by - 0.06); ctx.moveTo(ax + 0.07, by + 0.08); ctx.lineTo(ax + 0.14, by - 0.06); ctx.stroke(); }
     ctx.fillStyle = INK; ctx.fillRect(ax - 0.17, by - 0.1, 0.48, 0.04);
+    exoLeg(P, hip, kn, ankle, back);
   }
 
   // -------- back arm, pack, torso --------
@@ -1936,7 +2083,8 @@ const EVA = (() => {
   ]);
 
   return { isOut, isTethered, canStepOut, stepOut, board, recall, topUp, reach, canBoard, walkMax, kickRoom, astroMass, throwSpeed,
-           MINE_KG, BOARD_R, FAR_MAX, ZOOM, BODY_KG, SUIT_NAME };
+           airHint: (g, air) => airHint(g, st(g), air), surfaceCap: (b) => speedCap(b, b.R),
+           MINE_KG, BOARD_R, FAR_MAX, ZOOM, BODY_KG, SUIT_NAME, THROW_CD };
 })();
 
 if (typeof module !== 'undefined') module.exports = EVA;

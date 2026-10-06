@@ -266,24 +266,38 @@ const dockAt = (g) => Game.dock(g, { name: 'Test Port', state: portAt(g), ang: M
 
 // ---------------- 7. tow fees ----------------
 {
-  const g = fresh(); g.money = 1000;
+  const g = fresh(); g.money = 1000; H.run(g, 1, {});
   Game.respawn(g, 'tow');
   const tow = 1000 - g.money;
-  const g2 = fresh(); g2.money = 1000;
+  const g2 = fresh(); g2.money = 1000; H.run(g2, 1, {});
   Game.respawn(g2, 'crash');
   const crash = 1000 - g2.money;
-  check('tow fee $100-250, crash costs more', tow >= 100 && tow <= 250 && crash > tow && crash <= 250, `tow $${tow}, crash $${crash}`);
+  check('tow from the pad: $40 call-out, a crash $80 (tanks full)', tow === 40 && crash === 80, `tow $${tow}, crash $${crash}`);
   const g3 = fresh(); g3.money = 37; Game.respawn(g3, 'crash');
   const g4 = fresh(); g4.money = 0; Game.respawn(g4, 'tow');
-  check('tow fee never takes you below $0', g3.money === 0 && g4.money === 0, `$37 -> $${g3.money}, $0 -> $${g4.money}`);
+  check('a fee never takes more than a quarter of your cash (or below $0)', g3.money === 37 - 9 && g4.money === 0 && g3.toasts.some((t) => /ROOKIE RATE -\$9/.test(t.text)),
+        `$37 -> $${g3.money}, $0 -> $${g4.money}: ${g3.toasts.map((t) => t.text).join(' | ')}`);
+  const gr = fresh(); gr.money = 300; gr.sh.fuel = 0.2; gr.sh.rcs = 3; gr.sh.hull = 0; Game.respawn(gr, 'crash');
+  check('a rookie crash with $300 costs $75, not $250', gr.money === 225, `$300 -> $${gr.money}`);
+  const gk = fresh('orbit'), mo = gk.w.byId.mochi; gk.money = 99999;
+  { const [bx, by] = World.bodyState(gk.w, mo, gk.t); gk.sh.x = bx + mo.R + 10000; gk.sh.y = by; }
+  H.run(gk, 1, {});
+  const k0 = gk.money, km = Econ.state(gk).towKm; Game.respawn(gk, 'tow');
+  const wantK = Math.round(40 + 8 * km + Math.max(0, Physics.fullMass(gk.S) - 2.4) * 15);
+  check('the tug charges $8 per km it flies from Mochi (10 km: $40 + $80)', Math.abs(km - 10) < 0.1 && k0 - gk.money === wantK && /TOW 10 KM/.test(gk.toasts.map((t) => t.text).join()),
+        `${km.toFixed(2)} km, $${k0 - gk.money} (want $${wantK}): ${gk.toasts.map((t) => t.text).slice(-1)}`);
   const g5 = fresh(); g5.money = 99999;
   for (const id of ['tank4', 'cargo3', 'hull3', 'armor3']) Econ.install(g5, id);                 // 9 t of methalox: an 11 t ship
   Econ.refuel(g5, HUB); Econ.repair(g5, HUB);
   const m5 = g5.money; Game.respawn(g5, 'crash');
-  check('fee capped at $250 for a heavy ship (tanks full)', m5 - g5.money === 250, `$${m5 - g5.money}`);
+  const heavy = (Physics.fullMass(g5.S) - 2.4) * 15;
+  check('a heavy ship costs more to tow: $15 per tonne over 2.4 t', m5 - g5.money === Math.round(80 + heavy), `$${m5 - g5.money} (${Physics.fullMass(g5.S).toFixed(1)} t)`);
+  const gF = fresh(); gF.money = 99999;
+  Econ.state(gF).towKm = 80; const mF = gF.money; Game.respawn(gF, 'crash');
+  check('...and the call-out is capped at $250 (Prospector, 80 km out)', mF - gF.money === 250, `$${mF - gF.money}`);
   const gT = fresh(); gT.money = 1000; gT.sh.fuel = 0; gT.sh.rcs = 0; gT.sh.hull = 40;
   Game.respawn(gT, 'tow');
-  const want = 110 + Math.ceil(gT.S.fuel * Econ.fuelPrice(gT, HUB) + gT.S.rcs * Econ.rcsPrice(HUB) + 60 * Econ.repairPrice(HUB) - 1e-6);
+  const want = 40 + Math.ceil(gT.S.fuel * Econ.fuelPrice(gT, HUB) + gT.S.rcs * Econ.rcsPrice(HUB) + 60 * Econ.repairPrice(HUB) - 1e-6);
   check('a tow bills the refill: never cheaper than buying the fuel', 1000 - gT.money === want && 1000 - gT.money > tow, `$${1000 - gT.money} (want $${want})`);
   const g6 = fresh('pad'); g6.money = 500; Econ.state(g6).orion = 1; Game.recalc(g6);
   const g7 = fresh('pad'); Econ.firePulse(g7);
@@ -474,14 +488,17 @@ const owned = (m, ids) => ids.forEach((id) => { const T = Econ.TIER[id]; if (T) 
 {
   const g = fresh('orbit'); dockAt(g); g.money = 200000; H.run(g, 1, {});           // the rich job pays first
   const m = Econ.state(g), m0 = g.money;
-  const r = Econ.buy(g, 'mule', HUB);
+  const r0 = Econ.buy(g, 'mule', HUB);
+  check('frame trap: a Mule on the Sparrow is refused (lift 0.59× on Mochi), msg names the fix', !r0.ok && r0.why === 'lift' && !m.owned.mule && g.money === m0 &&
+        /0\.59× on Mochi/.test(r0.msg) && /Brick on kerolox it lifts 1\.15×/.test(r0.msg) && r0.trap.fix.engine === 'brick', r0.msg);
+  const r = Econ.buy(g, 'mule', HUB, { confirm: true });
   H.run(g, 1, {});
   check('buy a frame at the Hub: it is fitted, frame job pays $500 (+$100 first upgrade)', r.ok && g.S.frameId === 'mule' && g.done.frame !== undefined &&
         g.money === m0 - 2500 + 100 + 500, `${r.msg} $${g.money - m0}`);
   const rO = Econ.buy(g, 'hauler', OUTPOST);
   check('frames are not sold at an outpost (no ship tab)', !rO.ok && rO.why === 'notsold');
-  Econ.buy(g, 'leviathan', HUB);
-  const okE = Econ.buy(g, 'sunflower', HUB), okB = Econ.buy(g, 'bulldog', HUB);
+  Econ.buy(g, 'leviathan', HUB, { confirm: true });
+  const okE = Econ.buy(g, 'sunflower', HUB), okB = Econ.buy(g, 'bulldog', HUB, { confirm: true });
   Econ.equip(g, 'sunflower', HUB);
   check('on a Leviathan the Sunflower fits: bought and equipped on D-He3', okE.ok && okB.ok && g.S.engine === 'sunflower' && g.S.fuelId === 'dhe3' && g.S.thrust === 400,
         `${g.S.engineName} ${g.S.thrust} kN on ${g.S.fuelType}`);
@@ -496,20 +513,20 @@ const owned = (m, ids) => ids.forEach((id) => { const T = Econ.TIER[id]; if (T) 
         g.toasts.some((t) => t.text === 'ENGINE SWAPPED: THE SUNFLOWER TORCH NEEDS A MOUNT-5 FRAME') && near(g.sh.fuel, g.S.fuel),
         `${s.msg} | fuel ${g.sh.fuel.toFixed(2)} / ${g.S.fuel.toFixed(2)} t`);
   check('...and the Sunflower cannot be equipped on the Mule', !Econ.equip(g, 'sunflower', HUB).ok && g.S.engine === 'bulldog');
-  Econ.buy(g, 'hauler', HUB); Econ.swapFrame(g, 'leviathan', HUB); Econ.equip(g, 'sunflower', HUB);
+  Econ.buy(g, 'hauler', HUB, { confirm: true }); Econ.swapFrame(g, 'leviathan', HUB, { confirm: true }); Econ.equip(g, 'sunflower', HUB, { confirm: true });
   for (const id of ['tow1', 'tow2', 'tow3', 'tow4']) Econ.buy(g, id, HUB);
   const t4 = { ...g.S };
-  Econ.swapFrame(g, 'hauler', HUB);
+  Econ.swapFrame(g, 'hauler', HUB, { confirm: true });
   check('tow derate: Big Hug on a Hauler works as a Tug claw (6,000 t), still weighs 3 t', t4.towTier === 4 && t4.towMax === 40000 && g.S.towTier === 3 &&
         g.S.towMax === 6000 && g.S.cableLen === 60 && g.S.massParts.some((p) => p[0] === 'Big Hug' && near(p[1], 3)), `tier ${t4.towTier} -> ${g.S.towTier}`);
   check('tow fee scales with sqrt(k): a heavy Leviathan pays up to 250 × √40 = $1,581', (() => {
-    Econ.swapFrame(g, 'leviathan', HUB); g.money = 99999; Econ.refuel(g, HUB); Econ.repair(g, HUB);
+    Econ.swapFrame(g, 'leviathan', HUB, { confirm: true }); g.money = 99999; Econ.refuel(g, HUB); Econ.repair(g, HUB);
     const a = g.money; Game.respawn(g, 'tow'); return a - g.money === Math.round(250 * Math.sqrt(40)); })(), `${Math.round(250 * Math.sqrt(40))}`);
 }
 {
   const g = Game.create(7, 'pad', { fresh: true, dev: true });
   H.run(g, 2, {});
-  Econ.openShop(g, DEV); Econ.buy(g, 'leviathan', DEV); Econ.closeShop(g);
+  Econ.openShop(g, DEV); Econ.buy(g, 'leviathan', DEV, { confirm: true }); Econ.closeShop(g);
   const T = Terrain.of(g.w.byId.mochi), up = g.sh, [bx, by] = World.bodyState(g.w, g.w.byId.mochi, g.t);
   check('a frame fitted on the ground re-seats the ship (radius 11 m clears the pad)', g.S.frameId === 'leviathan' && g.status === 'landed' &&
         !Terrain.collideCircle(T, up.x - bx, up.y - by, g.S.radius - 0.05), `${g.status}, r ${g.S.radius}`);
@@ -643,7 +660,7 @@ const owned = (m, ids) => ids.forEach((id) => { const T = Econ.TIER[id]; if (T) 
   const stOpen = Econ.state(g).station;
   check('O opens the Debug Duck shop in flight (every tab, kind dev)', g.ui === 'shop' && stOpen && stOpen.id === 'dev' && stOpen.kind === 'dev' &&
         ['dev', 'services', 'sell', 'ship', 'haul', 'suit', 'weapons'].every((t) => stOpen.tabs.includes(t)), stOpen && stOpen.tabs.join());
-  const r = Econ.buy(g, 'leviathan', stOpen), r2 = Econ.buy(g, 'sunflower', stOpen);
+  const r = Econ.buy(g, 'leviathan', stOpen, { confirm: true }), r2 = Econ.buy(g, 'sunflower', stOpen);
   check('dev shop: frames fit anywhere, buys subtract normally', r.ok && r2.ok && g.S.frameId === 'leviathan' && g.S.engine === 'sunflower' && g.money < 1e9, `$${g.money}`);
   H.run(g, 1, {});
   check('...and one frame later the ∞ pin keeps money ≥ 1e9', g.money >= 1e9, `$${g.money}`);
@@ -662,9 +679,10 @@ const owned = (m, ids) => ids.forEach((id) => { const T = Econ.TIER[id]; if (T) 
 
   const gi = Game.create(7, 'pad', { fresh: true, dev: true, inf: '0' });
   H.run(gi, 2, {});
-  check('?inf=0 starts dev with ∞ off ($50k + the rich job), so broke can be tested', !Econ.isInf(gi) && gi.money === 51000 && Econ.canBuy(gi, 'leviathan', { ...DEV, priceMult: 2 }).why === 'broke', `$${gi.money}`);
+  check('?inf=0 starts dev with ∞ off ($50k, the bank job never pays in dev), so broke can be tested', !Econ.isInf(gi) && gi.money === 50000 && gi.done.rich === undefined &&
+        Econ.canBuy(gi, 'leviathan', { ...DEV, priceMult: 2 }).why === 'broke', `$${gi.money}`);
   H.run(gi, 1, { pressed: ['KeyK'] });
-  check('dev K still adds $5,000 with ∞ off', gi.money === 56000, `$${gi.money}`);
+  check('dev K still adds $5,000 with ∞ off', gi.money === 55000, `$${gi.money}`);
 
   const gm = Game.create(7, 'pad', { fresh: true, dev: true });
   Econ.grantAll(gm);
@@ -712,8 +730,8 @@ const owned = (m, ids) => ids.forEach((id) => { const T = Econ.TIER[id]; if (T) 
   const store = {};
   global.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
   const g = fresh(); g.money = 500000;
-  for (const id of ['leviathan', 'barge', 'tow1', 'tow2', 'tow3', 'tow4', 'side1', 'crack1', 'crack1', 'crack2', 'suit1', 'suit2', 'suit3', 'xlate1']) Econ.buy(g, id, HUB);
-  Econ.swapFrame(g, 'leviathan', HUB); Econ.buy(g, 'sunflower', HUB); Econ.setFuel(g, 'augment', HUB);
+  for (const id of ['leviathan', 'barge', 'tow1', 'tow2', 'tow3', 'tow4', 'side1', 'crack1', 'crack1', 'crack2', 'suit1', 'suit2', 'suit3', 'xlate1']) Econ.buy(g, id, HUB, { confirm: true });
+  Econ.swapFrame(g, 'leviathan', HUB, { confirm: true }); Econ.buy(g, 'sunflower', HUB); Econ.setFuel(g, 'augment', HUB, { confirm: true });
   Game.save(g);
   const g2 = Game.create(7, 'pad');
   const keys = ['dry', 'fuel', 've', 'thrust', 'cargoCap', 'hull', 'towMax', 'sideThrust', 'suitTier', 'translator', 'length', 'radius', 'tankVol'];
@@ -727,6 +745,77 @@ const owned = (m, ids) => ids.forEach((id) => { const T = Econ.TIER[id]; if (T) 
   store['pocket-orbit-v4'] = '{"v":4,"mods":{"economy":{"frame":"__proto__","charges":"x","owned":["constructor"]}}}';
   const g4 = Game.create(7, 'pad');
   check('prototype-key frame save: stock ship', g4.S.frameId === 'prospector' && finite(g4.S));
+  Game.wipeSave();
+  delete global.localStorage;
+}
+
+// ---------------- 21. the lift guard: no single click grounds you on Mochi ----------------
+{
+  const g = fresh('orbit'); dockAt(g); g.money = 20000; H.run(g, 1, {});
+  const m = Econ.state(g), lift = () => Econ.metrics(g, g.S).twr;
+  const T = Econ.frameTrap(g, 'mule', HUB);
+  check('frameTrap: Mule on a Sparrow lifts 0.59×, cheapest fix Brick on kerolox ($2,200, 1.15×)', T && Math.abs(T.twr - 0.59) < 0.005 && T.fix.engine === 'brick' &&
+        T.fix.fuel === 'kerolox' && T.fix.price === 2200 && T.fix.twr >= Econ.LIFT_OK, T && JSON.stringify(T.fix));
+  check('hauler and leviathan traps name a fix too (Bulldog, Pocket Sun)', Econ.frameTrap(g, 'hauler', HUB).fix.engine === 'bulldog' && Econ.frameTrap(g, 'leviathan', HUB).fix.engine === 'pocketsun');
+  check('no trap for the frame you fly, nor at an outpost (frames are not fitted there)', !Econ.frameTrap(g, 'prospector', HUB) && !Econ.buyTrap(g, 'mule', OUTPOST));
+  const s0 = m.stats.spent, rB = Econ.buyBundle(g, 'mule', HUB);
+  check('buyBundle: Mule + Brick in one click, lift ≥ 1.1 on Mochi, paid frame + engine + the kerolox', rB.ok && rB.price === 4700 && g.S.frameId === 'mule' && g.S.engine === 'brick' &&
+        g.S.fuelId === 'kerolox' && lift() >= Econ.LIFT_OK && m.stats.spent - s0 === 4700 && near(g.sh.fuel, g.S.fuel), `${rB.msg} spent $${m.stats.spent - s0}`);
+  const rE = Econ.equip(g, 'sparrow', HUB);
+  check('engine downgrade that grounds you is refused (Sparrow on the Mule: 0.59×)', !rE.ok && rE.why === 'lift' && g.S.engine === 'brick' && /0\.59× with a full tank/.test(rE.msg), rE.msg);
+  check('...unless confirmed', Econ.equip(g, 'sparrow', HUB, { confirm: true }).ok && g.S.engine === 'sparrow');
+  Econ.equip(g, 'brick', HUB);
+  check('...and the climb back up is never blocked', g.S.engine === 'brick');
+  g.money = 1e6;
+  Econ.buy(g, 'bulldog', HUB, { confirm: true }); Econ.setFuel(g, 'kerolox', HUB);
+  const TH = Econ.frameTrap(g, 'hauler', HUB);
+  check('Hauler on your Bulldog/kerolox: 1.06× flies but barely, the fix is your own Bulldog on methalox ($0)', TH && TH.twr >= 1 && TH.fix.engine === 'bulldog' &&
+        TH.fix.fuel === 'methalox' && TH.fix.price === 0 && /barely leaves the pad/.test(TH.msg) && /With methalox in the Bulldog/.test(TH.msg), TH && TH.msg);
+  const rH = Econ.buyBundle(g, 'hauler', HUB);
+  check('...bundle = just the frame price; the tank is drained of kerolox and refilled with methalox', rH.ok && rH.price === Econ.priceOf(g, 'hauler', HUB) && g.S.frameId === 'hauler' &&
+        g.S.fuelId === 'methalox' && lift() >= Econ.LIFT_OK && near(g.sh.fuel, g.S.fuel), rH.msg);
+  const gF = fresh('orbit'); dockAt(gF); gF.money = 1e6; H.run(gF, 1, {});
+  const mF = Econ.state(gF); Object.assign(mF.owned, { mule: true, hauler: true, barge: true, nervasama: true }); mF.frame = 'barge'; mF.engine = 'nervasama'; mF.fuelOf.nervasama = 'ammonia';
+  Game.recalc(gF);
+  const rF = Econ.setFuel(gF, 'lh2', HUB);
+  check('fuel swap that grounds you is refused (Barge + NERVA-sama: ammonia 1.01× -> LH2 0.88×)', !rF.ok && rF.why === 'lift' && gF.S.fuelId === 'ammonia' && /0\.88×/.test(rF.msg), rF.msg);
+  check('...unless confirmed', Econ.setFuel(gF, 'lh2', HUB, { confirm: true }).ok && gF.S.fuelId === 'lh2');
+
+  const gC = fresh(); gC.money = 1e4;
+  const c1 = Econ.buy(gC, 'crack3', HUB), c2 = Econ.buy(gC, 'crack3', HUB);
+  check('charges count: one Rock Opera (0.6 t) on a Prospector flies, the second is refused (0.97×)', c1.ok && !c2.ok && c2.why === 'lift' && Econ.charges(gC).crack3 === 1 &&
+        /lift on Mochi drops to 0\.9\d×/.test(c2.msg), c2.msg);
+  check('...unless confirmed', Econ.buy(gC, 'crack3', HUB, { confirm: true }).ok && Econ.charges(gC).crack3 === 2);
+  const gU = Game.create(7, 'pad', { fresh: true, dev: true }); H.run(gU, 2, {});
+  H.run(gU, 1, { pressed: ['KeyU'] });
+  check('dev U on a Prospector racks Crackers and Thumpers, leaves the Rock Operas (says so)', Econ.charges(gU).crack1 === 6 && Econ.charges(gU).crack2 === 4 && Econ.charges(gU).crack3 === 0 &&
+        Econ.metrics(gU, gU.S).twr >= Econ.LIFT_OK && gU.toasts.some((t) => /NO ROCK OPERA: TOO HEAVY FOR MOCHI/.test(t.text)), JSON.stringify(Econ.charges(gU)));
+  check('dev "fill every charge" still racks them all on purpose', (Econ.fillCharges(gU, true), Econ.charges(gU).crack3 === 2));
+
+  const gS = fresh('orbit'); dockAt(gS); gS.money = 1e6; H.run(gS, 1, {});
+  Econ.buy(gS, 'mule', HUB, { confirm: true }); gS.sh.fuel = 0; H.run(gS, 1, {});
+  const safe = Econ.safeFill(gS), hS = Game.mods.find((x) => x.id === 'economy').hint(gS);
+  check('a grounded Mule docked empty: the hint says how far to fill (lift ≥ 1.1 at that fill)', safe > 0 && safe < 1 && Econ.liftNow(gS, safe * gS.S.fuel) >= Econ.LIFT_OK &&
+        hS && /too heavy to take off from Mochi/.test(hS.text) && hS.text.includes(`${Math.floor(100 * safe)}%`), `${(100 * safe).toFixed(0)}%: ${hS && hS.text}`);
+}
+
+// ---------------- 22. small honest fixes ----------------
+{
+  const g = fresh(); g.money = 1e4;
+  const t0 = Econ.canBuy(g, 'turret', HUB), rt = Econ.buy(g, 'turret', HUB);
+  Econ.buy(g, 'gun1', HUB);
+  check('turret needs a Pea shooter first (locked, says so), then sells', t0.why === 'locked' && t0.after === 'gun1' && /first/.test(rt.msg) && Econ.canBuy(g, 'turret', HUB).ok, rt.msg);
+  g.sh.rcs = 0.5 * g.S.rcs; const r0 = g.sh.rcs, cap0 = g.S.rcs;
+  Econ.buy(g, 'rcs1', HUB);
+  check('bigger RCS tanks arrive full (the new capacity, not a bill)', g.S.rcs > cap0 && near(g.sh.rcs, r0 + g.S.rcs - cap0), `${g.sh.rcs.toFixed(1)} / ${g.S.rcs}`);
+  const gR = Game.create(7, 'pad', { fresh: true }); gR.money = 25000; H.run(gR, 2, {});
+  check('the $20,000 bank job pays outside dev', gR.done.rich !== undefined);
+  const store = {};
+  global.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+  store['pocket-orbit-v4'] = '{"v":4,"mods":{"economy":{"owned":["brick"],"engine":"brick","fuelOf":{"brick":"toString","sparrow":"__proto__","toString":"kerolox"}}}}';
+  const g4 = Game.create(7, 'pad');
+  check('prototype-key fuels in a save: ignored, engines keep a fuel they burn', g4.S.engine === 'brick' && Object.keys(Econ.ENGINES.brick.fuels).includes(g4.S.fuelId) && finite(g4.S),
+        `${g4.S.engine} on ${g4.S.fuelId}`);
   Game.wipeSave();
   delete global.localStorage;
 }

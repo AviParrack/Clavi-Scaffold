@@ -1,0 +1,81 @@
+# Avi's feedback after playing v2 (2026-10-05), verbatim
+
+Okay, it's looking really cool. It's pretty fun to play. I just kind of let it run on its own, and I even went without any safety upgrades or anything on hard and made it to round three before I died of reputation loss. So I just did nothing and just let it auto-play. So it's probably too easy.
+
+I think that we need some—what's it— you get an incident report when there's some incident on the external deployment lane, but there's no visual indicator of what's happening with the future misalignment lane or what even is going on there. So, one, please explain that to me; and two, let's think about maybe rejiggering it.
+
+The idea is that if you fail to prevent safety issues on the internal deployment lane and this leads to increased amounts of misalignment for future models — or increases the difficulty of the training mini-game — we should handle that clearly when we potentially do that.
+
+One other thing: I think the codec generally moves a little bit too fast, so it's a little hard to read. We should slow that down. I like the sprites, except for the models — I think the models could be more detailed and should progress from a low-level, weak, wimpy-looking bot to a godlike AI as you go up through the levels. Each time the model gets bigger.
+
+Let's add a section where, at the beginning of each round, the model chats with you briefly. Make sure the model card when it shows up at the beginning of a round doesn't just go away until you actually click off of it, so you actually get a chance to read the model card and prepare. Also, show more flashes and better visual indicators when new things are happening — for example, when you get new evidence, make sure that doesn't sneak up on you.
+
+Then buying research is actually kind of tough. Let's switch it to a model where the research just happens at a certain rate that is steady throughout the game, and we get to select from three research options or work streams. That gives us upgrades like in some RPG/roguelike or tower-defense games that use this mechanic. Let's implement that.
+
+And this should be unlocking us new towers. Maybe one card can just have the option to give us a free extra slot on a lane. Stuff like that. Then another thing I wonder about is potentially just adding lanes as the levels go up. So the CEO can be like, "We've got more compute. We've got to serve more customers," and we can add extra external deployment lanes, and maybe even, like, late in the game we're specializing to create new models that specialize in, like, cyber warfare for the government or whatever, and there's an additional internal deployment lane. Part of the game's increasing difficulty is having to build out safety stacks across those lanes, and it's also the actual speed at which the tasks are coming through is ramping up.
+
+Then I think we're ready to implement the training minigame. Let's leave off the evals minigame for now and do the training minigame. For the training minigame, to give you a break from a strategy-heavy game, it will be like a Subway Surfer–style arcade game with fast-paced action. I'm imagining that you're essentially doing gradient descent: the model rolls down a gradient-descent landscape, and your job is to place guard rails and steer the model down a track — a basin of alignment — trying to keep the gradient descent flowing through that basin. The longer the model is out of the stream, the more it becomes misaligned and accumulates errors, so you're trying to minimize those errors and get things back on track. There could be a pinball-like element with bumpers to nudge the model back into the basin of alignment if things get chaotic. The main mechanic is clicking to place ramps and barriers to guide the model down the gradient-descent landscape. We'll probably need to itterate on it to get the feel right.
+
+When it's done, we'll essentially have three mini-games: the tower defense, the red-teaming evals, and the training. The main game will be a campaign that combines these — you go through multiple levels of training, red teaming, and deployment; then training, red teaming, and deployment again for increasingly capable models.
+
+Let's rename the CEO Big Boss. Let's have the avatars vaguely resemble famous AI safety people, CEOs etc. Let's have the 'You' character be a researcher looking guy rather than a headset
+
+Think we should set some agents to
+1) Rework model names so the model names are kind of an inside joke, where you can have things like "Model Name One", "Model Name Two", "Model Name Four", "Model Name Oh One", "Totally Different Model Name", etc., which is a nod to the nonsensical names of the AI models we've seen. So jokes in here.
+2) Think we can add to the list of tasks and make sure to add new ones with each capability level like early stuff is like 'write a poem about a frog' and later ASI stuff is like 'rebalance the economy of Peru', 'cure cancer', 'manage the moonbase' etc. etc.
+
+Then think carefully about the actual way that the game mechanics and game balance work and how the mathematics functions. Maybe consult other tower defense games and look at how they scale and handle game balance. I currently don't really understand exactly how the game works, so probably the introductory tutorial needs to be a bit clearer and maybe we just need to do some more development. I'm not sure—maybe you've figured it out already. I don't exactly get the difference between the detectors and the auditors, and then there are some specials or something. I didn't get to unlock any specials because I wasn't able to do enough research in my two playthroughs, so I'll have to keep messing with that. It wasn't totally clear what was happening with the detectors.
+
+For example, if I have a probe, I think you have it correctly catching 99% of the stuff, right? But wasn't it supposed to also have a TPR and an FPR and misclassify some stuff? Maybe that's too complicated and we don't want to do it. And then the human auditors—I'm confused how they work. How I thought they would work is they'd randomly sample 1% of stuff and then, if something is flagged by a probe, they'd prioritize that within their 1% capacity. But when I played all the rounds, it seemed like the human auditors were basically just grabbing everything that got flagged. I don't know if that's right.
+
+Ultimately, my experience playing the game—making it to like level 5 on medium difficulty—was that it was very, very easy and I never had anything slip through at all. Then I put it on fast and went to the next level accidentally. I had it on fast and I went to the next level, and then I went to shut the door. I came back after maybe 10 seconds and I had lost the game. So I guess there was a big difficulty ramp and my stack was not sufficient and I got wiped out instantly. I'm not sure if that's actually an issue or what.
+
+I'll play another round while you work on the next set of upgrades.
+
+---
+
+# Follow-up after a Hard run (2026-10-05 02:17Z), verbatim
+
+Okay, quick update. I just did a run-through on hard and got all the way to the end, winning the game 96 out of 100. My strategy was basically very simple. All I did was use stacks of cheap probes to get high true-positive rates and high rates of flagging all the unsafe material, and then used human auditors to pull them. I found that the game really never taxed the human auditors that badly, and then eventually when they were very low accuracy I switched to using defer-to-trusted and with one defer-to-trusted Bay I was able to get essentially everything. The only thing that would happen — and they were never overloaded, right, so nothing ever got past them that was flagged — was sometimes my ensemble of probes would not give high enough accuracy about misaligned or unsafe actions and so one would slip through. But that happened so occasionally that I was always at almost a hundred reputation for the whole game and not really under any threat. Similarly, I was able to get misalignment down to like zero and keep it there most of the game.
+
+So the way the probes work needs a bit of work, I think, and the way the overloading mechanic works seems to need work. It seems like they can always just delay things a little bit to review them, and that doesn't seem to be very costly. I think it should be that they only have time to review so much stuff, and if they don't have time to get to it then it just goes out to ship. So you have to have enough detection but you also have to have enough actual monitoring to catch the stuff.
+
+Also, there should be an arc for a couple of the towers which I'm not really seeing. The human auditors should be like a hundred percent accurate all the way until superintelligence — basically, the human auditors are super slow, but the thing about them that's special is that they have guaranteed accuracy. Instead, for some reason the human auditors go down to like four percent accuracy very quickly, and they don't seem to get overloaded — they can actually review a buttload of tasks. So they seem OP. Similarly, the probes are super cheap; they have low task cost. They seem better than the trusted monitors in every way unless I'm missing something. Functionally, I just ensemble a bunch of probes. If they each have like 50% accuracy, then if I understand correctly the model has a 0.5^3 chance of getting through, right? So I can just make big stacks of probes, which I think is not too problematic, but the probes should not be the end-all-be-all or it's kind of trivial to win.
+
+In particular, the fall-off in accuracy of the trusted monitor and the probes is not fast enough such that ensembling a stack of them very reliably catches all the misaligned tasks. I didn't ever use untrusted monitors, and in fact in the current version research is so expensive that I just buy towers. We're going to fix that in the next version coming up where research just kind of happens automatically — I think it should also be happening. I don't know if you should just unlock towers as you go automatically or make them particular research things. Let's try out the mechanic where there are different research streams like Monitoring and Control, Interpretability. I mean, you kind of already have it sectioned off where there's different research streams — different research groups — and then you just get a random set of three cards. I think that's good. The only thing is it has to pretty reliably give you a set of options to increase your pool of towers, and it also needs to be necessary. We need it to be that eventually you really need untrusted monitors because if you don't have untrusted monitors then your accuracy for your other systems is just going to be too low.
+
+It would be ideal if there's some kind of bonus to having an ensemble of different kinds of stuff, so we might have to think about the mechanics there. The collusion mechanic — whatever that is — I didn't get to play with it at all because I didn't research any of the special towers, so I don't know how those are currently working or balanced. I think you should also, for now, add a little dev mode where everything is unlocked so I can just play with it. Some of the descriptions leave me a bit confused or puzzled about how things fit together; I can't tell what amount of capacity would overload my human auditors and my defer-to-trusted systems, for example.
+
+## Claude's reading of the follow-up (for the designer)
+- Same-kind detectors must have CORRELATED misses (the model evades the same features), so stacking 6 probes gives sharply diminishing returns. Mixing different detector KINDS gives a real ensemble bonus (diversity).
+- Probe and trusted-monitor accuracy must fall off steeply enough that by roughly G5 the only way to keep catching is untrusted monitors (with collusion managed by paraphrasers or honeypots). Research must reliably offer tower unlocks, and research must be necessary.
+- Human auditors: near-100% accurate through G6 (they only lose ground at superintelligence), but SLOW, with a small fixed capacity. When flagged lines exceed review capacity, the extras SHIP UNREVIEWED (no free delay, no free block). Capacity must be shown as a number (lines/min and % of traffic).
+- Defer-to-trusted has finite capacity too, shown as a number, and must not be a one-bay solution.
+- Probes are cheap but weak and correlated; trusted monitors are costlier but more robust to stealth. Each tower needs a distinct arc across generations.
+- Explain collusion in-game. Add a dev mode with everything unlocked, reachable from the published artifact (no query strings there: use a start-screen button or the #dev hash).
+
+---
+
+# Follow-up (2026-10-05 02:18Z and 02:19Z), verbatim
+
+> Also think we want something like 250 tasks per level so there ia s great variety. Its a fun part of the game to read them you're doing a good job with the verisimilitude + jokes
+
+> Think you need to run me through the game balancing and design. Not sure how you're mathing it but its a ton of math to balance it out and provide a good but fair difficulty ramp + validate all the different choices and mechanics by making them relevant and balanced
+
+## Claude's reading of these (for the designer)
+- **Tasks:** about 250 honest tasks per generation, spread across that generation's lane flavours. A separate content team is writing them now, so the design only needs to say that attack and decoy pools must grow too: if attack texts are few and repeat while honest texts never do, a repeated line becomes a tell.
+- **Avi wants to follow the math.** Sections 1–2 must read cleanly for a physicist on the first pass. Define every symbol with units, give one worked example (a single line passing a G1 rail and a G6 rail), and give a per-generation table.
+- **Difficulty ramp:** define one pressure index per generation. One option: expected unhandled damage per minute against a "par" build that a decent player can afford at that moment, divided by reputation regen. Target a smooth rising curve per difficulty, with no jump between consecutive generations bigger than about 25%, and warm-ups at each transition. Show the curve.
+- **Validate every choice by simulation, as headless asserts, not by argument alone:**
+  - **Policy zoo with expected outcomes:**
+    - do-nothing and starter-only;
+    - probe-wall, which is Avi's winning Hard strategy (stacked cheap probes plus auditors, then one defer bay);
+    - a mono-kind stack of each detector;
+    - auditor-only and defer-only;
+    - no-research and research-heavy;
+    - diverse smart.
+    Probe-wall and every mono-kind stack must lose on Medium by about G5.
+  - **Element relevance:** an arc table per element showing the generations where it is a top-3 catches-per-dollar buy. Add an ablation test: the smart policy, with that element forbidden, must lose win rate in that window. An element that is never top 3 anywhere gets reworked or cut.
+  - **Research:** every card type gets picked by the smart policy at a nonzero rate, and the no-research policy loses by about G5. Untrusted monitors become necessary.
+  - **Economy:** income vs the cost of the par build per generation, so money neither piles up unused nor bankrupts the player by design.
+- **Deliverable for Avi:** a balance walkthrough he can read in one sitting, covering the equations, the ramp chart, the policy-zoo table and the element arc table.

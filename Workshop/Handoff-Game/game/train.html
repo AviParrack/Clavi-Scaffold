@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HANDOFF Training</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Silkscreen&family=VT323&display=swap">
+<style>
+/* ===== HANDOFF training, standalone: the board letterboxed, a CRT layer, and a small picker. Colours: src/ui/theme.js ===== */
+:root { --k: 1; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+#stage { position: fixed; inset: 0; background: #000; }
+#frame { position: absolute; isolation: isolate; }
+#train { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; cursor: crosshair; }
+#crt { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: soft-light;
+  background: repeating-linear-gradient(to bottom, transparent 0 1px, rgba(0,0,0,0.12) 1px 2px),
+    radial-gradient(circle at 50% 50%, transparent calc(380px * var(--k)), rgba(0,0,0,0.24) calc(740px * var(--k))); }
+
+/* ---------- the picker: a 1200×660 layer in board px, scaled by --k ---------- */
+#ui { position: absolute; left: 0; top: 0; width: 1200px; height: 660px; transform: scale(var(--k)); transform-origin: 0 0;
+  pointer-events: none; font: 16px/1 "VT323", monospace; color: var(--g, #a6ffbd); }
+#ui * { font-variant-ligatures: none; }
+#pick { position: absolute; left: 330px; top: 110px; width: 540px; pointer-events: auto; background: var(--pan, #06100a);
+  border: 1px solid var(--e2, #2c7a47); padding: 18px 20px 20px; box-shadow: 0 0 0 1px #000, 0 0 40px rgba(0,0,0,0.8); }
+#pick[hidden] { display: none; }
+.h { font: 16px/1 "Silkscreen", monospace; color: var(--g, #a6ffbd); margin: 0 0 6px; }
+.sub { color: var(--gd, #2f8650); font-size: 16px; margin-bottom: 14px; line-height: 1.15; }
+.lab { font: 8px/1 "Silkscreen", monospace; color: var(--gd, #2f8650); margin: 14px 0 7px; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+#ui button { font: 8px/1 "Silkscreen", monospace; color: var(--gm, #5fe08a); background: var(--well, #020504); border: 1px solid var(--e1, #1d4d2e);
+  padding: 7px 9px 6px; cursor: pointer; }
+#ui button:hover { color: var(--gl, #c9ffd6); border-color: var(--e3, #46b86a); }
+#ui button.on { color: #000; background: var(--gm, #5fe08a); border-color: var(--gm, #5fe08a); }
+#ui button.go { font-size: 16px; padding: 9px 18px 8px; color: #000; background: var(--gm, #5fe08a); border-color: var(--gl, #c9ffd6); }
+#ui button.go:hover { background: var(--g, #a6ffbd); color: #000; }
+#ui input { font: 20px/1 "VT323", monospace; color: var(--gl, #c9ffd6); background: var(--well, #020504); border: 1px solid var(--e1, #1d4d2e);
+  width: 110px; padding: 3px 6px; }
+#last { margin-top: 14px; color: var(--gm, #5fe08a); min-height: 18px; line-height: 1.2; }
+#last b { color: var(--gl, #c9ffd6); font-weight: normal; }
+.foot { margin-top: 16px; display: flex; justify-content: space-between; align-items: center; }
+.note { color: var(--gd, #2f8650); }
+</style>
+</head>
+<body>
+
+<!-- ===== the board: the training canvas (src/train/index.js draws it), letterboxed like the game ===== -->
+<div id="stage">
+  <div id="frame">
+    <canvas id="train"></canvas>
+    <div id="crt"></div>
+    <div id="ui">
+      <section id="pick">
+        <p class="h">HANDOFF · TRAINING</p>
+        <div class="sub">The model rolls down its loss landscape. Keep it in the green basin of alignment:
+          click beside the dotted path for a guard rail, on it for a ramp, right click for a pop bumper.</div>
+        <div class="lab">GENERATION BEING TRAINED</div>
+        <div class="row" id="gens"></div>
+        <div class="lab">ALIGNMENT DEBT FROM THE R&amp;D LANE (HAZARDS · NARROWER BASIN · NOISE)</div>
+        <div class="row" id="debts"></div>
+        <div class="lab">SEED</div>
+        <div class="row"><input id="seed" type="number" min="1" step="1"><button id="dice">NEW SEED</button><button id="mute">SOUND ON</button></div>
+        <div id="last"></div>
+        <div class="foot"><span class="note">D in a run: debug view · Enter: continue</span><button class="go" id="go">TRAIN ▸</button></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+// ===== standalone training page: pick a generation, a debt and a seed; play; see the result; again =====
+// Never touches src/main.js (the game has the same picker: main menu → TRAINING). Hash flags (the published artifact
+// gets no query string): #g=5,seed=12,debt=0.01,go
+import { runTraining } from './src/train/index.js';
+import { cssVars, fontsReady } from './src/ui/theme.js';
+import { FIRST_TRAINED, LAST_TRAINED } from './src/config/training.js';
+import { TRAIN_DEBTS } from './src/config/content/menu-text.js';
+
+const W = 1200, H = 660;
+const $ = id => document.getElementById(id);
+const canvas = $('train'), frame = $('frame'), pick = $('pick');
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('handoff.train.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('handoff.train.' + k, JSON.stringify(v)); } catch { /* private mode */ } },
+};
+
+// ---------- hash flags ----------
+const flags = Object.fromEntries(location.hash.slice(1).split(',').filter(Boolean).map(s => { const [a, b] = s.split('='); return [a, b ?? true]; }));
+const state = {
+  g: +(flags.g ?? store.get('g', 3)), debt: +(flags.debt ?? store.get('debt', 0)),
+  seed: +(flags.seed ?? Math.floor(Math.random() * 9000) + 1), muted: store.get('muted', false),
+};
+
+// ---------- letterbox: fit 1200×660 in the window; k = device px per board px ----------
+let k = 1;
+function resize() {
+  const dpr = window.devicePixelRatio || 1, fit = Math.min(window.innerWidth / W, window.innerHeight / H);
+  const fw = W * fit, fh = H * fit;
+  Object.assign(frame.style, { width: fw + 'px', height: fh + 'px', left: (window.innerWidth - fw) / 2 + 'px', top: (window.innerHeight - fh) / 2 + 'px' });
+  document.documentElement.style.setProperty('--k', fit);
+  k = fit * dpr;
+}
+window.addEventListener('resize', resize);
+resize();
+cssVars();
+
+// ---------- the picker ----------
+const DEBTS = TRAIN_DEBTS;                 // the same options as the game's TRAINING mode (main menu 3)
+function buttons(el, items, isOn, onPick) {
+  el.innerHTML = '';
+  for (const [v, label] of items) {
+    const b = document.createElement('button');
+    b.textContent = label; b.className = isOn(v) ? 'on' : '';
+    b.onclick = () => { onPick(v); render(); };
+    el.appendChild(b);
+  }
+}
+function render() {
+  const gens = []; for (let g = FIRST_TRAINED; g <= LAST_TRAINED; g++) gens.push([g, 'G' + g]);
+  buttons($('gens'), gens, v => v === state.g, v => { state.g = v; store.set('g', v); });
+  buttons($('debts'), DEBTS, v => v === state.debt, v => { state.debt = v; store.set('debt', v); });
+  $('seed').value = state.seed;
+  $('mute').textContent = state.muted ? 'SOUND OFF' : 'SOUND ON';
+}
+$('seed').onchange = e => { state.seed = Math.max(1, Math.floor(+e.target.value) || 1); };
+$('dice').onclick = () => { state.seed = Math.floor(Math.random() * 9000) + 1; render(); };
+$('mute').onclick = () => { state.muted = !state.muted; store.set('muted', state.muted); render(); };
+$('go').onclick = () => start();
+window.addEventListener('keydown', e => { if (!pick.hidden && (e.code === 'Enter' || e.code === 'Space') && document.activeElement?.tagName !== 'INPUT') { e.preventDefault(); start(); } });
+
+// ---------- one run ----------
+let handle = null;
+function start(cfg = {}) {
+  if (handle) handle.cancel();
+  const config = { g: state.g, seed: state.seed, debt: state.debt, traits: [], difficulty: 'medium', practice: true, ...cfg };
+  console.log(`[train.html] start ${JSON.stringify(config)}`);
+  pick.hidden = true;
+  if (idleHandle) { idleHandle.cancel(); idleHandle = null; }
+  handle = runTraining(config, { canvas, k: () => k, debug: true, muted: () => state.muted });
+  const mine = handle;
+  handle.promise.then(res => {
+    if (handle !== mine) return;
+    handle = null;
+    window.__train.last = res;
+    if (!res.cancelled) {
+      const dm = 0.015 - 0.035 * res.s;
+      $('last').innerHTML = `Last run · G${config.g} seed ${config.seed}: <b>s ${Math.round(100 * res.s)}%</b> · loss ${res.err.toFixed(2)}` +
+        ` · next m ${dm >= 0 ? '+' : '−'}${Math.abs(dm).toFixed(3)} · rails ${res.railsUsed} ramps ${res.rampsUsed} bumpers ${res.bumpersUsed}`;
+      state.seed = Math.floor(Math.random() * 9000) + 1;
+    }
+    render();
+    pick.hidden = false;
+    idle();
+  });
+  return handle;
+}
+
+// hooks for test/ui-shot.mjs and the Playwright play-through
+window.__train = { start, state, fontsReady, get handle() { return handle; }, last: null, client(x, y) {
+  const r = canvas.getBoundingClientRect(); return { x: r.left + x * r.width / W, y: r.top + y * r.height / H };
+} };
+
+render();
+// an idle board behind the picker: the course for the current pick, frozen
+let idleHandle = null;
+fontsReady.then(() => { if (!handle && !pick.hidden) idle(); });
+function idle() {
+  idleHandle = runTraining({ g: state.g, seed: state.seed, debt: state.debt }, { canvas, k: () => k, muted: true });
+  idleHandle._ctl.skipCountdown(); idleHandle._ctl.hold(true);
+  setTimeout(() => { idleHandle?.cancel(); idleHandle = null; }, 150);
+}
+if (flags.go) start();
+</script>
+</body>
+</html>

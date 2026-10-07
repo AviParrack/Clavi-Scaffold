@@ -1,0 +1,370 @@
+/* ===== HANDOFF: the page around the canvas. Colours come from src/ui/theme.js as CSS variables (--g, --blu ...) ===== */
+/* --k = CSS px per logical board px (src/main.js). Overlay sizes are in logical px × --k so they scale with the board. */
+
+:root { --k: 1; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+button { font: inherit; color: inherit; }
+
+/* ---------- stage: the board, centred and letterboxed ---------- */
+#stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #000; }
+#frame { position: absolute; isolation: isolate; }      /* left / top / size: src/main.js resize(), on whole device px */
+#screen { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; }
+/* the training minigame's canvas (src/train): over the board while a run is on (main.js adds .on) */
+#train { position: absolute; inset: 0; width: 100%; height: 100%; display: none; cursor: crosshair; touch-action: none; user-select: none; }
+#train.on { display: block; }
+
+/* ---------- CRT: scanlines + vignette over the board. A CSS layer, so the compositor does it, not a canvas blit.     */
+/* soft-light: the lines darken the dark panels (×0.88) and barely touch bright letters. Period and line width are   */
+/* whole device px (--crtP, --crtGap from main.js); colours from theme.js C.crt.                                     */
+#crt { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: soft-light;
+  background: repeating-linear-gradient(to bottom, transparent 0 var(--crtGap, 1px), var(--crtLine) var(--crtGap, 1px) var(--crtP, 2px)),
+    radial-gradient(circle at 50% 50%, transparent calc(380px * var(--k)), var(--crtVig) calc(740px * var(--k))); }
+
+/* ===================== overlays (builder: overlays) ===================== */
+/* #overlays is one 1200×660 layer in board px, scaled by --k: every size below is a board px (src/ui/overlays.js).  */
+/* Colours are theme tokens only (src/ui/theme.js cssVars). Fonts: VT323 data · Silkscreen labels · DotGothic16 voice. */
+
+#overlays { position: absolute; left: 0; top: 0; width: 1200px; height: 660px; transform: scale(var(--k)); transform-origin: 0 0;
+  pointer-events: none; font: 16px/1 "VT323", monospace; color: var(--g); }
+#overlays * { font-variant-ligatures: none; }      /* VT323 draws fi / fl as one narrow glyph (a font shorthand would reset this) */
+#overlays canvas { display: block; image-rendering: pixelated; }
+:where(#overlays) button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: left; }
+:where(#overlays) button:focus-visible { outline: 1px solid var(--gl); outline-offset: 1px; }
+#overlays b { font-weight: normal; color: var(--gl); }
+#overlays ol { margin: 0; padding: 0; list-style: none; }
+
+/* ---------- shared: scrim, corner marks, panels, labels, key caps, the MSX dialog box, segment bars, trait chips ---------- */
+.ov { position: absolute; inset: 0; pointer-events: auto;
+  background: repeating-linear-gradient(to bottom, transparent 0 1px, color-mix(in srgb, var(--black) 22%, transparent) 1px 2px),
+    color-mix(in srgb, var(--bg) 80%, transparent); }
+#overlays [hidden] { display: none !important; }      /* beats every display rule below */
+.ov.passive { background: none; pointer-events: none; }
+.ov.solid { background: repeating-linear-gradient(to bottom, transparent 0 1px, color-mix(in srgb, var(--black) 30%, transparent) 1px 2px), var(--bg); }
+.big-btn { font: 16px/1 "Silkscreen", monospace !important; padding: 10px 22px 9px !important; background: var(--gm) !important; color: var(--black) !important;
+  box-shadow: 0 0 0 1px var(--black), 0 0 0 2px var(--e2); }
+.big-btn:hover { background: var(--gl) !important; }
+.ghost-btn { font: 8px/1 "Silkscreen", monospace !important; padding: 6px 9px 5px !important; color: var(--gm) !important; box-shadow: inset 0 0 0 1px var(--e2); }
+.ghost-btn:hover:not(:disabled) { color: var(--black) !important; background: var(--gm) !important; }
+.ghost-btn:disabled { color: var(--gd) !important; box-shadow: inset 0 0 0 1px var(--e0); cursor: default !important; }
+.cs-hint { color: var(--gd); }
+.gauge { position: relative; display: inline-block; width: 120px; height: 9px; margin-left: 8px; vertical-align: -1px; background: var(--e0); }
+.gauge i { position: absolute; top: 3px; height: 3px; left: var(--lo); width: calc(var(--hi) - var(--lo)); background: var(--gd); }
+.gauge b { position: absolute; top: 0; height: 9px; width: 3px; left: calc(var(--x) - 1px); background: var(--gl); }
+.cn { position: relative; }
+.cn::after { content: ''; position: absolute; inset: 0; pointer-events: none; --cc: var(--e2);
+  background: linear-gradient(var(--cc) 0 0) 0 0 / 8px 2px, linear-gradient(var(--cc) 0 0) 0 0 / 2px 8px,
+    linear-gradient(var(--cc) 0 0) 100% 0 / 8px 2px, linear-gradient(var(--cc) 0 0) 100% 0 / 2px 8px,
+    linear-gradient(var(--cc) 0 0) 0 100% / 8px 2px, linear-gradient(var(--cc) 0 0) 0 100% / 2px 8px,
+    linear-gradient(var(--cc) 0 0) 100% 100% / 8px 2px, linear-gradient(var(--cc) 0 0) 100% 100% / 2px 8px;
+  background-repeat: no-repeat; }
+.pnl { background: var(--pan); border: 1px solid var(--e0); padding: 10px 12px 12px; }
+.pnl-h, .ml { font: 8px/1 "Silkscreen", monospace; color: var(--gd); }
+.pnl-h { color: var(--gm); margin-bottom: 10px; }
+.key, .cap { display: inline-block; font: 8px/1 "Silkscreen", monospace; color: var(--gy4); background: var(--gy); padding: 3px 4px 2px;
+  border-top: 1px solid var(--gyHi); border-bottom: 1px solid var(--gy2); box-shadow: 0 0 0 1px var(--black); white-space: nowrap; }
+.msx { display: block; background: var(--blu); border: 2px solid var(--bluHi); box-shadow: 0 0 0 1px var(--black), inset 0 1px 0 var(--bluRule);
+  color: var(--wht); font: 16px/19px "DotGothic16", monospace; padding: 5px 11px 7px; text-align: left; }
+.msx-who { display: block; }
+.msx-line { display: block; padding-left: 12px; }
+.seg { display: inline-block; width: 200px; height: 9px; vertical-align: -1px;
+  background: repeating-linear-gradient(to right, var(--gm) 0 7px, transparent 7px 8px) 0 0 / var(--f, 0) 100% no-repeat,
+    repeating-linear-gradient(to right, var(--e0) 0 7px, transparent 7px 8px); }
+.seg.warm { background: repeating-linear-gradient(to right, var(--r) 0 7px, transparent 7px 8px) 0 0 / var(--f, 0) 100% no-repeat,
+    repeating-linear-gradient(to right, var(--e0) 0 7px, transparent 7px 8px); }
+.tr { display: inline-block; font: 16px/1 "VT323", monospace; padding: 1px 5px 2px; border: 1px solid var(--e2); color: var(--g); white-space: nowrap; }
+.tr.rev { background: var(--gm); border-color: var(--gm); color: var(--black); }
+.tr.unk { border-style: dashed; border-color: var(--gd); color: var(--gm); }
+.tr.hid { border-style: dashed; border-color: var(--rm); color: var(--r); }
+.tr.gift { border-color: var(--cm); color: var(--c); }
+.tr.rev.gift { background: var(--cm); color: var(--black); }
+.tr i { font-style: normal; color: var(--gd); }
+#overlays .hot { color: var(--r); }
+
+/* ---------- START: the main menu. Radar backdrop, title, the codec call and a context panel (left), the menu (right) ---------- */
+#ov-start { background: repeating-linear-gradient(to bottom, transparent 0 1px, color-mix(in srgb, var(--black) 30%, transparent) 1px 2px),
+    linear-gradient(to right, color-mix(in srgb, var(--grMin) 55%, transparent) 1px, transparent 1px) 4px 0 / 24px 24px,
+    linear-gradient(to bottom, color-mix(in srgb, var(--grMin) 55%, transparent) 1px, transparent 1px) 0 4px / 24px 24px, var(--bg); }
+.st-bar, .st-foot { position: absolute; left: 0; width: 1200px; height: 24px; padding: 0 12px; display: flex; align-items: center;
+  justify-content: space-between; background: var(--hud); }
+.st-bar { top: 0; border-bottom: 1px solid var(--e0); font: 8px/1 "Silkscreen", monospace; color: var(--gd); }
+.st-foot { bottom: 0; border-top: 1px solid var(--e0); color: var(--gd); }
+.st-opts { display: flex; column-gap: 18px; }
+.st-dev { font: 8px/1 "Silkscreen", monospace; color: var(--gd); padding: 4px 0 3px; }
+.st-dev:hover { color: var(--gl); }
+.st-dev.on { color: var(--r); }
+.st-title { position: absolute; left: 0; width: 1200px; top: 38px; text-align: center; font: 64px/1 "Silkscreen", monospace; color: var(--gl);
+  letter-spacing: 4px; text-shadow: 0 0 14px color-mix(in srgb, var(--g) 45%, transparent); }
+.st-tag { position: absolute; left: 0; width: 1200px; top: 108px; text-align: center; font: 24px/1 "VT323", monospace; color: var(--gm); }
+.st-codec { position: absolute; left: 64px; top: 152px; width: 520px; display: grid; grid-template-columns: 98px 1fr 98px; column-gap: 12px;
+  background: var(--black); outline: 8px solid var(--black); }
+.st-codec #st-set { justify-self: center; }
+.st-name { font: 20px/22px "VT323", monospace; color: var(--g); }
+.st-name.r { text-align: right; }
+.st-freq { font: 8px/22px "Silkscreen", monospace; color: var(--gd); text-align: center; }
+.st-dlg { grid-column: 1 / -1; margin-top: 4px; cursor: pointer; }
+.st-dlg .msx-line { min-height: 57px; }
+.st-dlg .msx-line::after { content: ''; display: inline-block; width: 7px; height: 13px; margin-left: 2px; vertical-align: -1px; background: var(--wht); }
+.st-dlg .msx-line.done::after { content: none; }
+.st-info { position: absolute; left: 64px; top: 412px; width: 520px; height: 212px; }
+.keys { display: grid; grid-template-columns: max-content 1fr max-content 1fr; column-gap: 10px; row-gap: 7px; align-items: center; }
+.keys .cap { justify-self: start; }
+.cap-t { color: var(--gm); }
+.rules li { display: grid; grid-template-columns: 22px 1fr; color: var(--gm); line-height: 17px; margin-bottom: 9px; }
+.rules li:last-child { margin-bottom: 0; }
+.rules .n { font: 8px/16px "Silkscreen", monospace; color: var(--gd); }
+
+/* the menu: an LCD band, then one step at a time (main · difficulty · training), each with its foot of keys */
+.mm { position: absolute; left: 616px; top: 152px; width: 520px; height: 472px; background: var(--black); border: 1px solid var(--e1); }
+.mm-band { display: flex; justify-content: space-between; height: 26px; align-items: center; background: var(--lcd); color: var(--lcdOn);
+  font: 8px/1 "Silkscreen", monospace; padding: 0 10px; box-shadow: inset 0 -1px 0 var(--lcdMid); }
+.mm-step { padding: 16px 16px 0; display: grid; row-gap: 12px; }
+.mm-b { display: grid !important; grid-template-columns: 32px 1fr; column-gap: 14px; align-items: center; width: 100%;
+  padding: 18px 14px 17px !important; background: var(--pan) !important; box-shadow: inset 0 0 0 1px var(--e1); }
+.mm-b.sel { background: var(--pan2) !important; box-shadow: inset 0 0 0 1px var(--gm), 0 0 0 1px var(--black), 0 0 12px color-mix(in srgb, var(--gm) 25%, transparent); }
+.mm-k { width: 32px; height: 32px; border: 1px solid var(--gm); color: var(--gm); font: 28px/30px "VT323", monospace; text-align: center; }
+.mm-b.sel .mm-k { background: var(--gm); color: var(--black); }
+.mm-t { display: block; min-width: 0; }
+.mm-n { display: block; font: 16px/1 "Silkscreen", monospace; color: var(--g); }
+.mm-b.sel .mm-n { color: var(--gl); }
+.mm-l { display: block; margin-top: 7px; font: 20px/20px "VT323", monospace; color: var(--gm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mm-m { display: block; margin-top: 5px; font: 8px/1 "Silkscreen", monospace; color: var(--gd); }
+.mm-d { padding: 12px 14px 11px !important; }
+.mm-best { color: var(--gm); line-height: 18px; }
+.mm-best .ml { margin-right: 8px; }
+.mm-foot { position: absolute; left: 16px; right: 16px; bottom: 14px; display: flex; justify-content: space-between; align-items: center; column-gap: 12px; }
+#mm-main .mm-foot { flex-direction: column; align-items: flex-start; row-gap: 12px; }
+#mm-main .mm-hint { align-self: flex-end; }
+.mm-hint { color: var(--gd); }
+.mm-go { display: flex; align-items: center; column-gap: 14px; }
+.mm-step .ml { margin-top: 6px; }
+.mm-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mm-o { font: 8px/1 "Silkscreen", monospace !important; color: var(--gm) !important; background: var(--well) !important;
+  box-shadow: inset 0 0 0 1px var(--e1); padding: 9px 11px 8px !important; }
+.mm-o:hover { color: var(--gl) !important; box-shadow: inset 0 0 0 1px var(--e3); }
+.mm-o.on { color: var(--black) !important; background: var(--gm) !important; box-shadow: inset 0 0 0 1px var(--gm); }
+#mm-seed { font: 20px/1 "VT323", monospace; color: var(--gl); background: var(--well); border: 1px solid var(--e1); width: 110px; padding: 3px 6px; }
+#mm-seed:focus { outline: 1px solid var(--gm); }
+.mm-last { padding: 9px 12px 10px; border: 1px solid var(--e2); background: var(--pan); display: grid; row-gap: 6px; }
+.mm-lh { display: flex; align-items: baseline; column-gap: 10px; color: var(--gd); }
+.mm-v { font: 16px/1 "Silkscreen", monospace; color: var(--gl); }
+.mm-v.bad { color: var(--r); }
+.mm-v.mid { color: var(--amb); }
+#overlays .mm-ls b.bad { color: var(--r); }
+.mm-ls { font: 20px/20px "VT323", monospace; color: var(--g); }
+.mm-lt { color: var(--gd); }
+.mm-run { margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--e0); display: grid; grid-template-columns: 76px 1fr; row-gap: 4px;
+  align-items: baseline; color: var(--g); font: 20px/20px "VT323", monospace; }
+.mm-run .ml { margin-top: 0; }
+.mm-dl { grid-column: 2; color: var(--gm); }
+
+/* ---------- RESEARCH: three tall cards, headed in their stream's colour (--bc) ---------- */
+#ov-research { display: flex; align-items: center; justify-content: center; }
+.rs { width: 1000px; background: var(--black); border: 1px solid var(--e1); padding: 12px 16px 10px; }
+.rs-h { display: flex; align-items: baseline; column-gap: 10px; margin-bottom: 10px; }
+.rs-t { font: 16px/1 "Silkscreen", monospace; color: var(--rs); }
+.rs-n { font: 20px/1 "VT323", monospace; color: var(--gm); }
+.rs-sub { margin-left: auto; color: var(--gd); }
+.rs-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; column-gap: 14px; }
+.rc { display: flex; flex-direction: column; row-gap: 8px; min-height: 392px; padding: 0 0 10px; position: relative;
+  background: var(--pan); border: 1px solid color-mix(in srgb, var(--bc) 40%, var(--black)); }
+.rc:hover { background: var(--pan2); border-color: var(--bc); }
+.rc-band { display: flex; justify-content: space-between; background: var(--bc); color: var(--black); font: 8px/1 "Silkscreen", monospace; padding: 5px 8px 4px; }
+.rc-head { display: grid; grid-template-columns: 22px 34px 1fr; column-gap: 10px; padding: 4px 10px 0; align-items: start; }
+.rc-key { width: 22px; height: 22px; margin-top: 6px; border: 1px solid var(--bc); color: var(--bc); font: 20px/20px "VT323", monospace; text-align: center; }
+.rc:hover .rc-key { background: var(--bc); color: var(--black); }
+.rc-title { font: 24px/22px "VT323", monospace; color: var(--gl); }
+.rc-sub { display: block; font: 8px/11px "Silkscreen", monospace; color: var(--gd); margin-top: 4px; }
+.rc-line { padding: 4px 10px 0; font: 16px/17px "VT323", monospace; color: var(--bc); }
+.rc-text { padding: 0 10px; font: 20px/19px "VT323", monospace; color: var(--g); }
+.rc-quip { flex: 1; padding: 0 10px; font: 16px/17px "VT323", monospace; color: var(--gd); }
+.rc-tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 10px; }
+.rc-tag { font: 8px/1 "Silkscreen", monospace; background: var(--gm); color: var(--black); padding: 3px 5px 2px; }
+.rc-tag.dim { background: none; color: var(--gd); box-shadow: inset 0 0 0 1px var(--e1); }
+.rs-f { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; color: var(--gd); }
+.rs-btns { display: flex; column-gap: 8px; }
+
+/* ---------- CARD: the model card and its chat, one codec scene (DESIGN-v3 §3f) ---------- */
+.cs { position: absolute; left: 16px; top: 16px; width: 1168px; height: 628px; background: var(--black); border: 1px solid var(--e1); }
+.cs-band, .rp-band { display: flex; justify-content: space-between; height: 26px; align-items: center; background: var(--lcd); color: var(--lcdOn);
+  font: 8px/1 "Silkscreen", monospace; padding: 0 10px; box-shadow: inset 0 -1px 0 var(--lcdMid); }
+.cs-body { display: grid; grid-template-columns: 274px 336px 1fr; column-gap: 16px; padding: 14px 14px 0; height: 600px; }
+.cs-info { display: flex; flex-direction: column; row-gap: 6px; min-width: 0; }
+.cs-name { font: 32px/27px "VT323", monospace; color: var(--gl); }
+.cs-tier { font: 8px/1 "Silkscreen", monospace; color: var(--gm); }
+.cs-tag { font: 20px/19px "VT323", monospace; color: var(--g); }
+.cs-blurbs { margin: 0 0 4px; padding: 0; list-style: none; color: var(--gm); line-height: 17px; }
+.cs-blurbs li::before { content: '· '; color: var(--gd); }
+.cs-row { display: grid; grid-template-columns: 76px 1fr; column-gap: 8px; align-items: baseline; padding-top: 6px; border-top: 1px solid var(--e0); line-height: 17px; }
+.cs-row .ml { line-height: 15px; }
+.cs-v { color: var(--g); }
+.cs-v i { font-style: normal; color: var(--gd); }
+.cs-v .tr { margin: 0 4px 3px 0; }
+.cs-row.warn .cs-v { color: var(--ambL); }
+.cs-row.hot .cs-v { color: var(--gl); }
+.cs-right { display: flex; flex-direction: column; min-width: 0; height: 586px; }
+.cs-chat-h { display: flex; justify-content: space-between; font: 8px/1 "Silkscreen", monospace; color: var(--gm); padding: 2px 0 8px; }
+.cs-more { color: var(--gd); }
+.cs-chat { flex: 1; overflow: hidden; background: var(--blu); border: 2px solid var(--bluHi); box-shadow: 0 0 0 1px var(--black), inset 0 1px 0 var(--bluRule);
+  color: var(--wht); font: 16px/19px "DotGothic16", monospace; padding: 8px 12px; cursor: pointer; }
+.cs-msg { margin-bottom: 9px; }
+.cs-msg .msx-who { display: block; }
+.cs-msg .msx-line { display: block; padding-left: 12px; }
+.cs-msg.y .msx-who { color: var(--gl); }
+.cs-msg.o .msx-who { color: var(--ambL); }
+.cs-foot, .rp-foot { display: flex; justify-content: flex-end; align-items: center; column-gap: 14px; padding: 12px 0 0; }
+
+/* ---------- REPORT: what slipped through (DESIGN-v3 §3e) ---------- */
+.rp { position: absolute; left: 16px; top: 16px; width: 1168px; height: 628px; background: var(--black); border: 1px solid var(--e1); }
+.rp-cols { display: grid; grid-template-columns: 1fr 470px; column-gap: 24px; padding: 14px 16px 0; }
+.rp-big { display: grid; grid-template-columns: 230px 1fr; column-gap: 12px; align-items: center; font: 20px/26px "VT323", monospace; }
+.rp-big.ok { color: var(--gl); }
+.rp-big.bad { color: var(--r); }
+.rp-bar { display: block; height: 12px; background: var(--e0); }
+.rp-bar i { display: block; height: 12px; min-width: 2px; }
+.rp-bar.ok i { background: var(--gm); }
+.rp-bar.bad i { background: var(--r); }
+.rp-h { display: flex; justify-content: space-between; font: 8px/1 "Silkscreen", monospace; color: var(--gm); padding: 14px 0 6px; border-bottom: 1px solid var(--e1); }
+.rp-h span:last-child { color: var(--gd); }
+.rp-list li { display: grid; grid-template-columns: 22px 1fr 82px; column-gap: 8px; align-items: center; height: 24px; border-bottom: 1px solid var(--e0); color: var(--g); }
+.rp-list li span:nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-w { font: 16px/16px "VT323", monospace; text-align: center; color: var(--black); background: var(--amb); }
+.rp-w.w3 { background: var(--r); }
+.rp-w.w1 { background: var(--gd); }
+.rp-lane { font: 8px/1 "Silkscreen", monospace; color: var(--gd); text-align: right; }
+.rp-more, .rp-none { padding-top: 6px; color: var(--gm); }
+.rp-none { color: var(--gl); font: 20px/24px "VT323", monospace; padding-top: 14px; }
+.rp-kill { margin-top: 12px; color: var(--gm); line-height: 17px; }
+.rp-dms { display: grid; grid-template-columns: 76px 136px 1fr; column-gap: 8px; row-gap: 7px; align-items: baseline; padding-top: 8px; }
+.rp-dv { font: 20px/1 "VT323", monospace; color: var(--g); white-space: nowrap; }
+.rp-dv.bad { color: var(--r); }
+.rp-dv.ok { color: var(--gl); }
+.rp-dn { color: var(--gd); }
+.rp-lever { margin-top: 12px; padding: 7px 10px; border: 1px solid var(--amb); color: var(--ambL); line-height: 17px; }
+.rp-lever i { font-style: normal; color: var(--amb); }
+.rp-next { margin-top: 12px; font: 24px/1 "VT323", monospace; color: var(--gl); }
+.rp-call { display: grid; grid-template-columns: 98px 1fr; column-gap: 12px; margin-top: 16px; align-items: start; }
+.rp-call .msx-line { min-height: 57px; }
+
+/* ---------- TRAINING stand-in (only if src/train failed to start: the stub runs under it) ---------- */
+#ov-train { display: flex; align-items: center; justify-content: center; }
+.tr-box { width: 560px; background: var(--black); border: 1px solid var(--e1); }
+.trn-body { padding: 18px 18px 16px; display: grid; row-gap: 12px; color: var(--g); }
+.trn-body .seg { width: 200px; }
+.trn-note { color: var(--gd); }
+
+/* ---------- RETRAIN: caught red-handed. Over the CONSUMER body, between the two rails (x 136-424): it never hides a
+   mount, so no click meant for one answers it. The codec stays clear for the call ---------- */
+.rt { position: absolute; left: 142px; top: 118px; width: 276px; pointer-events: auto; background: var(--black); border: 1px solid var(--r);
+  box-shadow: 0 0 0 1px var(--black), 0 0 24px color-mix(in srgb, var(--r) 35%, transparent); }
+.rt-band, .eg-band { display: flex; justify-content: space-between; align-items: center; height: 24px; padding: 0 8px;
+  background: repeating-linear-gradient(-45deg, var(--rm) 0 8px, var(--black) 8px 16px); }
+.rt-band span, .eg-band span { background: var(--black); color: var(--r); font: 8px/1 "Silkscreen", monospace; padding: 4px 6px 3px; }
+.rt-body { padding: 12px 14px 14px; display: grid; row-gap: 7px; }
+.rt-cost { color: var(--rLite); font: 20px/20px "VT323", monospace; }
+.rt-gain { color: var(--gl); font: 20px/20px "VT323", monospace; }
+.rt-fine { color: var(--gd); }
+.rt-btns { display: grid; grid-template-columns: 1fr; row-gap: 8px; margin-top: 6px; }
+.rt-b { display: grid !important; grid-template-columns: 22px 1fr; column-gap: 8px; row-gap: 4px; padding: 8px 10px !important; box-shadow: inset 0 0 0 1px var(--e2); }
+.rt-b span:nth-child(2) { font: 16px/1 "Silkscreen", monospace; color: var(--gl); }
+.rt-b i { grid-column: 2; font-style: normal; color: var(--gd); line-height: 16px; }
+.rt-k { width: 18px; height: 18px; border: 1px solid var(--gm); color: var(--gm); font: 16px/16px "VT323", monospace; text-align: center; }
+.rt-b.yes { box-shadow: inset 0 0 0 1px var(--r); }
+.rt-b.yes span:nth-child(2) { color: var(--r); }
+.rt-b:hover { background: var(--pan2) !important; }
+
+/* ---------- EGRESS ANOMALY: red border round the board, the countdown, PULL THE PLUG. In the right column under
+   the codec's call (over the context panel and the menu): both rails stay in view, and the pause plate never covers it ---------- */
+.eg-frame { position: absolute; inset: 0; box-shadow: inset 0 0 0 2px var(--rm); }
+.eg-frame.on { box-shadow: inset 0 0 0 5px var(--r), inset 0 0 40px color-mix(in srgb, var(--r) 40%, transparent); }
+.eg { position: absolute; left: 840px; top: 378px; width: 352px; pointer-events: auto; background: var(--rBack); border: 1px solid var(--r); }
+.eg-sub { padding: 10px 14px 0; color: var(--rLite); }
+.eg-count { padding: 6px 14px 0; font: 40px/1 "VT323", monospace; color: var(--r); }
+.eg-btns { display: flex; align-items: center; column-gap: 12px; padding: 10px 14px 0; }
+.eg-pull { font: 16px/1 "Silkscreen", monospace !important; padding: 10px 18px 9px !important; background: var(--r) !important; color: var(--rInk) !important; }
+.eg-pull:hover { background: var(--rLite) !important; }
+.eg-hint { padding: 8px 14px 12px; color: var(--rm); }
+
+/* ---------- PAUSE: a plate over the board; the board still takes orders ---------- */
+#ov-pause { background: repeating-linear-gradient(to bottom, transparent 0 1px, color-mix(in srgb, var(--black) 25%, transparent) 1px 2px); }
+.pz { position: absolute; left: 290px; top: 270px; width: 260px; background: var(--black); border: 1px solid var(--e2); padding: 12px 14px 10px; text-align: center; }
+.pz-t { font: 16px/1 "Silkscreen", monospace; color: var(--gl); display: flex; justify-content: center; align-items: center; column-gap: 10px; }
+.pz-bars { width: 12px; height: 14px; background: linear-gradient(to right, var(--gl) 0 4px, transparent 4px 8px, var(--gl) 8px 12px); }
+.pz-s { margin-top: 10px; color: var(--gm); }
+.pz-q { margin-top: 6px; color: var(--gd); line-height: 16px; text-wrap: balance; }
+.pz.peek { opacity: .12; }
+.pz-m { margin-top: 10px; display: flex; justify-content: center; }
+.pz-m button { pointer-events: auto; }
+
+/* ---------- RSP prompt: over the ops log, hazard-striped ---------- */
+.rsp { position: absolute; left: 424px; top: 558px; width: 408px; height: 94px; pointer-events: auto; background: var(--rBack); border: 1px solid var(--rm); }
+.rsp-h { display: flex; justify-content: space-between; align-items: center; height: 20px; padding: 0 6px;
+  background: repeating-linear-gradient(-45deg, var(--rm) 0 6px, var(--black) 6px 12px); }
+.rsp-h span { background: var(--black); color: var(--r); font: 8px/1 "Silkscreen", monospace; padding: 3px 6px 2px; }
+.rsp-t { padding: 7px 10px 0; color: var(--rLite); line-height: 16px; }
+.rsp-b { display: flex; align-items: center; column-gap: 8px; padding: 7px 10px 0; }
+.rsp-b button { flex: none; white-space: nowrap; font: 8px/1 "Silkscreen", monospace; padding: 6px 8px 5px; background: var(--r); color: var(--rInk); }
+.rsp-b button.ghost { background: none; color: var(--r); box-shadow: inset 0 0 0 1px var(--rm); }
+.rsp-b button:hover { background: var(--rLite); color: var(--rInk); }
+.rsp-q { color: var(--r); white-space: nowrap; }
+
+/* ---------- SCORECARD: the verdict, the grade, and what was really going on ---------- */
+#ov-score { display: flex; align-items: center; justify-content: center; }
+.sc { width: 1136px; background: var(--black); border: 1px solid var(--e1); }
+.sc-band { display: flex; justify-content: space-between; align-items: center; height: 40px; padding: 0 12px;
+  background: repeating-linear-gradient(to bottom, var(--e1) 0 1px, var(--e0) 1px 3px); }
+.sc.loss .sc-band { background: repeating-linear-gradient(-45deg, var(--rm) 0 10px, var(--black) 10px 20px); }
+.sc-v { background: var(--black); padding: 6px 10px 5px; font: 16px/1 "Silkscreen", monospace; color: var(--gl); }
+.sc.loss .sc-v { color: var(--r); }
+.sc-meta { background: var(--black); padding: 3px 8px; color: var(--gm); }
+.sc-cols { display: grid; grid-template-columns: 372px 1fr; column-gap: 24px; padding: 14px 16px 16px; }
+.sc-grade { display: flex; column-gap: 16px; align-items: center; }
+.lcd-glass { flex: none; width: 96px; height: 96px; display: grid; place-items: center; background: var(--lcd);
+  box-shadow: 0 0 0 1px var(--lcdEdge), 0 0 0 3px var(--black), inset 1px 1px 0 var(--lcdMid); }
+.lcd-glass span { font: 112px/1 "VT323", monospace; color: var(--lcdOn); margin-top: -6px; }
+.sc-end-t { font: 16px/1 "Silkscreen", monospace; color: var(--gl); margin-bottom: 8px; }
+.sc-score { color: var(--gm); line-height: 17px; }
+.sc-call { display: grid; grid-template-columns: 98px 1fr; column-gap: 12px; margin-top: 12px; align-items: start; }
+.sc-facts { display: grid; grid-template-columns: 92px 1fr; row-gap: 6px; align-items: center; margin-top: 12px; color: var(--gm); }
+.sc-btns { margin-top: 14px; display: flex; column-gap: 10px; align-items: center; }
+#sc-menu { margin-left: 14px; padding: 9px 12px 8px !important; }
+.sc-model { display: grid; grid-template-columns: 92px 1fr; margin-top: 10px; color: var(--wht); font: 16px/19px "DotGothic16", monospace; }
+.sc-model .ml { line-height: 19px; }
+.sc-plot { margin-top: 12px; display: grid; row-gap: 4px; }
+.sc-plot i { font-style: normal; color: var(--gm); }
+#sc-again { font: 16px/1 "Silkscreen", monospace; padding: 8px 14px 7px; background: var(--gm); color: var(--black); }
+#sc-again:hover { background: var(--gl); }
+.sc-h { font: 8px/1 "Silkscreen", monospace; color: var(--gm); padding-bottom: 6px; border-bottom: 1px solid var(--e1); }
+.sc-t { width: 100%; border-collapse: collapse; margin-top: 4px; }
+.sc-t th { font: 8px/1 "Silkscreen", monospace; color: var(--gd); text-align: left; padding: 4px 6px 5px; font-weight: normal; white-space: nowrap; }
+.sc-t td { padding: 3px 6px; height: 26px; border-top: 1px solid var(--e0); color: var(--gm); white-space: nowrap; }
+.sc-t .num { text-align: right; }
+.sc-t .g { color: var(--g); }
+.sc-t .trs .tr { margin-right: 4px; }
+.sc-cols > .sc-right { min-width: 0; }
+.sc-t td.nm { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }   /* v3 model names run long */
+.sc-t td.trs { white-space: normal; line-height: 22px; }
+.ok { font: 8px/1 "Silkscreen", monospace; padding: 2px 4px 1px; }
+.ok.y { background: var(--gm); color: var(--black); }
+.ok.n { box-shadow: inset 0 0 0 1px var(--rm); color: var(--r); }
+.sc-legend { margin: 8px 0 18px; color: var(--gd); }
+.sc-legend .tr { margin: 0 4px 0 10px; }
+.sc-legend .tr:first-child { margin-left: 0; }
+
+/* ---------- TUTORIAL (G1, src/ui/tutorial.js): the step plate over the codec's post-mortem trace ---------- */
+#tut { position: absolute; left: 847px; top: 324px; width: 338px; height: 47px; pointer-events: auto; padding: 4px 8px 0;
+  background: var(--black); border: 1px solid var(--ambL); box-shadow: 0 0 0 1px var(--black); }
+.tut-h { display: flex; justify-content: space-between; align-items: center; height: 14px; }
+.tut-n { font: 8px/1 "Silkscreen", monospace; color: var(--ambL); }
+#tut .tut-skip { padding: 3px 5px 2px !important; }
+.tut-do { margin-top: 4px; font: 18px/20px "VT323", monospace; color: var(--gl); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tut-do::before { content: '> '; color: var(--ambL); }
+#tut.done .tut-do { color: var(--gd); }
+#tut.done .tut-do::before { content: '\2713  '; color: var(--gm); }
+
+/* ===================== debug panel (?debug=1, key D) ===================== */
+
+#debug { position: fixed; left: 6px; bottom: 6px; z-index: 5; max-width: 380px; padding: 6px; white-space: pre;
+  font: 9px monospace; background: rgba(0, 0, 0, .88); border: 1px solid #f0f; color: #f8f; }
+#debug[hidden] { display: none; }
+#debug button { font-size: 10px; background: #202; border: 1px solid #f0f; color: #f8f; margin: 1px; cursor: pointer; }

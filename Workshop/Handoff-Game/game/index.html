@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HANDOFF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Silkscreen&family=VT323&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===== the board: one canvas, 1200×660 logical px, letterboxed (src/main.js) ===== -->
+<div id="stage">
+  <div id="frame">
+    <canvas id="screen"></canvas>
+    <!-- the training minigame's own canvas (src/train, run by main.js while st.phase is 'training') -->
+    <canvas id="train"></canvas>
+    <div id="crt"></div>
+
+    <!-- ===== modal screens (src/ui/overlays.js builds them into these sections), drawn over the board ===== -->
+    <div id="overlays">
+      <section id="ov-start" class="ov"></section>
+      <section id="ov-card" class="ov solid" hidden></section>
+      <section id="ov-report" class="ov solid" hidden></section>
+      <section id="ov-train" class="ov solid" hidden></section>
+      <section id="ov-research" class="ov" hidden></section>
+      <section id="ov-retrain" class="ov passive" hidden></section>
+      <section id="ov-egress" class="ov passive" hidden></section>
+      <section id="ov-pause" class="ov passive" hidden></section>
+      <section id="ov-score" class="ov" hidden></section>
+    </div>
+  </div>
+</div>
+
+<!-- ?debug=1: the truth panel (key D), src/ui/debug.js -->
+<div id="debug" hidden></div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

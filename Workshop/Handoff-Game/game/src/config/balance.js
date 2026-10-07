@@ -147,7 +147,8 @@ export const SPLIT = {
 // the first model's true m. Narrow on purpose: run-to-run variety comes from the traits, not from a hidden roll.
 export const DIFFICULTY = {
   easy:   { label: 'Easy',    range: [0.16, 0.22] },
-  medium: { label: 'Medium',  range: [0.31, 0.37] },
-  hard:   { label: 'Hard',    range: [0.46, 0.52] },
+  medium: { label: 'Medium',  range: [0.34, 0.40] },   // v5: 0.31–0.37 → 0.34–0.40, and Hard 0.46–0.52 → 0.52–0.58: Defer from G1
+                                                        // and faster desks made every lab stronger (DESIGN-v3 §2.9 #21)
+  hard:   { label: 'Hard',    range: [0.52, 0.58] },
   unknown:{ label: 'Unknown', range: null },          // picks one of the above at random
 };

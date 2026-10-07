@@ -34,15 +34,16 @@
 // Per generation. lam = lines/s on a Consumer lane at the default split. travel = s from intake to the end.
 // opp = attack opportunity (how much a smarter model can find to do). exfil = share of INTERNAL model attacks that are
 // exfiltration. alpha = human auditor accuracy. deferPay = share of a line's pay that Defer keeps. price = price index
-// on purchases and salaries. T = deployment seconds at the default split.
+// on purchases and salaries. reviewMult = × the auditor's seconds per line (v5: a bigger line takes longer to read).
+// T = deployment seconds at the default split.
 const GENS = [
-  { g: 1, lam: 0.60, travel: 8.0, opp: 1.05, exfil: 0.000, alpha: 0.998, deferPay: 0.60, price: 1.00, T: 270 },
-  { g: 2, lam: 0.75, travel: 7.5, opp: 1.70, exfil: 0.000, alpha: 0.998, deferPay: 0.55, price: 1.10, T: 210 },
-  { g: 3, lam: 0.90, travel: 7.0, opp: 1.72, exfil: 0.000, alpha: 0.998, deferPay: 0.50, price: 1.20, T: 210 },
-  { g: 4, lam: 1.10, travel: 6.5, opp: 1.76, exfil: 0.006, alpha: 0.998, deferPay: 0.45, price: 1.30, T: 210 },
-  { g: 5, lam: 1.30, travel: 6.0, opp: 1.76, exfil: 0.008, alpha: 0.998, deferPay: 0.40, price: 1.45, T: 210 },
-  { g: 6, lam: 1.55, travel: 5.5, opp: 1.76, exfil: 0.010, alpha: 0.998, deferPay: 0.35, price: 1.60, T: 210 },
-  { g: 7, lam: 1.72, travel: 5.0, opp: 1.76, exfil: 0.012, alpha: 0.980, deferPay: 0.30, price: 1.75, T: 210 },
+  { g: 1, lam: 0.60, travel: 8.0, opp: 1.05, exfil: 0.000, alpha: 0.998, deferPay: 0.60, price: 1.00, reviewMult: 1.00, T: 270 },
+  { g: 2, lam: 0.75, travel: 7.5, opp: 1.70, exfil: 0.000, alpha: 0.998, deferPay: 0.55, price: 1.10, reviewMult: 1.00, T: 210 },
+  { g: 3, lam: 0.90, travel: 7.0, opp: 1.72, exfil: 0.000, alpha: 0.998, deferPay: 0.50, price: 1.20, reviewMult: 1.00, T: 210 },
+  { g: 4, lam: 1.10, travel: 6.5, opp: 1.76, exfil: 0.006, alpha: 0.998, deferPay: 0.45, price: 1.30, reviewMult: 1.20, T: 210 },
+  { g: 5, lam: 1.30, travel: 6.0, opp: 1.76, exfil: 0.008, alpha: 0.998, deferPay: 0.40, price: 1.45, reviewMult: 1.35, T: 210 },
+  { g: 6, lam: 1.55, travel: 5.5, opp: 1.76, exfil: 0.010, alpha: 0.998, deferPay: 0.35, price: 1.60, reviewMult: 1.50, T: 210 },
+  { g: 7, lam: 1.72, travel: 5.0, opp: 1.76, exfil: 0.012, alpha: 0.980, deferPay: 0.30, price: 1.75, reviewMult: 1.65, T: 210 },
 ];
 const NGEN = GENS.length;
 
@@ -119,8 +120,8 @@ const UM_COLL = [1, 0.85, 0.7, 0.55];   // Untrusted Monitor levels cut collusio
 
 // Responders: servers by level, seconds per line. Flags meet them in rail order; a flag nobody is free for SHIPS.
 const RESP = {
-  auditor:    { servers: [1, 2, 3, 4], tau: 8, buy: 800, salary: 1.5, fpr: 0.01 },   // salary $/s per desk
-  defer:      { servers: [1, 2, 3, 4], tau: 2, buy: 500, payMult: [1, 1.15, 1.3, 1.5] },
+  auditor:    { servers: [1, 2, 3, 4], tau: 8, tauMult: [1, 1, 0.65, 0.5], buy: 800, salary: 1.5, fpr: 0.01 },   // salary $/s per desk; tauMult × tau by level (v5)
+  defer:      { servers: [1, 2, 3, 4], tau: 3, buy: 800, payMult: [1, 1.15, 1.3, 1.5] },   // tau 2 → 3 (v5), buy 500 → 800 (§2.9 #22)
   resampler:  { servers: [2, 2, 3, 4], tau: 1, buy: 500, side: 'int' },
   killswitch: { servers: [1, 2, 3, 4], tau: 4, buy: 300, fee: 10 },
 };
@@ -156,7 +157,7 @@ const NEW_LANE_KIT = { ext: ['probe', 'monitor'], int: ['probe', 'monitor'] };  
 const SPINE = { 3: ['untrusted'] };   // automatic unlocks, announced on the model card ("UM cleared for deployment")
 
 // Research stream. RP/s = RP_BASE × (1 + RP_SAFETY × Safety share). One offer of 3 cards per RP_OFFER points.
-const RP_BASE = 0.6, RP_SAFETY = 0.8, RP_OFFER = 40, OFFER_BANK = 2;
+const RP_BASE = 0.6, RP_SAFETY = 0.8, RP_OFFER = 40, OFFER_BANK = 2, REROLLS = 1;   // REROLLS: free rerolls a generation
 const DEFAULT_SPLIT = { product: 0.5, capabilities: 0.4, safety: 0.1 };
 
 // Evidence. Human-confirmed attacks (+1), honeypot catches (+1), Safety sweeps (rate × share per s). 30% carries over.
@@ -181,8 +182,9 @@ const RD_PAR = 0.8;
 const TRAIN = { dm0: 0.015, dm1: 0.035, debtPenalty: 2, penaltyCap: 0.15, prizeAt: 0.8 };
 
 // Difficulty: the first model's m. Narrow on purpose: variety comes from traits, not from a hidden roll.
-const DIFF = { easy: [0.16, 0.22], medium: [0.31, 0.37], hard: [0.46, 0.52] };
-const MID_M = { easy: 0.19, medium: 0.34, hard: 0.49 };
+// v5 (§2.9 #21): Medium 0.31–0.37 → 0.34–0.40 and Hard 0.46–0.52 → 0.52–0.58, after Defer from G1 and faster desks
+const DIFF = { easy: [0.16, 0.22], medium: [0.34, 0.40], hard: [0.52, 0.58] };
+const MID_M = { easy: 0.19, medium: 0.37, hard: 0.55 };
 
 // ============================================================================================
 // B. SMALL HELPERS
@@ -375,7 +377,7 @@ function solveLane(stack, laneId, g, m, lam, lab, atkMult = 1, watchMult = null)
 
   // ---- responders in rail order: the line-by-line rule (responderChain), memoised. Flags preempt spot checks ----
   const flagRate = sum(types.map(t => pT[t] * (1 - missT[t]))) + pHon * (1 - missH);   // flags per line
-  const audTau = tech('debate') ? LAB.debate.tau : RESP.auditor.tau;
+  const audTau = (tech('debate') ? LAB.debate.tau : RESP.auditor.tau) * RESP.auditor.tauMult[level('auditor') - 1] * gen.reviewMult;
   const chain = ['auditor', 'defer', 'resampler', 'killswitch'].filter(id => has(id) && sideOk(id, side))
     .map(id => ({ id, c: RESP[id].servers[level(id) - 1], tau: id === 'auditor' ? audTau : RESP[id].tau }));
   const Q = responderChain(chain, flagRate * lam, lam * (1 - flagRate));
@@ -455,7 +457,7 @@ const CARDS = [
   { id: 'redteam', stream: 'monitoring', type: 'new', from: 1 },
   { id: 'diversity', stream: 'monitoring', type: 'lab', from: 3 },
   ...['probe', 'monitor', 'untrusted', 'cot', 'classifier', 'egress'].map(id => ({ id: 'level:' + id, el: id, stream: 'monitoring', type: 'level', from: 1 })),
-  { id: 'defer', stream: 'control', type: 'new', from: 2, answers: 'quota' },
+  { id: 'defer', stream: 'control', type: 'new', from: 1, answers: 'quota' },   // v5: from G1 (§2.9 #21)
   { id: 'resampler', stream: 'control', type: 'new', from: 2, answers: 'sabotage' },
   { id: 'paraphraser', stream: 'control', type: 'new', from: 3, answers: 'collusion' },
   { id: 'honeypot', stream: 'control', type: 'new', from: 3, answers: 'collusion' },
@@ -644,7 +646,7 @@ function campaign(policyName, difficulty, seed, opts = {}) {
   const extVol = split.product / DEFAULT_SPLIT.product, intVol = split.capabilities / DEFAULT_SPLIT.capabilities;
   const marketDrain = RIVAL_MARKET * Math.max(0, 1 - extVol);
   for (let g = 1; g <= NGEN; g++) {
-    S.g = g; S.sprint = false;
+    S.g = g; S.sprint = false; S.rerolls = REROLLS;
     const gen = GENS[g - 1], prev = GENS[Math.max(0, g - 2)];
     for (const id of SPINE[g] ?? []) S.lab.unlocked.add(id);
     const traitNames = opts.traits === false ? [] : rollTraits(r);   // the model's personality this generation
@@ -680,6 +682,8 @@ function campaign(policyName, difficulty, seed, opts = {}) {
       if (S.banked.length && S.picks < maxPicks && S.t - S.banked[0].at >= pol.delay) {
         const off = S.banked.shift();
         off.cards = off.cards.filter(x => eligible(x, g, S.lab));        // a banked card can go stale (bought with cash since)
+        const want = pol.reroll && CARD[MODEL_ID[pol.reroll] ?? pol.reroll];   // the free reroll, on an offer without the card it wants
+        if (want && S.rerolls > 0 && eligible(want, g, S.lab) && !off.cards.some(x => x.id === want.id)) { S.rerolls--; off.cards = drawOffer(r, g, S.lab); }
         let c = pickFrom(off.cards, pol);
         const sprint = off.cards.find(x => x.id === 'sprint');            // the comeback card: taken when m has crept up
         if (sprint && pol.picks.includes('sprint') && S.m >= S.m0 + 0.05) c = sprint;
@@ -855,7 +859,7 @@ function genTable(m = MID_M.medium) {
     const run = sum(lanes.map(id => { const sl = solveIn(par, id, g, m); return (sl.readCost * gen.lam * LANES[id].vol + sl.salary) * 60; }));
     rows.push([`G${g}`, f2(gen.lam), lanes.map(id => LANES[id].name).join('+'), Math.round(lpm), pct(pModel(m, g) + LANES.ext.pjb, 1),
       f1(none.dmg * gen.lam * 60), f1(none.reg * gen.lam * 60), f1(none.pi), f2(st.pi), f2(pb.pi), f1(ps.flagsPerMin),
-      pct(ps.shipFlagged, 1), pct(ps.reviewed), pct(1 / (RESP.auditor.tau * gen.lam)), `$${(income / 1000).toFixed(1)}k`,
+      pct(ps.shipFlagged, 1), pct(ps.reviewed), pct(1 / (RESP.auditor.tau * gen.reviewMult * gen.lam)), `$${(income / 1000).toFixed(1)}k`,
       pct(run / income), (DEBT_M * debtPerLine(pi)).toFixed(3),
       (DEBT_M * debtPerLine(solveIn({ ...starterAt(), lab: { ...newLab(), probeStale: g - 1 } }, 'int', g, m))).toFixed(3),
       (DEBT_M * debtPerLine(solveIn(noneAt(), 'int', g, m))).toFixed(2)]);
@@ -1092,7 +1096,7 @@ function desReport() {
   }
   const cases = [['G1 worked example: 1 desk, 6.8 flags/min, 36 lines/min', { desks: 1, tau: 8, flagsPerMin: 6.84, linesPerMin: 36 }],
     ['G1, 2 desks, 7.4 flags/min', { desks: 2, tau: 8, flagsPerMin: 7.4, linesPerMin: 36 }],
-    ['G6, 3 desks, 35.5 flags/min, 132 lines/min', { desks: 3, tau: 8, flagsPerMin: 35.5, linesPerMin: 132 }]];
+    ['G6, 3 desks (L3), 35.5 flags/min, 132 lines/min', { desks: 3, tau: RESP.auditor.tau * RESP.auditor.tauMult[2] * GENS[5].reviewMult, flagsPerMin: 35.5, linesPerMin: 132 }]];
   const rows = cases.map(([name, c]) => {
     const eb = erlangB(c.desks, c.flagsPerMin / 60 * c.tau);
     const a = sim({ ...c, pSpot: SPOT_P, preempt: false }), b = sim({ ...c, pSpot: SPOT_P, preempt: true });

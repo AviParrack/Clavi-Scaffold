@@ -22,6 +22,8 @@ The main menu has three modes (keys `1` `2` `3`, `Esc` goes back a step):
 
 Campaign and tower defense then ask for a difficulty. A player's first game of either opens with the G1 tutorial. Each mode keeps its own best score.
 
+The G1 rails start empty, and a flag no responder takes ships. A desk's overflow is yours to answer: buy a Kill Switch, or put Defer below the desks (a research card from G1) and add desks as it fills (they read faster from L3). Both can win; desks alone can't, since they still overflow.
+
 - `?seed=N` reproducible run
 - `?pixel=1` whole-number scale only (crisper, smaller board)
 - `?debug=1` debug keys plus the truth panel (true m, drift, live per-read catch / false alarm / unread) and truth marks on chips
@@ -61,12 +63,18 @@ the live state even when the mouse is still.
 
 ```bash
 cd Workshop/Handoff-Game/game
-node test/headless.mjs                     # all asserts (~15 s)
-node test/headless.mjs test events         # one test by name (`test` alone lists them)
-node test/headless.mjs run smart 3         # one verbose run: policy, seed
-node test/headless.mjs balance smart       # win/loss table across difficulties + speed at G7 volume
-node test/headless.mjs balance smart off   # same with BALANCE.rivalWinsRace = grace | instant | off
+node test/headless.mjs                     # the quick tier (~35 s; runs train.mjs and content-check.mjs too)
+node test/headless.mjs test capacity       # one test by name (`test` alone lists them)
+node test/headless.mjs zoo human medium 200   # one zoo cell (test/policies.mjs), for tuning
+node test/headless.mjs balance 400         # the zoo on the real sim, events on: every balance target and the shock (~20 min on 4 CPUs)
+node test/headless.mjs parity 400          # the zoo with events off, against design/balance-v3.mjs (± 10 points)
+node test/headless.mjs forbid              # what each element saves per generation on the par build
+node test/content-check.mjs                # the words: lengths, placeholders, Big Boss
 ```
+
+The balance targets (`zooTargets` in `test/policies.mjs`) are on the `human` population. Since v5 they include winning
+without ever buying a Kill Switch (`noKillDesks`, `noKillDefer`, `noKillHybrid`), and that no such style, nor human's
+own Defer-first opening (`humanDefer`), runs away from human (DESIGN-v3 §2.9 #21–#22).
 
 Asserts: detector TPR/FPR match config per read, read quality cuts flags to TPR·q, detectors run out of heads at G7 and upgrades help, no chip is ever held (pass-by track), same seed → same run, slot prices escalate and stop at 10, a full bay never stalls the lane, upgrades raise the catch rate as configured, the kill switch blocks unresolved flags, buying a mount mid-run never lets a chip skip one, the compute split moves income / R&D / evidence the right way and takes effect at once (junk inputs too), each generation spawns its configured chips/s, traits roll deterministically and do what they say, dossier rows unlock at exactly 5/12/25/40/60 evidence gathered on the current model, chip text and shape never prove a chip is an attack (decoys), no-layers loses before G4 on Medium, all-layers never wins and pays the safety tax in ≥ 4/5 seeds, money and evidence are conserved. Chunk 3: all 18 elements place where allowed (and nowhere else) with full elementStats, every element moves its metric in a seeded A/B run, each new capstone does what it says, the Red Team's measured rate brackets the true TPR·q, research draws offer two branches with a counter to a seen attack, every tech card changes its number, every one of the 31 events fires, applies its effect and its banner expires, event cooldowns / generation gates / one-choice-at-a-time hold in a stress run, the rival rule works in all three modes, every trait counter answers its trait, a Red Team tally follows the truth when it moves, an exfiltration foiled / contained / announced counts as seen, every event number comes from its effect, and reputation is conserved like money and evidence.
 

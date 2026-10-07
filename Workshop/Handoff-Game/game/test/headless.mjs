@@ -587,11 +587,11 @@ function testLaneIds() {
 
 // ----- flags first: a flag bumps a spot check, so flag overflow is exactly Erlang-B -----
 function testCapacity() {
-  console.log('\n▶ Auditor capacity (§3c): flags preempt spot checks, so flag overflow = Erlang-B(desks, flags/s × 8 s), ± 3 points');
+  console.log('\n▶ Auditor capacity (§3c): flags preempt spot checks, so flag overflow = Erlang-B(desks, flags/s × τ), ± 3 points');
   const CASES = [
     { name: 'G1, 1 desk, 6.8 flags/min, 36 lines/min', g: 1, desks: 1, flags: 6.8, lines: 36, T: 4000, doc: 0.477 },
     { name: 'G1, 2 desks, 7.4 flags/min, 36 lines/min', g: 1, desks: 2, flags: 7.4, lines: 36, T: 4000, doc: 0.197 },
-    { name: 'G6, 3 desks, 35.5 flags/min, 132 lines/min', g: 6, desks: 3, flags: 35.5, lines: 132, T: 900, doc: 0.511 },
+    { name: 'G6, 3 desks, 35.5 flags/min, 132 lines/min', g: 6, desks: 3, flags: 35.5, lines: 132, T: 900, doc: 0.502 },   // v5: τ 8 × 0.65 (L3) × 1.5 (G6) = 7.8 s
   ];
   for (const c of CASES) {
     // every lane: one Auditor at the top (at c.desks), c.lines lines a minute, c.flags of them flagged at spawn
@@ -1589,7 +1589,8 @@ function testTechCards() {
     ['extra_desk', 'auditor desks', () => bayDesks(st, 'auditor', 1), (a, b) => b === a + TECH.extraDesk],
     ['monitor_diversity', 'probe TPR with 2 other detector kinds', () => nominalTPR(st, 'probe', 1, 'int'), (a, b) => near(b - a, 2 * TECH.diversityPerType)],
     ['debate', 'auditor errors at G4', () => 1 - auditorAcc(st, 1), (a, b) => near(b, a * TECH.debateErr)],
-    ['debate', 'auditor seconds per line', () => elementLatency(st, 'auditor', 1), (a, b) => b === TECH.debateTau && a === LAYERS.auditor.tau],
+    ['debate', 'auditor seconds per line (× the G4 reviewMult)', () => elementLatency(st, 'auditor', 1),
+      (a, b) => near(b, TECH.debateTau * GENERATIONS[3].reviewMult) && near(a, LAYERS.auditor.tau * GENERATIONS[3].reviewMult)],
     ['promote_model', 'Trusted Monitor base TPR', () => monitorBaseTPR(st), (a, b) => b === LAYERS.monitor.tpr[0] && b > a],
     ['jamming', 'Untrusted Monitor collusion at m 0.34', () => { st.m = 0.34; return collusion(st, 'int', null, 'untrusted', 1); }, (a, b) => near(b, a * TECH.jamming) && a > 0],
   ];
@@ -2593,6 +2594,8 @@ function researchZoo(st, z) {
   // afkTutorial: the tutorial forces an offer at 60 s of G1 (balance-v3 tutOffer)
   if (pol.maxPicks === 1 && st.gen === 1 && st.genT >= B.research.tutorialAt && !z.picks && !R.offers) R.rp = Math.max(R.rp, B.research.offerRP);
   if (!R.banked.length || z.picks >= (pol.maxPicks ?? Infinity) || st.t - R.banked[0].t < (pol.delay || 0)) return;
+  const want = pol.reroll && CARD_BY_ID[pol.reroll];                // the free reroll, spent on an offer without the card it wants
+  if (want && R.rerollFree > 0 && cardEligible(st, want) && !R.banked[0].cards.some(x => x.id === want.id)) reroll(st);
   const cards = R.banked[0].cards.filter(x => cardEligible(st, CARD_BY_ID[x.id]));
   let c = bestCard(cards, pol);
   const sprint = cards.find(x => x.id === 'sprint');                // the comeback card: taken when m has crept up
@@ -2668,7 +2671,7 @@ const compactRun = o => ({ win: o.win, reason: o.reason, g: o.g, t: o.t, m: o.m,
 
 // ----- worker threads: a job is { kind: 'sim' | 'model', pol, diff, from, to, parity, over, forbid, set } -----
 // set: [[path, value]] config changes for this job only (e.g. ['GENERATIONS.3.opp', 1.8]), put back afterwards.
-const ROOTS = { BALANCE: B, DIFFICULTY, GENERATIONS, LAYERS, LANE_DEFS, UPGRADES, TECH, TRAITS, EVENTS: EVENT_BY_ID };   // EVENTS.<id>.trigger=true: never at random
+const ROOTS = { BALANCE: B, DIFFICULTY, GENERATIONS, LAYERS, LANE_DEFS, UPGRADES, TECH, TRAITS, EVENTS: EVENT_BY_ID, CARDS: CARD_BY_ID };   // EVENTS.<id>.trigger=true: never at random
 function applySet(set = []) {
   const undo = [];
   for (const [path, v] of set) {
@@ -2783,7 +2786,7 @@ function zooLab(seed, g, m, open = g) {
 // The new lane arrives as in the game: closed until Big Boss opens it at genT laneDeadline (50 s into the full-volume
 // window, which starts at genT warmup), then it ramps in. Since v4 its kit has no responder (no Kill Switch), so at
 // full volume from the first second it would ship every flag (DESIGN-v3 §2.9 #20).
-const MID_M = { easy: 0.19, medium: 0.34, hard: 0.49 };   // the middle of each DIFFICULTY range
+const MID_M = Object.fromEntries(DIFFS.map(d => [d, (DIFFICULTY[d].range[0] + DIFFICULTY[d].range[1]) / 2]));   // the middle of each DIFFICULTY range
 function shockRuns({ g, diff, from, to, maxT = 600 }) {
   const out = [];
   for (let seed = from; seed <= to; seed++) {
@@ -3017,7 +3020,7 @@ else if (cmd === 'tune') {
   const t0 = Date.now(), res = await zooPool({ N, parity, pols, set, diffs });
   console.log(`tune ${set.map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(' ') || '(as is)'} · ${N} seeds · ${parity ? 'parity' : 'events on'}`);
   console.log(zooTable(res, pols));
-  console.log(hazardTable(res, pols.filter(p => ['human', 'smart'].includes(p))));
+  console.log(hazardTable(res, pols));
   console.log(targetLines(zooTargets(res)));
   console.log(`(${((Date.now() - t0) / 1000).toFixed(0)} s)`);
 }

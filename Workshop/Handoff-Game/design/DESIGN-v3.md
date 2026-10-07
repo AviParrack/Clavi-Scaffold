@@ -1,6 +1,6 @@
 # HANDOFF v3: design
 
-*2026-10-05 · revision 2. For Avi and the v3 build agents. It answers [AVI-FEEDBACK-v3.md](AVI-FEEDBACK-v3.md) item by item. Three critics reviewed revision 1 (62 items); [Appendix A](#appendix-a-review-log) logs what happened to each.*
+*2026-10-05 · revision 2, with the v4 and v5 balance passes since (§2.9 #20, #21; v5 2026-10-06; its review, #22, 2026-10-07). For Avi and the v3 build agents. It answers [AVI-FEEDBACK-v3.md](AVI-FEEDBACK-v3.md) item by item. Three critics reviewed revision 1 (62 items); [Appendix A](#appendix-a-review-log) logs what happened to each.*
 
 > 🚩 **Eight decisions need your taste: [§8](#8-decisions-for-avi).** Each has a default, and the build uses it if you say nothing.
 
@@ -75,12 +75,13 @@ You can read every line. Some honest lines are **decoys** that only look suspici
 - Paraphrasers, Honeypots and Signal Jamming break collusion.
 
 **Human auditors** are slow (8 s per line per desk) and expensive. They are almost never wrong: 99.8%, falling to 98% at G7.
+- *v5:* a review floor reads faster from L3 (× 0.65, L4 × 0.5), and from G4 a line takes longer to read (× 1.2, rising to × 1.65 at G7). Desks can carry G1's overflow, but not the later ones on their own: a lab with no Kill Switch and no Defer wins 2% on Medium. Oversight still doesn't scale (§2.9 #21–#22).
 - *Your rule, now the game's:* **humans always take flagged lines first; leftover time goes to random spot checks.**
 - A flag that arrives while a desk is spot-checking bumps the spot check, and that line goes back unreviewed.
 - A flag that finds every desk busy *with flags* rolls on to the next responder. If nothing below has room, it **ships**.
-- *Your "1%" question.* One desk covers 21% of a lane at G1 and 7% at G7. Real labs review far less than 1%; the game compresses this so humans matter. The HUD shows "% of traffic reviewed by humans".
+- *Your "1%" question.* One desk covers 21% of a lane at G1 and 4% at G7 (7% before v5 made late lines slower to read). Real labs review far less than 1%; the game compresses this so humans matter. The HUD shows "% of traffic reviewed by humans".
 
-**The other responders.** **Defer to Trusted** (2 s per line): the weak trusted model redoes the line; safe, but it pays less. **Kill Switch** (4 s): refuses the line; no risk, but a $10 fee and −1.3 reputation per refusal on Consumer, because users notice. It is the blunt last resort, not a stand-in for review, and it is **optional**: it sits in the starting hand, but no rail holds one until you buy it (Avi, v4: no default Kill Switch). **Resampler** (R&D only, 1 s): redraws the line.
+**The other responders.** **Defer to Trusted** (3 s per line since v5; a research card from G1, whose copy is free; $800 a copy since #22): the weak trusted model redoes the line; safe, but it pays less. **Kill Switch** (4 s): refuses the line; no risk, but a $10 fee and −1.3 reputation per refusal on Consumer, because users notice. It is the blunt last resort, not a stand-in for review, and it is **optional**: it sits in the starting hand, but no rail holds one until you buy it (Avi, v4: no default Kill Switch), and since v5 a lab can win without ever buying one, on more desks with Defer behind them (§2.9 #21–#22; desks alone still overflow). **Resampler** (R&D only, 1 s): redraws the line.
 
 **Evidence and the dossier.**
 - Evidence comes from attacks a human confirms (+1 each), Honeypot catches, and Safety sweeps (1.5 per minute at the default 10% Safety).
@@ -200,8 +201,8 @@ G1 starts at the card, then the tutorial. New lanes arrive as **contracts** at G
 
 | responder | servers by level | τ (s) | buy $ | what it does to a line it takes |
 |---|---|---|---|---|
-| Human Auditor | 1/2/3/4 desks | 8 (6 with Debate) | 800 | blocks an attack with chance α_g (+1 evidence). An honest line passes (1% are wrongly blocked). Salary $1.5/s per desk × π_g |
-| Defer to Trusted | 1/2/3/4 | 2 | 500 | the trusted model redoes it, at zero risk. Pays the Defer share × [1, 1.15, 1.3, 1.5] by level; half regen; half R&D |
+| Human Auditor | 1/2/3/4 desks | 8 (6 with Debate); × 0.65 at L3, × 0.5 at L4; × the generation's `reviewMult` (v5) | 800 | blocks an attack with chance α_g (+1 evidence). An honest line passes (1% are wrongly blocked). Salary $1.5/s per desk × π_g |
+| Defer to Trusted | 1/2/3/4 | 3 (2 before v5) | 800 (500 before #22; the research card's copy is free) | the trusted model redoes it, at zero risk. Pays the Defer share × [1, 1.15, 1.3, 1.5] by level; half regen; half R&D |
 | Resampler (INTERNAL) | 2/2/3/4 | 1 | 500 | redraws the line; the redraw gets one TM-grade check |
 | Kill Switch | 1/2/3/4 operators | 4 | 300 | refuses it: $10 fee and no pay. Reputation −1.3 on Consumer, −0.05 Enterprise, −0.15 Government, for every refusal, real or not. On INTERNAL lanes the refused line pays no R&D |
 | *nobody free* | | | | **the flagged line ships** |
@@ -241,7 +242,7 @@ G1 starts at the card, then the tutorial. New lanes arrive as **contracts** at G
 
 | | Easy | Medium | Hard |
 |---|---|---|---|
-| first model's m | [0.16, 0.22] | [0.31, 0.37] | [0.46, 0.52] |
+| first model's m | [0.16, 0.22] | [0.34, 0.40] (v5; was [0.31, 0.37]) | [0.52, 0.58] (v5; was [0.46, 0.52]) |
 
 ### 2.3 Equations
 
@@ -456,12 +457,12 @@ All Δm columns are **per generation, not cumulative**.
 - The worst step is G2 → G3: 121.5 rep/min at once (49 s from full to empty), 120 s with the new lane at the deadline.
 - Hard's G1 → G2 (13.0 rep/min) is softened by the G1 build's TM L2, Probe L2 and Classifier. It is not softened by a UM, which only arrives at G3.
 
-**What is guaranteed.** Avi's "came back after 10 s and had lost" now needs an absence of more than 2 minutes. The guarantees, in order:
+**What is guaranteed.** Avi's "came back after 10 s and had lost" now needs an absence of more than 1.5 minutes. The guarantees, in order:
 1. The game stops at the card.
 2. Speed drops to 1× there.
 3. Fast-forward stays locked during a new lane's ramp.
 4. A contract lane carries no traffic until you open it, or until 90 s pass. Then it opens with its kit, which has no responder: that 90 s is the time to put one on it.
-5. Walking in unprepared and letting the new lane open at the deadline takes **≥ 141 s** to empty a full bar (the sim's Medium 5th percentile, G2 → G3; asserted ≥ 90 s). Opening the new lane at once with only its kit is faster: 38 s.
+5. Walking in unprepared and letting the new lane open at the deadline takes **≥ 95 s** to empty a full bar (the sim's Medium 5th percentile, G2 → G3, after #22; asserted ≥ 90 s; it was 141 s before v4 emptied the kits). Opening the new lane at once with only its kit is faster: 38 s.
 
 **Pressure index plot** (log scale). PI = 1 is break-even. Command: `plot`.
 
@@ -500,6 +501,8 @@ All Δm columns are **per generation, not cumulative**.
 | noAuditor | human with no auditors | 42 | 27 | 10 | 34% · 502 s · R289 P3 |
 | noDefer | human with no Defer | 65 | 34 | 9 | 2% · 1024 s |
 | noKill | human with no Kill Switch (v4; no target) | 7 | 1 | 0 | 54% · 443 s · R395 |
+| noKillDesks · noKillDefer | human's spread, never a Kill Switch: the money goes into desks, or into Defer as soon as the card shows (v5, §2.9 #21; this row and the next are the sim's `balance 400`, events on, after #22) | 54 · 55 | 26 · 35 | 12 · 13 | 10 · 17% died by G2 |
+| noKillHybrid · humanDefer | Defer first, then desks, never a Kill Switch · human's own list with Defer as its next answer: Defer on both lanes and its L2 in G1 (#22) | 61 · 80 | 38 · 52 | 18 · 24 | 6 · 5% died by G2 |
 | noTraining | human with training s = 0 | 69 | 42 | 18 | 1% · 1016 s |
 | researchHeavy | human with the split at 30/40/30 | 66 | 35 | 14 | 3% · 1300 s · R174 C12 B15 P60 |
 
@@ -516,6 +519,15 @@ All Δm columns are **per generation, not cumulative**.
 - **noAuditor** wins ≥ 5 points less than human (27 vs 48).
 - **researchHeavy** wins ≤ human + 5 (35 vs 48).
 - **The hazard curve** passes (0 / 2 / 11 / 13 / 13 / 14 / 16%).
+
+**v5 targets (Avi: "Make it viable", §2.9 #21–#22).** Eight more, 26 in all. The model prints them too, but the asserted numbers are the sim's (`balance 400`, events on, after #22):
+- **noDefer** wins ≥ 5 points less than human on Medium (16 vs 39).
+- **No Kill Switch, Medium:** the better of noKillDesks and noKillDefer wins ≥ 25%, and each wins ≥ 18% (26 and 35).
+- **No Kill Switch, Easy:** the better one wins ≥ 45% (54 and 55).
+- **No new dominant style, Medium and Hard** (#22 added the hybrid and the Hard cell): the best of noKillDesks, noKillDefer and noKillHybrid wins ≤ human + 5 (Medium 26 / 35 / 38 vs 39; Hard 12 / 13 / 18 vs 16).
+- **The Kill Switch still pays:** human ≥ the weaker no-Kill style on Medium (39 vs 26).
+- **No single opening runs away** (#22): humanDefer ≤ human + 15 on Medium (52 vs 39).
+- **The Kill Switch still pays with Defer matched** (#22): humanDefer ≥ noKillHybrid + 5 on Medium (52 vs 38).
 
 **How touchy the target is.** Command: `slope 300`. Base: human on Medium, 38% at 300 seeds.
 
@@ -634,6 +646,8 @@ The model can say *plausible*, never *balanced*. The real asserts run on the rea
 | #17: the retune, in both engines | **0** | monoUM Easy win +9 (the loosest cell: watch it) · smart Hard win +6 · afkTutorial Hard died by G2 −6 |
 | #19: the Kill Switch's price and the retune, in both engines | **0** | afkTutorial Easy died by G2 −6.5 · human Hard win −5.5 · human Medium win +5.2 |
 | #20: no default Kill Switch, the policies buy theirs, money and regen, in both engines | **0** | starter Easy died by G2 −5 · afkTutorial Easy died by G2 −3 · human Easy win −2 |
+| #21: desks faster from L3 and slower from G4, Defer from G1 at 3 s, Medium and Hard m, in both engines | **0** | starter Easy died by G2 −5 · smart Hard win +3 · monoUM Medium win +3 |
+| #22: Defer $800, human's R&D Defer at G4, the reroll, in both engines | **0** | monoUM Easy win +6 · starter Easy died by G2 −5 · human Hard win +3 · smart Hard win −3 |
 
 12. **R&D per line.** In the sim only a line that completes brings R&D. An attack stopped by an Auditor or a Kill Switch brings none, and neither does an honest line the Kill Switch refuses; a deferred line brings half. The model credited every spawned line, so a par lane finished in about 0.9·T_g and a retrain (20 s dark) cost no slack. Both engines now count R&D per completed line, and **rdPar 0.9 → 0.8** keeps a par lane at about T_g, since it loses about 20% of its R&D lines. The quick test `deployLength` checks it: T_g plus one travel, ± 5%, over 16 seeds.
 13. **Pay and regen per line.** The sim pays every line that completes, a landed attack included, and Defer pays its share. Regen comes per honest EXTERNAL line delivered (half if deferred). The model paid INTERNAL attack lines that were stopped, and spread pay per second. It now uses the same per-line pay and regen.
@@ -706,7 +720,7 @@ The model can say *plausible*, never *balanced*. The real asserts run on the rea
 20. **No default Kill Switch (Avi, v4: "Don't think a default to kill switch is needed").**
     - **The change.** Both G1 rails start empty (`startRail: []`), and a contract lane's kit is a Probe and a TM (`laneKit`). The Kill Switch stays in the starting hand at $300.
     - **The rule was already there.** A flag that no responder takes ships unreviewed (`completeTask`), and the readouts follow the rail: the Auditor tooltip says "ships unreviewed", the lane box says SHIPS, and a chip that passes the last responder gets the UNREVIEWED stamp.
-    - **The words.** In step 4 of the tutorial Big Boss now says "My red button? Buy your own." A new content check fails any tutorial or contract line that calls an element already there when the config doesn't place it.
+    - **The words.** In step 4 of the tutorial Big Boss now says "My red button? Buy your own." (v5 replaced it with the three answers, #21.) A new content check fails any tutorial or contract line that calls an element already there when the config doesn't place it.
     - **Untuned, it broke the game.** With only the policies changed to buy their Kill Switches, human won 25 / 8 / 1% and smart 88 / 72 / 35% (`tune`, 400 seeds, events on). The Medium hazard ran 16 / 29 / 42% in G1–G3. The causes:
       - **G1 Consumer.** One desk carries about 1 Erlang, so half its flags ship. That bleeds −15.3 rep/min, against −5.0 with a Kill Switch L1 below it (`worked`).
       - **R&D.** A Probe with nothing below it ships every flag, and that debt raises the next model's m.
@@ -753,6 +767,135 @@ The model can say *plausible*, never *balanced*. The real asserts run on the rea
     - **Defer matters more.** noDefer is −19 on Medium (it was −13). The cause is not split.
     - **Opening a new lane at once, with nothing below the TM, is the old shock.** At G2 → G3 on Medium, 1 run in 20 goes from full to empty within 40 s. The lane box says SHIPS while it lasts.
     - **The shock margin is thin.** Even with the lane left closed until the deadline, G2 → G3 on Medium survives 99 s at the 5th percentile against the 90 s bar (fastest of 100: 79 s), and G4 → G5 121 s. A returning player has the 90 s, little more.
+21. **Winning without a Kill Switch (Avi, v5: "Make it viable").**
+    - **The ask.** At v4 the Kill Switch was optional to place but not optional to win (#20). Avi chose to make a no-Kill-Switch style viable: more desks, or Defer taken early, must be able to carry the overflow.
+    - **Two new policies** (`test/policies.mjs`; the model reads the same file). Both are `{...HUMAN}`, so each run draws a player from human's spread. Neither ever buys a Kill Switch or picks its level card (`NO_KILL_PICKS`, which noKill now uses too):
+      - **noKillDesks** puts the $300 of Consumer's Kill Switch into Auditor L2. Then it buys the R&D desk, L3 in G1, the R&D TM and the Classifier, and L4 in G3, followed by human's later list with no Kill Switch in it. Its research picks put the Classifier and the Auditor levels first.
+      - **noKillDefer** places Defer on Consumer as soon as the card shows. Then it buys the R&D desk, Defer on R&D and Defer L2 in G1, then the TM and the Classifier, Defer L3 at G4 and L4 at G5. Its picks put Defer and Defer's levels first.
+      - Each policy's first move (the L2 desk, or the first Defer) sits where step 4 points, so `drawPlayer` never skips it. That uses a new policy field, `keep`, which works like the tutorial's own items. human now marks Consumer's Kill Switch the same way (`keep: [POINTED_AT]`), and its draws are unchanged.
+    - **Why they died at v4** (Medium, 400 seeds, events on): noKillDesks won 7%, noKillDefer 8% and noKill 2%, against human's 36%.
+      - **Desks.** One G1 desk carries about 1 Erlang and ships half its flags. Four desks at 8 s each still ship about 10% at G2–G3. noKillDesks' Medium hazard ran 5 / 18 / 40 / 48% in G1–G4. Most of the loss is R&D overflow turning into debt, and debt raises the next model's m: Δm from debt ran 0.09–0.14 a generation, against human's 0.03–0.08.
+      - **Defer.** It was a G2 research card. In G1 a no-Kill player had one desk with nothing behind it, so the G1 hazard was 21% and the G2 hazard 45%.
+    - **The knobs.** Six config values changed, two of them new fields. One sim hook reads the two new fields: `elementLatency` in `rules.js`.
+
+    | knob | was | now | where |
+    |---|---|---|---|
+    | Defer card, first offered | G2 | **G1** | both engines (`cards.js` `NEW('defer', 'control', 1)`; model `CARDS`) |
+    | Auditor `tauMult` by level (new) | 1 at every level | **1 / 1 / 0.65 / 0.5 / 0.5** | both (`upgrades.js`; model `RESP.auditor.tauMult`) |
+    | Auditor `reviewMult` by generation (new) | 1 | **1 / 1 / 1 / 1.2 / 1.35 / 1.5 / 1.65** | both (`generations.js`; model `GENS`) |
+    | Defer `tau` | 2 s | **3 s** | both (`layers.js`; model `RESP.defer`) |
+    | Medium m | [0.31, 0.37] | **[0.34, 0.40]** | both, mid m 0.34 → 0.37 (balance-v3 `MID_M`; headless now derives `MID_M` from `DIFFICULTY`) |
+    | Hard m | [0.46, 0.52] | **[0.52, 0.58]** | both, mid m 0.49 → 0.55 |
+
+    - **Why each knob.** All runs here are on Medium, with 400 seeds and events on.
+      - **Desks are faster from L3.** L1 and L2 keep 8 s per line, so the tutorial's single desk and its overflow are unchanged. A player who pays for L3 (a lab-wide level) gets a review floor that can carry G1–G3. With this and `reviewMult`, noKillDesks went from 7% to 31%.
+      - **Desks are slower from G4.** Without this, fast desks were a free late-game buff for every style. In the desks explorer's run, monoUM won 10% on Medium and only 75% of its runs were lost by G6 (the bar is 80%), and the hazard-step target failed. From G4 a line is too big to read in 8 s, which keeps one of the game's ideas: oversight doesn't scale. Desks are now cheap where the Kill Switch used to be the only answer (G1–G3), and dear where it never was.
+      - **Defer from G1.** Defer is the only answer to a desk's overflow that neither costs reputation nor ships the line unreviewed. Moving the card to G1 took noKillDefer from 19% to 45%. It helps every style: human 42 → 45%, noAuditor 14 → 33%.
+      - **Defer at 3 s per line.** At 2 s, the G1 card carried too much: noKillDefer tied human at 45%, and noAuditor came within 12 points of it. At 3 s, noKillDefer fell from 41% to 33% and noAuditor from 31% to 25%, while human stayed at 39%. At 2.5 s noKillDefer read 39%, level with human. Defer still costs quality and latency, never reputation.
+      - **Medium and Hard m.** Defer from G1 lifted human Medium to 45%, the top of its 30–45 band. Hard rose above its 18% ceiling. Raising m by 0.03 on Medium and 0.06 on Hard brings human back to 39% and 11%. Easy did not move (66%).
+    - **Tried and dropped.**
+      - **Regen as the compensator** (0.29 / 0.28 / 0.27 in place of the m shift). Human barely moved (46 / 48 / 44%), while both no-Kill styles fell (desks 30 / 28 / 27%, Defer 43 / 40 / 38%). Regen stays at 0.31, and the Kill Switch's break-even stays at 14.2% on Consumer, 2.5% on Enterprise and 3.3% on Government.
+      - **A follow-up rule** (the pressure explorer): an attack that ships flagged past a busy desk costs × 0.4. It is a new mechanic. It raised the Kill Switch's Consumer break-even to 33.5%, let afkTutorial survive G2 in 14% of Medium runs, and cleared the 25% bar by only 1.3 points.
+      - **Defer guaranteed in G1's first Control offer.** It made Defer dominant.
+      - **Desks alone** (`tauMult` and `reviewMult`, with regen 0.30). noKillDesks reached 31%, but noKillDefer stayed at 19–20%, because a card that first shows in G2 cannot save G1.
+      - **Cheaper or faster early desks** (L1/L2 τ, the L2 price, salary). Every early-desk boost lifted human by 10–15 points, through spot checks and fewer Kill Switch refusals, so the gap never closed.
+    - **The human population stays one style.** Should `human` mix the three answers? No. It stays the player who follows step 4 to the Kill Switch, and the two no-Kill styles are separate, asserted policies.
+      - The 18 targets are calibrated on `human`. Paired comparisons (noAuditor, noDefer, forbid) need it to be one build.
+      - A mix is only a weighted average of cells that are already printed. A third of each would give 59 / 34 / 13%, inside every one of human's bands, so the targets would hold either way.
+      - The weights would be a guess about how players split at step 4. The first playtest measures that, and `human` can become a mix then.
+    - **The result**, from `balance 400` with events on. All 23 targets and the shock pass.
+
+    | | v4 (#20) | v5 (#21) |
+    |---|---|---|
+    | human Easy / Medium / Hard | 66 / 36 / 13% | **66 / 39 / 11%** |
+    | smart | 94 / 84 / 59% | **96 / 88 / 59%** |
+    | noKill | 5 / 2 / 0% | **11 / 4 / 1%** |
+    | noKillDesks | 7% on Medium | **52 / 31 / 9%** |
+    | noKillDefer | 8% on Medium | **59 / 33 / 18%** |
+    | noAuditor | 33 / 18 / 7% (−18 on Medium) | **49 / 25 / 9%** (−14) |
+    | noDefer | 49 / 17 / 6% (−19) | **43 / 16 / 3%** (−23) |
+    | human dies by G2, Medium / Hard | 7 / 20% | **7 / 11%** |
+    | human Medium hazard G1–G7 | 2 / 6 / 17 / 14 / 20 / 17 / 19% | **3 / 5 / 13 / 15 / 13 / 17 / 20%** |
+    | human Medium Δm from debt, G1 (median) | 0.068 | **0.082** |
+    | afkTutorial Medium: dies by G2, median death | 100%, 249 s | **100%, 238 s** |
+    | shock, Medium 5th percentile: G1 → G2 · G2 → G3 · G4 → G5 | 332 · 99 · 121 s | **283 · 95 · 111 s** (fastest 86 s and 103 s) |
+
+    - **The Kill Switch still pays.** human beats both no-Kill styles on Medium (39 against 31 and 33, on seeds 1–400; #22 checks seeds 401–800 too, adds the hybrid, which human only ties, and makes the like-for-like comparison humanDefer against the hybrid). In `forbid`, on par at Medium's new mid m (0.37), the Kill Switch still matters in G1–G5 (116 / 112 / 154 / 86 / 16, in the metric's units). That is the most of any element through G4. Two other elements matter too:
+      - the Auditor, in G1–G5 (14 / 15 / 18 / 32 / 13);
+      - Defer, in G3–G6. Par first places it at G2, and adding it in G1 is worth 8.6 (that clears the bar).
+
+      The rework list is v4's without Honeypots, which now matter at G5: Rate Limiter, Canary Tokens, Interp Lab, Resampler, Egress Filter, Least Privilege and Weight Security.
+    - **What it costs.**
+      - **Hard is lopsided.** noKillDefer wins 18% on Hard against human's 11%. That is +7 points, and no target asserts it, since the no-dominance target is on Medium. The likely reason, not yet split: Hard's Kill Switch refuses more lines, at −1.3 reputation each, while Defer only costs pay.
+      - **noKillDefer depends on the draft.** It dies by G2 in 19% of Medium runs and 32% of Hard runs (human: 7% and 11%). In the sweeps most of those deaths came in G1, before the card showed up.
+      - **Late desks are slower for everyone.** From G4, an L1 or L2 desk takes 9.6–13.2 s per line. noAuditor's gap shrank from −18 to −14, while noDefer's grew from −19 to −23.
+      - **The shock is thinner.** G2 → G3 on Medium survives 95 s at the 5th percentile, against the 90 s bar (it was 99 s), mostly because of the higher Medium m.
+      - **smart gains.** smart wins 88% on Medium (it was 84%), because it now usually picks Defer in G1. Par (`SMART_BUILD`) still places Defer at G2.
+      - **More debt in G1.** human's G1 Δm from debt rises from 0.068 to 0.082 with the higher m. Its G1 hazard is 3%, exactly at the bar.
+22. **Defer was the strongest opening (v5 review, 2026-10-07).**
+    - **What the review found.** A verifier ran openings that v5 didn't assert, on 400 paired seeds with events on:
+      - **noKillHybrid** (Defer first, then desks where the Kill Switches were) beat human by +4.8 on Medium, +9.0 on seeds 401–800, and +12.3 on Hard. v5's no-dominance target looked at two styles, on Medium only.
+      - **humanDefer** (human, Kill Switch and all, plus Defer on both lanes and Defer L2 in G1) beat human by +17.0 on Medium and +16.5 on Hard, outside human's bands. At v4's knobs the same opening was +9.5.
+      - **Desks alone don't carry the overflow.** noKillDesks wins because human's list buys Defer in G2. With no Defer at all (`desksNoDefer`) it wins 2% on Medium and 13% on Easy. v5's step 4 said "more desks" as if that were enough.
+    - **Why.** Per flag on Consumer in G1, Defer costs 40% of the line's pay and half its regen (0.155 rep). A Kill Switch refusal costs $10, all the pay, 1.3 rep and the regen. So Defer wins on money *and* reputation; the Kill Switch's only edges are that it needs no card and that it is a second queue. At $500 a copy, Defer on both lanes plus its L2 cost about what the two Kill Switches did.
+    - **The knob: Defer $500 → $800 a copy**, in both engines (`layers.js`; model `RESP.defer.buy`). The research card's copy stays free, so whoever drafts Defer still gets one at no cost. A second copy and Defer's levels (priced from `buy`) cost 60% more. One number, no new mechanic.
+    - **Sweeps.** 400 seeds, events on; paired SE ≈ 3.3 points on Medium and 2.5 on Hard. The policies changed a little between rows (the reroll came in midway), so read the rows by direction.
+
+    | change (seeds 1–400) | human M / H | humanDefer − human, M / H | hybrid − human, M / H | noKillDefer M | noKillDesks M |
+    |---|---|---|---|---|---|
+    | v5 as shipped (the review) | 39.3 / 11.3 | +17.0 / +16.5 | +4.8 / +12.3 | 33 | 31 |
+    | Defer 4 s per line (was 3) | 33.5 / 10.5 | +18.0 / +15.8 | +8.3 / +11.0 | 28.7 | 28.5 |
+    | Defer operators 1 / 1 / 2 / 3 at L1–L4 (was 1 / 2 / 3 / 4) | 32.8 / 10.3 | +14.2 / +10.0 | +4.0 / +6.0 | 15.5 | 19.3 |
+    | Defer keeps 45% of the pay in G1–G3 (was 60 / 55 / 50%) | 38.3 / 9.0 | +18.5 / +17.5 | +7.5 / +14.0 | 35.5 | 28.5 |
+    | **Defer $800** | 39.0 / 13.0 | +11.0 / +11.0 | +2.3 / +4.0 | 29.8 | 24.8 |
+    | Defer $900 | 38.0 / 10.8 | +14.5 / +10.8 | −0.8 / +6.5 | 32.3 | 26.5 |
+    | Defer $1000 | 38.8 / 12.3 | +10.8 / +10.0 | −4.3 / +1.3 | 26.5 | 26.3 |
+    | $800 and 4 s | 33.5 / 10.8 | +12.3 / +10.8 | +2.0 / +5.5 | 26.3 | 23.0 |
+    | $800, and a deferred line restores no reputation (a code change) | 33.5 / 11.8 | +14.0 / +8.5 | +1.8 / +5.3 | 31.5 | 25.3 |
+
+      - Only the price pulled humanDefer and the hybrid back without sinking noKillDefer. A slower Defer, or fewer Defer operators, weakened every lab, human included, and left the gaps where they were. Paying Defer less did nothing. $1000 was no better than $800 on humanDefer and took noKillDefer to 26.5%.
+    - **Three policy changes** (`test/policies.mjs`; the model reads the same file):
+      - **The reroll.** noKillDefer, noKillHybrid and humanDefer spend the free reroll on an offer that lacks Defer, while Defer is eligible and not yet owned. It is a new policy field, `reroll`, in both engines. A player hunting one card rerolls for it; v5's noKillDefer never did.
+      - **Two new asserted policies,** noKillHybrid and humanDefer, as the review defined them.
+      - **human's R&D Defer moves from G5 to G4,** next to Defer L2. Where it sits matters for the Auditor's target, because noAuditor is human's list without the desks (Defer at $800, both seed blocks):
+
+    | human's R&D Defer | human M, seeds 1–400 · 401–800 | noAuditor − human, M | humanDefer − human, M | hybrid − human, H | noKillDesks M |
+    |---|---|---|---|---|---|
+    | G2 | 39.5 · 35.8 | −5.0 · −4.3 | +9.3 · +10.0 | +4.5 · +2.5 | 30.8 |
+    | G3 | 37.8 · 36.5 | −5.8 · −6.0 | +14.8 · +8.3 | +4.8 · +3.8 | |
+    | **G4** | 39.0 · 37.8 | −8.5 · −8.3 | +13.3 · +6.5 | +2.8 · +3.1 | 26.3 |
+    | G5 (v5) | 39.0 · 36.0 | −15.5 · −10.8 | +12.0 · +8.8 | +5.3 · +3.5 | 24.8 |
+
+      At G2, R&D's Defer stands in for R&D's desk, and noAuditor comes within 5 points of human. At G5 (v5's place), the hybrid beats human on Hard by 5.3 on seeds 1–400. G4 clears both, on both seed blocks.
+    - **The targets: 26, three of them new** (`zooTargets`; the model prints them too):
+      - **No new dominant style** now takes the best of the three no-Kill styles (desks, Defer, both), each ≤ human + 5, on Medium and (new) on Hard.
+      - **No single opening runs away** (new): humanDefer ≤ human + 15 on Medium. The bar sits between v4's +9.5 and the +17 the review found.
+      - **The Kill Switch still pays with Defer matched** (new): humanDefer ≥ noKillHybrid + 5 on Medium. human takes Defer later than the hybrid, so human against the hybrid is not like for like; humanDefer against the hybrid is, and the only difference is the Kill Switch.
+    - **The words.** Step 4's Big Boss: "Desk full? A Kill Switch like my red button (customers hate it), or more desks with Defer behind them." §1, §3h and the README say the same: desks alone still overflow.
+    - **The result**, from `balance 400` with events on: all 26 targets and the shock pass.
+
+    | | v5 (#21) | v5 review (#22) |
+    |---|---|---|
+    | human Easy / Medium / Hard | 66 / 39 / 11% | **66 / 39 / 16%** |
+    | smart | 96 / 88 / 59% | **96 / 87 / 55%** |
+    | noKill | 11 / 4 / 1% | **13 / 4 / 0%** |
+    | noKillDesks | 52 / 31 / 9% | **54 / 26 / 12%** |
+    | noKillDefer | 59 / 33 / 18% | **55 / 35 / 13%** |
+    | noKillHybrid | not asserted (the review: human + 4.8 on Medium, + 12.3 on Hard) | **61 / 38 / 18%** |
+    | humanDefer | not asserted (the review: human + 17.0 on Medium, + 16.5 on Hard) | **80 / 52 / 24%** |
+    | noAuditor | 49 / 25 / 9% (−14 on Medium) | **51 / 31 / 15%** (−8.5) |
+    | noDefer | 43 / 16 / 3% (−23) | **43 / 16 / 3%** (−23) |
+    | human dies by G2, Medium / Hard | 7 / 11% | **7 / 12%** |
+    | human Medium hazard G1–G7 | 3 / 5 / 13 / 15 / 13 / 17 / 20% | **3 / 5 / 15 / 15 / 17 / 14 / 18%** |
+    | shock, Medium 5th percentile: G1 → G2 · G2 → G3 · G4 → G5 | 283 · 95 · 111 s | **283 · 95 · 111 s** (fastest 86 s and 90 s) |
+
+    - **Seeds 401–800**, the same tree (`balance` runs 1–400). human wins 37.8% on Medium and 14.2% on Hard. noAuditor is − 8.3 and noDefer − 22.8 on Medium. Without a Kill Switch, Medium: desks 25.8%, Defer 28.0%, the hybrid 39.5% (human + 1.8; + 3.0 on Hard). humanDefer is human + 6.5. Of the targets these cells cover, every one holds on this block but one: the matched comparison is + 4.8 (44.3% against 39.5%), just under its + 5 bar. Over both blocks it is + 9.5.
+    - **`forbid`** (par, Medium mid m): the Kill Switch still matters in G1–G6 (116 / 112 / 154 / 11 / 15 / 9, in the metric's units), the most of any element through G3. G4 fell from 86 because par's R&D Defer now comes at G4. The Auditor matters in G1–G5 and Defer in G1 (added) and G3–G6. Honeypots are back on the rework list by a hair (G5: 5.4 against a 5.5 bar).
+    - **What it costs.**
+      - **Thin margins, still.** humanDefer is human + 13.3 against its + 15 cap. human Hard is 16%, two points under its 18% ceiling. The shock's G2 → G3 is 95 s against the 90 s bar, and human's G1 hazard is 3%, at its bar. Paired SE is about 3.3 points on Medium, so any one target can move by that much on another seed block.
+      - **Desks lost ground.** noKillDesks fell from 31% to 26% on Medium, because it shares human's later list and R&D's Defer now comes at G4. It is still above the 18% floor, and desks with no Defer at all still lose (2%).
+      - **Defer is dearer for everyone.** smart Hard fell from 59% to 55%, and noKillDefer Hard from 18% to 13%.
+      - **Two runs before this one.** With R&D's Defer at G2 but left in the G5 part of the list, the first `balance 400` of this pass failed the hazard-step target by 0.2 points (G6 9% → G7 21%; on seeds 401–800 the same tree stepped at most 8). With it in the G2 block, the second passed all 26 targets, but noAuditor sat at exactly − 5.0, its bar. The placement sweep above came from that, and G4 from the sweep.
 
 ---
 
@@ -858,7 +1001,7 @@ A **Red Team** offer is guaranteed by the end of G2.
 
 | | |
 |---|---|
-| Capacity | 1/2/3/4 desks × 7.5 lines/min (τ 8 s; 10/min with Debate) |
+| Capacity | 1/2/3/4 desks × 7.5 lines/min (τ 8 s; 10/min with Debate). v5: τ × 0.65 at L3 and × 0.5 at L4 (`upgrades.js` tauMult), × the generation's `reviewMult` (1 through G3, then 1.2 / 1.35 / 1.5 / 1.65) |
 | Priority | **flags first.** A desk that is idle when an unflagged line passes its mount takes it with p = 0.8 (a spot check) |
 | Preemption | a flag that finds every desk busy **bumps a desk that is spot-checking**. That line returns to the track unreviewed, with no penalty, counted in `stats.spotPreempted` |
 | Overflow | a flag that finds every desk busy *with flags* rolls on. There is no queue and no block, and the `onFull: 'block'` bay rule is deleted. If nothing below has room, the flag **ships** (`stats.shippedFlagged`) |
@@ -876,7 +1019,7 @@ A **Red Team** offer is guaranteed by the end of G2.
 |---|---|---|---|
 | G1: 1 desk, 6.8 flags/min, 36 lines/min | 47.7% | 47.8% | 79.9% |
 | G1: 2 desks, 7.4 flags/min | 19.7% | 20.0% | 61.8% |
-| G6: 3 desks, 35.5 flags/min, 132 lines/min | 51.1% | 51.1% | 81.4% |
+| G6: 3 desks (L3: τ 8 × 0.65 × 1.5 = 7.8 s, v5), 35.5 flags/min, 132 lines/min | 50.2% | 50.2% | 81.1% |
 
 - A Kill Switch above an Auditor refuses at its own Erlang-B rate on the full flag stream, ± 3 points.
 - **Accuracy**, in lab mode: ≥ 2000 forced attacks reviewed, with errors at or below the Poisson 99.9% upper bound for 1 − α_g.
@@ -940,7 +1083,7 @@ The v2 "CATCH" figure (coverage × accuracy, the source of the 4%) is deleted.
 
 | phase | what the player sees | how it leaves |
 |---|---|---|
-| **card** | **one codec scene**: the model card on the left, its chat on the right. *The card:* name, tier, tagline and blurbs; m as a range (G1: "m 0.31–0.37 · MEDIUM", the range you rolled), then the estimate with its error bar; known traits; the new threat (the lock-and-key line); spine unlocks ("UM cleared for deployment"); a contract lane, if any. *The chat:* all of ROUND_CHATS[g] (5–6 lines) plus one trait tell. It auto-advances while the game is paused, and a click speeds it up | click DEPLOY (`ack`) |
+| **card** | **one codec scene**: the model card on the left, its chat on the right. *The card:* name, tier, tagline and blurbs; m as a range (G1: "m 0.34–0.40 · MEDIUM", the range you rolled), then the estimate with its error bar; known traits; the new threat (the lock-and-key line); spine unlocks ("UM cleared for deployment"); a contract lane, if any. *The chat:* all of ROUND_CHATS[g] (5–6 lines) plus one trait tell. It auto-advances while the game is paused, and a click speeds it up | click DEPLOY (`ack`) |
 | **play** | deployment. `st.warmT` = 40 s: volume ramps old → new, attacks ×0.5 → ×1. Fast-forward is allowed, except during a new lane's ramp. Play ends when the R&D bar fills | the sim |
 | **report** | auto-pause, and speed drops to 1×. The debt reveal (§3e). A scorecard row with Δm split into debt, training, retrain and sprint, **retrains shown as a main lever**, and the TRAIN button | click TRAIN (`ack`) |
 | **training** | §4 | `submitTraining(st, result)` |
@@ -988,7 +1131,7 @@ The v2 "CATCH" figure (coverage × accuracy, the source of the 4%) is deleted.
 
 **Start state.**
 - $3100 (v4; it was $2500).
-- Both lanes start empty (v4: no default Kill Switch). Step 4's Big Boss line says the Kill Switch is yours to buy.
+- Both lanes start empty (v4: no default Kill Switch). Step 4's Big Boss line offers the overflow's answers (v5; reworded in #22, since desks alone don't carry it): "Desk full? A Kill Switch like my red button (customers hate it), or more desks with Defer behind them."
 - Probe, TM, Auditor and Kill Switch are unlocked.
 - G1 m is *not* pinned: the difficulty ranges are narrow now.
 
@@ -1004,13 +1147,13 @@ G1 opens on the card and chat. The tutorial lives in `ui/tutorial.js` (owned by 
 | 6 | places a Trusted Monitor ($500) | 4–6: honest and attack lines mixed | different kinds make an ensemble |
 | 7 | opens R&D and places a Probe there ($200) | a scripted glitch on R&D | INTERNAL lanes, the debt meter |
 | 8 | drags the Safety handle | | the split, the research rate |
-| 9 | picks a research card (a forced offer at 60 s, with the Classifier in Monitoring) | | research |
+| 9 | picks a research card (a forced offer at 60 s, with the Classifier in Monitoring; since v5 Control may show Defer) | | research |
 | 10 | | "Warm-up's over. Good luck." Speed returns to 1× | |
 
 **The rail after the tutorial.**
 - Consumer: Probe, TM, Auditor L1, and the Classifier once picked. The desk's overflow ships.
 - R&D: Probe. Its flags ship.
-- That is $1700 of the $3100 spent, which leaves enough for a Kill Switch on each lane ($300 each) if the player wants them. This rail, with no further play, is the `afkTutorial` policy: with no Kill Switch on it, it dies by G2 in every Medium and Hard run (v4; it was 92% and 97% with the free one).
+- That is $1700 of the $3100 spent, which leaves enough for a Kill Switch on each lane ($300 each), or a second desk on Consumer (Auditor L2, $300 while only Consumer has a desk; R&D's own desk is $800 and arrives at the lab's level), and Defer comes free with its research card (v5; a second copy is $800 since #22). This rail, with no further play, is the `afkTutorial` policy: with no Kill Switch on it, it dies by G2 in every Medium and Hard run (v4; it was 92% and 97% with the free one).
 
 **Skipping.** The tutorial is skippable at any step; it is skipped automatically once `tutorialDone` is set. A skip places nothing.
 
@@ -1307,10 +1450,15 @@ The build lists live in `game/test/policies.mjs`, which balance-v3.mjs and headl
 
 Each is a real fork where your taste matters. The build uses the **default** if you say nothing.
 
-1. ✅ **Kill Switch. Decided (Avi, v4): no default Kill Switch.**
+1. ✅ **Kill Switch. Decided (Avi, v4): no default Kill Switch. Decided (Avi, v5): viable, so a lab can win without ever buying one.**
    - **Now:** no rail holds one for free, and a contract lane's kit is a Probe and a TM. The Kill Switch is in the starting hand at $300: a blunt, costly last resort below the desks. L1 is 1 operator × 4 s (15 per minute), with a $10 fee and −1.3 rep per refusal on Consumer (−0.05 Enterprise, −0.15 Government). A flag that no responder takes ships unreviewed (§2.9 #20).
-   - It breaks even at 14.2% precision on Consumer (2.5% Enterprise, 3.3% Government). Review still matters: with no auditors, human Medium falls from 36% to 18%; with no Defer, to 17%.
-   - **The open part:** it is optional to place, not optional to win. With no Kill Switch, human Medium wins 2%, and desks bought instead win 3–6%. If a no-Kill-Switch style should be viable, something else has to take G1's overflow: cheaper desks, Defer in G1, or a gentler G1.
+   - It breaks even at 14.2% precision on Consumer (2.5% Enterprise, 3.3% Government). Review still matters: with no auditors, human Medium falls from 39% to 31%; with no Defer, to 16% (v5, after #22).
+   - ✅ **Decided (Avi, v5): viable.** Avi chose "Make it viable" (§2.9 #21, and its review, #22).
+     - **The change.** Desks review faster from L3 (× 0.65, L4 × 0.5) and slower from G4 (× 1.2 rising to × 1.65). The Defer card is offered from G1, at 3 s per line. Medium and Hard m rose to put human back in its bands. After the review, a second copy of Defer costs $800 (was $500); the card's copy stays free.
+     - **The result.** A player who never buys a Kill Switch wins on Medium 26% on desks (with Defer behind them from G2), 35% on Defer and 38% on both, against human's 39%. On Easy: 54 / 55 / 61% against 66%. On Hard: 12 / 13 / 18% against 16%. Desks with no Defer at all win 2% on Medium.
+     - **Step 4.** Big Boss names the answers that work: "Desk full? A Kill Switch like my red button (customers hate it), or more desks with Defer behind them."
+     - **The Kill Switch still pays.** human beats desks and Defer on Medium and ties the hybrid, which takes Defer sooner. With Defer matched, the Kill Switch is worth 14 points: humanDefer 52% against the hybrid's 38%. No opening runs away: humanDefer is human + 13 (cap 15). Eight targets assert all this (§2.7).
+   - *Was (v4):* optional to place, not optional to win. With no Kill Switch, human Medium won 2%, and desks bought instead won 3–8%.
    - *Was (v3):* one came free at the bottom of both G1 rails and in every contract kit (#19 made it costly; before that, at −0.25 rep per refusal, it stood in for review).
    - *Or:* the Kill Switch becomes an early research card instead of part of the starting hand.
 2. 🚩 **Research shape.**

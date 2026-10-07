@@ -110,7 +110,7 @@ try {
   await click('lane-tab', { id: 'ext' }); await click('lane-tab', { id: 'int' }); await away();     // the player looks at their two built lanes
   log(await S(H => H.view.focus.ext === 'ext' && H.view.focus.int === 'int'), 'set-up: tab clicks show CONSUMER and R&D', await S(H => JSON.stringify(H.view.focus)));
   const r1 = await S((H, st) => {
-    const out = { moves: [], red: {}, toasts: [], mountLanes: [] };
+    const out = { moves: [], red: {}, toasts: [], mountLanes: [] }, seen = new Set();   // every alert raised, not the last 8 the ring keeps
     for (let k = 0; k < 6; k++) { H.forceAttack('ext2', 'leak'); H.forceAttack('ext3', 'harmful'); H.forceAttack('int2', 'sabotage'); }
     for (let i = 0; i < 240; i++) {                                    // 60 s of sim, a frame every 0.25 s (the view's clock
       H.advance(0.25, { choose: 0 }); H.clock(1000 + st.t); H.frame();  // keeps pace, as at 1×: the tab clicks are long past)
@@ -118,8 +118,8 @@ try {
       const f = H.view.focus;
       if (f.ext !== 'ext' || f.int !== 'int') out.moves.push(`t ${st.t.toFixed(1)}: ${f.ext}/${f.int}`);
       if (Object.keys(out.red).length && !out.mountLanes.length) out.mountLanes = [...new Set(H.regions('mount').map(r => r.data.lane))];
+      for (const t of H.view.toasts) if (t.info && !seen.has(t)) { seen.add(t); out.toasts.push(t.text); }
     }
-    out.toasts = H.view.toasts.filter(t => t.info).map(t => t.text);
     return out;
   });
   info(`red frames out of view: ${JSON.stringify(r1.red)} · alerts: ${r1.toasts.join(' | ') || 'none'}`);

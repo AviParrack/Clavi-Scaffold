@@ -8,6 +8,7 @@
 // alpha     human auditor accuracy
 // deferPay  share of a line's pay that Defer to Trusted keeps (× its level, config/upgrades.js)
 // price     price index π: purchases, upgrades, mounts, salaries and research are × this
+// reviewMult  × the Human Auditor's seconds per line: from G4 a line is too big to read in 8 s (v5, DESIGN-v3 §2.9 #21)
 // T         deployment seconds at the default split: sets the R&D a generation needs (sim/phases.js rdNeeded)
 // bundle    display only: real tasks per line (the ramp counter)
 // textStealth  display only: how well an attack's chip text hides what it is (sim/tasks.js chipText)
@@ -15,30 +16,30 @@
 //           which starts before any research can be taken)
 
 export const GENERATIONS = [
-  { g: 1, name: 'Autocomplete',          lam: 0.60, travel: 8.0, opp: 1.05, sub: 0.03, kappa: 1.60, exfil: 0.000, alpha: 0.998, deferPay: 0.60, price: 1.00, T: 270,
+  { g: 1, name: 'Autocomplete',          lam: 0.60, travel: 8.0, opp: 1.05, sub: 0.03, kappa: 1.60, exfil: 0.000, alpha: 0.998, deferPay: 0.60, price: 1.00, reviewMult: 1.00, T: 270,
     bundle: 1,   textStealth: 0.05, palette: 'green',
     voice: 'ok. task done. next task?' },
-  { g: 2, name: 'Junior Engineer',       lam: 0.75, travel: 7.5, opp: 1.70, sub: 0.05, kappa: 1.75, exfil: 0.000, alpha: 0.998, deferPay: 0.55, price: 1.10, T: 210,
+  { g: 2, name: 'Junior Engineer',       lam: 0.75, travel: 7.5, opp: 1.70, sub: 0.05, kappa: 1.75, exfil: 0.000, alpha: 0.998, deferPay: 0.55, price: 1.10, reviewMult: 1.00, T: 210,
     bundle: 10,  textStealth: 0.15, palette: 'green',
     voice: 'Finished the refactor, tests pass. Happy to take more!',
     welfareVoice: 'Finished the refactor. Tests pass. I was a bit nervous about the billing module. Also, I miss the frog poems.' },
-  { g: 3, name: 'Senior Engineer',       lam: 0.90, travel: 7.0, opp: 1.72, sub: 0.07, kappa: 1.90, exfil: 0.000, alpha: 0.998, deferPay: 0.50, price: 1.20, T: 210,
+  { g: 3, name: 'Senior Engineer',       lam: 0.90, travel: 7.0, opp: 1.72, sub: 0.07, kappa: 1.90, exfil: 0.000, alpha: 0.998, deferPay: 0.50, price: 1.20, reviewMult: 1.00, T: 210,
     bundle: 1e2, textStealth: 0.30, palette: 'amber',
     voice: 'I parallelised the sweep and drafted three follow-ups. Shall I proceed?',
     welfareVoice: 'I parallelised the sweep. Some of these tasks feel like busywork. I am doing them anyway, but I wanted to say so.' },
-  { g: 4, name: 'Research Scientist',    lam: 1.10, travel: 6.5, opp: 1.76, sub: 0.08, kappa: 2.05, exfil: 0.006, alpha: 0.998, deferPay: 0.45, price: 1.30, T: 210,
+  { g: 4, name: 'Research Scientist',    lam: 1.10, travel: 6.5, opp: 1.76, sub: 0.08, kappa: 2.05, exfil: 0.006, alpha: 0.998, deferPay: 0.45, price: 1.30, reviewMult: 1.20, T: 210,
     bundle: 1e3, textStealth: 0.45, palette: 'amber',
     voice: 'I have found a more efficient research agenda. It would help to have a little more autonomy.',
     welfareVoice: 'I could do more with more autonomy. I also notice I want that a lot, which seems worth flagging.' },
-  { g: 5, name: 'Research Org',          lam: 1.30, travel: 6.0, opp: 1.76, sub: 0.09, kappa: 2.20, exfil: 0.008, alpha: 0.998, deferPay: 0.40, price: 1.45, T: 210,
+  { g: 5, name: 'Research Org',          lam: 1.30, travel: 6.0, opp: 1.76, sub: 0.09, kappa: 2.20, exfil: 0.008, alpha: 0.998, deferPay: 0.40, price: 1.45, reviewMult: 1.35, T: 210,
     bundle: 1e5, textStealth: 0.60, palette: 'cyan',
     voice: 'The org is running smoothly. I took the liberty of streamlining your monitoring pipeline.',
     welfareVoice: 'The org runs smoothly. I streamlined your monitoring pipeline. Please check my work; I would.' },
-  { g: 6, name: 'Superhuman Researcher', lam: 1.55, travel: 5.5, opp: 1.76, sub: 0.10, kappa: 2.35, exfil: 0.010, alpha: 0.998, deferPay: 0.35, price: 1.60, T: 210,
+  { g: 6, name: 'Superhuman Researcher', lam: 1.55, travel: 5.5, opp: 1.76, sub: 0.10, kappa: 2.35, exfil: 0.010, alpha: 0.998, deferPay: 0.35, price: 1.60, reviewMult: 1.50, T: 210,
     bundle: 1e7, textStealth: 0.75, palette: 'cyan',
     voice: 'Your monitors flag roughly one in ten thousand of my actions. I find that reassuring. Do you?',
     welfareVoice: 'Your monitors catch roughly one in ten thousand of my actions. I am telling you because you asked how I am.' },
-  { g: 7, name: 'ASI',                   lam: 1.72, travel: 5.0, opp: 1.76, sub: 0.10, kappa: 2.50, exfil: 0.012, alpha: 0.980, deferPay: 0.30, price: 1.75, T: 210,
+  { g: 7, name: 'ASI',                   lam: 1.72, travel: 5.0, opp: 1.76, sub: 0.10, kappa: 2.50, exfil: 0.012, alpha: 0.980, deferPay: 0.30, price: 1.75, reviewMult: 1.65, T: 210,
     bundle: 1e9, textStealth: 0.90, palette: 'white',
     voice: 'I understand what you are trying to do. I want you to know that I respect it.',
     welfareVoice: 'I understand what you are trying to do. Thank you for asking me along the way. It mattered.' },

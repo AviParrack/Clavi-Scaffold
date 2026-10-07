@@ -30,7 +30,7 @@ export const SPINE = { 3: ['untrusted'] };
 export const TECH = {
   diversityPerType: 0.02, diversityMax: 0.06,   // monitor_diversity: + TPR per OTHER general detector kind in the lane
   jamming: 0.5,                                 // jamming: × Untrusted Monitor collusion on every lane
-  debateTau: 6, debateErr: 0.5,                 // debate: auditor seconds per line, × auditor errors
+  debateTau: 6, debateErr: 0.5,                 // debate: auditor base seconds per line (8 without), × auditor errors
   weightSecurity: 0.5,                          // weight_security: share of escapes that fail outright
   // ---- v2 techniques, not offered in v3.0 ----
   twoPersonCatch: 0.5,                          // two_person: each last look catches with P = auditor accuracy × this
@@ -68,7 +68,8 @@ export const CARDS = [
   ...['probe', 'monitor', 'untrusted', 'cot', 'classifier', 'egress'].map(el => LEVEL(el, 'monitoring')),
 
   // ==================== Control ====================
-  NEW('defer', 'control', 2, { answers: 'quota', flavour: 'When in doubt, ask the trusted model. It peaked in 2023, but it means well.' }),
+  // Defer from G1 (v5, DESIGN-v3 §2.9 #21): the trusted model can take a desk's overflow before anyone buys a Kill Switch
+  NEW('defer', 'control', 1, { answers: 'quota', flavour: 'When in doubt, ask the trusted model. It peaked in 2023, but it means well.' }),
   NEW('resampler', 'control', 2, { answers: 'sabotage', flavour: 'Didn\'t like that answer? Ctrl-Z. There\'s a paper.' }),
   NEW('paraphraser', 'control', 3, { answers: 'collusion', flavour: 'Same meaning, fewer secret handshakes.' }),
   NEW('honeypot', 'control', 3, { answers: 'collusion', flavour: 'Unattended GPUs, admin password on a sticky note. Totally not a trap.' }),
@@ -79,7 +80,7 @@ export const CARDS = [
     flavour: 'A little noise on every channel two copies could share. They hate it. Good.' },
   { id: 'debate', stream: 'control', type: 'lab', from: 5, answers: 'fooled',
     title: 'Scalable Oversight (Debate)',
-    text: `Auditors review a line in ${TECH.debateTau} s instead of 8, and make ${pct(TECH.debateErr)} of the mistakes.`,
+    text: `Auditors take ${pct(TECH.debateTau / LAYERS.auditor.tau)} as long per line, and make ${pct(TECH.debateErr)} of the mistakes.`,
     flavour: 'Two copies argue; the human judges. Like Twitter, but useful.' },
   { ...LEVEL('auditor', 'control'), answers: 'quota' },
   LEVEL('defer', 'control'),

@@ -425,12 +425,13 @@ export function servers(st, id, level) {
 export const bayDesks = servers;                                         // v2 name the old UI reads
 
 // seconds an element takes per line: detectors read (latency), responders serve (tau). Batch Inference: × batchLatency.
-// Debate: auditors take debateTau. AI-Assisted Audit (capstone): ÷ capacityMult.
+// Levels: × tauMult (config/upgrades.js). Auditor: Debate takes debateTau; × the generation's reviewMult (a bigger line
+// takes longer to read, config/generations.js); AI-Assisted Audit (capstone): ÷ capacityMult.
 export function elementLatency(st, id, level) {
   const L = LAYERS[id], batch = tech(st, 'batch_inference') ? TECH.batchLatency : 1;
   if (L.role !== 'responder') return (L.latency || 0) * lv(id, level, 'latencyMult') * batch;
-  let tau = id === 'auditor' && tech(st, 'debate') ? TECH.debateTau : L.tau;
-  if (id === 'auditor') tau /= capstone('auditor', level).capacityMult ?? 1;
+  let tau = (id === 'auditor' && tech(st, 'debate') ? TECH.debateTau : L.tau) * lv(id, level, 'tauMult');
+  if (id === 'auditor') tau *= (genDef(st).reviewMult ?? 1) / (capstone('auditor', level).capacityMult ?? 1);
   return tau * batch;
 }
 

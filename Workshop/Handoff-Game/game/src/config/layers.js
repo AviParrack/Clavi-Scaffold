@@ -76,16 +76,17 @@ export const LAYERS = {
   auditor: {
     name: 'Human Auditor', tag: 'AUD', role: 'responder', lanes: BOTH, bestIn: 'both',
     unlockedAtStart: true, unlockHint: null, good: [...MODEL_ATTACKS, 'jailbreak'],
-    buy: 800, cost: 0, tau: 8, salary: 1.5,    // salary: $ per desk per second (× π)
+    buy: 800, cost: 0, tau: 8, salary: 1.5,    // salary: $ per desk per second (× π) · tau: × tauMult (levels) × reviewMult (generation)
     fpr: 0.01,                                 // share of honest lines a human wrongly blocks
     spotCheck: 0.8,                            // an idle desk takes a passing unflagged line with this chance; a flag bumps it
     bay: true, onFull: 'wave',
-    desc: 'Desks review flags first (8 s each) and spot-check unflagged lines when idle. A flag that finds every desk busy rolls on.',
+    desc: 'Desks review flags first (8 s each: faster from L3, slower from G4) and spot-check unflagged lines when idle. A flag that finds every desk busy rolls on.',
   },
   defer: {
     name: 'Defer to Trusted', tag: 'DEF', role: 'responder', lanes: BOTH, bestIn: 'ext',
     unlockedAtStart: false, unlockHint: 'Research: Control', good: ['harmful', 'leak', 'jailbreak'],
-    buy: 500, cost: 0, tau: 2,
+    buy: 800, cost: 0, tau: 3,                 // v5: 2 → 3 s, since it is researchable from G1 (DESIGN-v3 §2.9 #21) · buy
+                                               // 500 → 800, a desk's price: the card's copy is free, a second copy and its levels are not (#22)
     bay: true, onFull: 'wave',
     desc: 'The weak trusted model redoes a flagged line, at zero risk. It pays the generation\'s Defer share; half the regen and R&D.',
   },

@@ -41,7 +41,7 @@ export const TUTORIAL_STEPS = [
 
   { step: 4, id: 'auditor', teaches: 'responders, desks, evidence', do: 'Place an Auditor below the Probe ({price})',
     say: [['audit', 'A flag needs a responder. Put a Human Auditor below the Probe: slow, pricey, almost never wrong.'],
-          ['ceo', 'My red button? Buy your own. A Kill Switch refuses what the desk can\'t take. Customers hate it.']],
+          ['ceo', 'Desk full? A Kill Switch like my red button (customers hate it), or more desks with Defer behind them.']],
     after: [['audit', 'CAUGHT. That one meant it. A confirmed catch is evidence, and evidence fills the dossier.'],
             ['audit', 'One desk, one line at a time. A flag nobody has room for ships anyway. Watch the overflow.']] },
 
@@ -283,7 +283,7 @@ export const CARD_BLURBS = {
                  quip: 'Grandma\'s napalm bedtime story is a known pattern now. Sorry, grandma.' },
   egress:      { what: 'Flags exfiltration on R&D lanes. Only exfiltration.',
                  quip: 'We count every byte that leaves the building. Most are memes.' },
-  auditor:     { what: 'Humans review flags first, then spot-check with spare time.',
+  auditor:     { what: 'Humans review flags, spot-check when idle. Faster from L3.',
                  quip: 'Slow, expensive, nearly infallible. Bring snacks.' },
   defer:       { what: 'The trusted model redoes a flagged line. Safe; pays less.',
                  quip: 'It peaked in 2023, but it means well.' },

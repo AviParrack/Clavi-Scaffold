@@ -2,7 +2,7 @@
 // Levels are LAB-WIDE, per element (DESIGN-v3 §2.2): one purchase upgrades every copy on every lane.
 // The price of the next level is in BALANCE.upgradeSteps (× buy/400 × π × the lanes the element sits on, sim/rules.js).
 // Every array is one value per level, L1..L5, applied to the base in config/layers.js:
-//   *Mult multiplies the base, *Plus adds to it. servers: a responder's desks / operators at that level.
+//   *Mult multiplies the base, *Plus adds to it. servers: a responder's desks / operators at that level. tauMult: × its tau.
 // Missing arrays mean "no change". L5 keeps the L4 numbers and adds the capstone flag.
 // Capstone flags are read in sim/rules.js (elementStats and helpers).
 
@@ -43,6 +43,7 @@ export const UPGRADES = {
   // ==================== responders ====================
   auditor: {
     servers: [1, 2, 3, 4, 4],
+    tauMult: [1, 1, 0.65, 0.5, 0.5],           // v5: from L3 a review floor reads faster, so desks can carry the overflow (DESIGN-v3 §2.9 #21)
     capstone: { name: 'AI-Assisted Audit', capacityMult: 10, honestyCap: 0.95,      // accuracy = min(honestyCap, 1 − m)
       text: 'An assistant model reads alongside each human: 10× the reviews per desk. Accuracy is now capped by its honesty (1 − m, max 95%).' },
   },
